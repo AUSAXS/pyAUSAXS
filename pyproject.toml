@@ -1,0 +1,24 @@
+[project]
+name = "pyausaxs"
+version = "1.0"
+description = "Python wrapper for AUSAXS native library"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+        "py-cpuinfo >= 8.0.0",
+        "numpy >= 1.20.0",
+]
+
+[tool.poetry]
+packages = [
+    { include = "pyausaxs" }
+]
+include = [
+    "pyausaxs/resources/libausaxs.so",
+    "pyausaxs/resources/libausaxs.dylib",
+    "pyausaxs/resources/libausaxs.dll",
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

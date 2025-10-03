@@ -2,7 +2,9 @@ import multiprocessing
 import logging
 import ctypes as ct
 from enum import Enum
-from architecture import get_shared_lib_extension, CPUFeatures
+
+from pyausaxs.loader import find_lib_path
+from pyausaxs.architecture import CPUFeatures
 
 class AUSAXSLIB: 
     class STATE(Enum):
@@ -13,7 +15,8 @@ class AUSAXSLIB:
     def __init__(self):
         self.functions = None
         self.state = self.STATE.UNINITIALIZED
-        self.lib_path = "resources/ausaxs" + get_shared_lib_extension()
+        # prefer library bundled inside package resources; fall back to top-level resources/
+        self.lib_path = find_lib_path()
 
         self._check_cpu_compatibility()
         self._attach_hooks()
@@ -99,13 +102,13 @@ class AUSAXSLIB:
             ]
             self.functions.iterative_fit_step.restype = None # returns void
 
-            # iterative_fit_end
-            self.functions.iterative_fit_end.argtypes = [
+            # iterative_fit_finish
+            self.functions.iterative_fit_finish.argtypes = [
                 ct.POINTER(ct.c_double), # parameters vector
                 ct.POINTER(ct.c_double), # return I vector for return value
                 ct.c_int,                # return status (0 = success)
             ]
-            self.functions.iterative_fit_end.restype = None # returns void
+            self.functions.iterative_fit_finish.restype = None # returns void
 
             self.state = self.STATE.READY
 

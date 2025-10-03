@@ -1,4 +1,4 @@
-from integration import AUSAXSLIB
+from pyausaxs.integration import AUSAXSLIB
 from typing import Union
 import ctypes as ct
 import numpy as np
@@ -9,7 +9,7 @@ class ausaxs:
     """
     def __init__(self):
         self.lib = AUSAXSLIB()
-        if not self.lib.is_ready():
+        if not self.lib.ready():
             raise RuntimeError("AUSAXS library initialization failed.")
 
     def debye(
@@ -25,6 +25,13 @@ class ausaxs:
         *atom_z* is the z coordinates of the atoms.
         *weights* is the scattering weight of each atom.
         """
+
+        # sanity checks
+        assert isinstance(q_vector, (list, np.ndarray)), "q_vector must be a list or numpy array."
+        assert isinstance(atom_x, (list, np.ndarray)), "atom_x must be a list or numpy array."
+        assert isinstance(atom_y, (list, np.ndarray)), "atom_y must be a list or numpy array."
+        assert isinstance(atom_z, (list, np.ndarray)), "atom_z must be a list or numpy array."
+        assert isinstance(weights, (list, np.ndarray)), "weights must be a list or numpy array."
 
         # ensure inputs are numpy arrays and contiguous in memory
         if isinstance(q_vector, list):     q_vector = np.array(q_vector, dtype=np.float64)
@@ -43,9 +50,9 @@ class ausaxs:
         elif weights.dtype != np.float64:  weights = weights.astype(np.float64)
 
         # prepare ctypes args
-        Iq = (ct.c_double * len(q))()
-        nq = ct.c_int(len(q))
-        nc = ct.c_int(len(w))
+        Iq = (ct.c_double * len(q_vector))()
+        nq = ct.c_int(len(q_vector))
+        nc = ct.c_int(len(weights))
         q = q_vector.ctypes.data_as(ct.POINTER(ct.c_double))
         x = atom_x.ctypes.data_as(ct.POINTER(ct.c_double))
         y = atom_y.ctypes.data_as(ct.POINTER(ct.c_double))
@@ -55,5 +62,7 @@ class ausaxs:
         self.lib.functions.evaluate_sans_debye(q, x, y, z, w, nq, nc, Iq, ct.byref(status))
 
         if (status.value == 0):
-            return np.array(Iq)
+            # convert ctypes array to numpy array
+            arr = np.ctypeslib.as_array(Iq)
+            return arr.copy()
         raise RuntimeError(f"AUSAXS: \"debye\" terminated unexpectedly (error code \"{status.value}\").")
