@@ -75,6 +75,12 @@ jobs:
 
             echo "Final wheel: $final_wheel ($(du -h "$final_wheel" | cut -f1))"
           done
+      
+      - name: Validate wheel
+        shell: bash
+        run: |
+          pip install twine
+          twine check dist/*.whl
 
       - uses: actions/upload-artifact@v4
         with:
