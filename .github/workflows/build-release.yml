@@ -17,7 +17,7 @@ jobs:
             library: "libausaxs.dylib"
 
           - os: windows-latest
-            platform: win_x86_64
+            platform: win_amd64
             library: "libausaxs.dll"
 
     runs-on: ${{ matrix.os }}
