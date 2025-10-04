@@ -1,2 +1,5 @@
 """pyausaxs package init"""
-__all__ = ["integration", "wrapper", "architecture"]
+
+from .wrapper import ausaxs
+
+__all__ = ["ausaxs"]
