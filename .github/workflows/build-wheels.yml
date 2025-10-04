@@ -1,12 +1,8 @@
 name: Build and test wheels
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
     branches: [ main ]
-  release:
-    types: [published]
 
 jobs:
   build:
@@ -17,13 +13,13 @@ jobs:
             platform: linux_x86_64
             library: "libausaxs.so"
 
-          # - os: macos-latest  
-          #   platform: macosx_11_0_x86_64
-          #   library: "libausaxs.dylib"
+          - os: macos-latest  
+            platform: macosx_11_0_x86_64
+            library: "libausaxs.dylib"
 
-          # - os: windows-latest
-          #   platform: win_x86_64
-          #   library: "libausaxs.dll"
+          - os: windows-latest
+            platform: win_x86_64
+            library: "libausaxs.dll"
 
     runs-on: ${{ matrix.os }}
 

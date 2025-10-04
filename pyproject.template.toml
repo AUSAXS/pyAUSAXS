@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pyausaxs"
 version = "1.0.0"
-description = "Python wrapper for AUSAXS native library"
+description = "Python wrapper for [AUSAXS library](https://github.com/AUSAXS/AUSAXS)."
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
