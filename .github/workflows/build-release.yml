@@ -1,12 +1,7 @@
 name: Build platform-specific wheels
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  release:
-    types: [published]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -97,3 +92,19 @@ jobs:
         with:
           name: wheel-${{ matrix.platform }}
           path: dist/*.whl
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          merge-multiple: true
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
