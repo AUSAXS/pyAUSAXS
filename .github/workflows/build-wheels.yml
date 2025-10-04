@@ -83,12 +83,7 @@ jobs:
               mv "$wheel" "$platform_wheel"
               echo "Applied platform tag: $wheel -> $platform_wheel"
             fi
-            
-            if [ "$platform_wheel" != "$final_wheel" ]; then
-              mv "$platform_wheel" "$final_wheel"  
-              echo "Added project prefix: $platform_wheel -> $final_wheel"
-            fi
-            
+
             echo "Final wheel: $final_wheel ($(du -h "$final_wheel" | cut -f1))"
           done
 
