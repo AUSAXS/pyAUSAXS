@@ -1,4 +1,4 @@
-name: Build platform-specific wheels
+name: Build and test wheels
 
 on:
   push:
