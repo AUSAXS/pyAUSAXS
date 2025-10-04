@@ -80,6 +80,8 @@ jobs:
       - name: Test wheel installation
         shell: bash
         run: |
+          pip install twine
+          twine check dist/*.whl
           rm -rf pyausaxs
           python -m pip install dist/*.whl
           python test/test.py
