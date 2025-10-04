@@ -1,1 +1,1 @@
-Python wrapper for the AUSAXS library. 
+Python wrapper for the [AUSAXS](https://github.com/AUSAXS/AUSAXS) library.

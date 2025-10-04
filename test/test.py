@@ -1,8 +1,7 @@
 import sys
 import math
 import numpy as np
-from pyausaxs.wrapper import ausaxs
-
+from pyausaxs import ausaxs
 
 def test_cube_debye_ci():
     q = np.linspace(0.0, 1.0, 100)
