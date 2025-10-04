@@ -69,18 +69,27 @@ jobs:
           rm -rf build/ dist/ *.egg-info/
           python -m build --wheel
 
-      - name: Apply platform tag
+      - name: Apply platform tag and add project name
         shell: bash
         run: |
           cd dist
           for wheel in *.whl; do
             # Replace the generic tag with platform-specific tag
-            new_wheel=$(echo "$wheel" | sed 's/-py3-none-any/-py3-none-${{ matrix.platform }}/')
-            if [ "$wheel" != "$new_wheel" ]; then
-              mv "$wheel" "$new_wheel"
-              echo "Renamed: $wheel -> $new_wheel"
+            platform_wheel=$(echo "$wheel" | sed 's/-py3-none-any/-py3-none-${{ matrix.platform }}/')
+            # Add project name prefix for clarity
+            final_wheel=$(echo "$platform_wheel" | sed 's/^/pyausaxs-wheel-/')
+            
+            if [ "$wheel" != "$platform_wheel" ]; then
+              mv "$wheel" "$platform_wheel"
+              echo "Applied platform tag: $wheel -> $platform_wheel"
             fi
-            echo "Final wheel: $new_wheel ($(du -h "$new_wheel" | cut -f1))"
+            
+            if [ "$platform_wheel" != "$final_wheel" ]; then
+              mv "$platform_wheel" "$final_wheel"  
+              echo "Added project prefix: $platform_wheel -> $final_wheel"
+            fi
+            
+            echo "Final wheel: $final_wheel ($(du -h "$final_wheel" | cut -f1))"
           done
 
       - name: Test wheel installation
