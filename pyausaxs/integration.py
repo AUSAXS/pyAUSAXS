@@ -1,5 +1,4 @@
 import multiprocessing
-import logging
 import ctypes as ct
 from enum import Enum
 
@@ -25,9 +24,8 @@ class AUSAXSLIB:
     def _check_cpu_compatibility(self):
         """Check if the current CPU is compatible with the AUSAXS library."""
         if not CPUFeatures.is_compatible_architecture():
-            logging.warning(f"AUSAXS: Incompatible CPU architecture: {CPUFeatures.get_architecture()}")
             self.state = self.STATE.FAILED
-            return False
+            raise RuntimeError(f"AUSAXS: Incompatible CPU architecture: {CPUFeatures.get_architecture()}")
         return True
 
     def _attach_hooks(self):
@@ -35,6 +33,7 @@ class AUSAXSLIB:
         if self.state == self.STATE.FAILED:
             return
 
+        # see the corresponding API at https://github.com/AUSAXS/AUSAXS/blob/master/include/core/api/sasview.h 
         self.state = self.STATE.READY
         try:
             self.functions = ct.CDLL(str(self.lib_path))
@@ -92,13 +91,13 @@ class AUSAXSLIB:
                 ct.c_int,                # n_pdb (number of atoms)
                 ct.POINTER(ct.c_int)     # return status (0 = success)
             ]
-            self.functions.fit_saxs.restype = None # returns void
+            self.functions.iterative_fit_start.restype = None # returns void
 
             # iterative_fit_step
             self.functions.iterative_fit_step.argtypes = [
                 ct.POINTER(ct.c_double), # parameters vector
                 ct.POINTER(ct.c_double), # return I vector for return value
-                ct.c_int,                # return status (0 = success)
+                ct.POINTER(ct.c_int),    # return status (0 = success)
             ]
             self.functions.iterative_fit_step.restype = None # returns void
 
@@ -106,15 +105,15 @@ class AUSAXSLIB:
             self.functions.iterative_fit_finish.argtypes = [
                 ct.POINTER(ct.c_double), # parameters vector
                 ct.POINTER(ct.c_double), # return I vector for return value
-                ct.c_int,                # return status (0 = success)
+                ct.POINTER(ct.c_int),    # return status (0 = success)
             ]
             self.functions.iterative_fit_finish.restype = None # returns void
 
             self.state = self.STATE.READY
 
         except Exception as e:
-            logging.warning(f"AUSAXS: Unexpected error during library integration: {e}")
             self.state = self.STATE.FAILED
+            raise RuntimeError(f"AUSAXS: Unexpected error during library integration: {e}")
 
     def _test_integration(self):
         """
@@ -138,8 +137,8 @@ class AUSAXSLIB:
                 raise Exception(f"AUSAXS: External invocation seems to have crashed (exit code \"{p.exitcode}\").")
 
         except Exception as e:
-            logging.warning(f"AUSAXS: Unexpected integration test failure: \"{e}\".")
             self.state = self.STATE.FAILED
+            raise RuntimeError(f"AUSAXS: Unexpected integration test failure: \"{e}\".")
 
     def ready(self):
         return self.state == self.STATE.READY
