@@ -11,17 +11,20 @@ jobs:
           - os: ubuntu-latest
             platform: manylinux2014_x86_64
             zip: ubuntu-22.04-binaries.zip
+            library_zip_name: libausaxs.so
             library: libausaxs.so
 
           - os: macos-latest  
             platform: macosx_11_0_universal2
             zip: macos-universal-binaries.zip
+            library_zip_name: libausaxs.dylib
             library: libausaxs.dylib
 
           - os: windows-latest
             platform: win_amd64
             zip: windows-binaries.zip
-            library: ausaxs.dll
+            library_zip_name: ausaxs.dll
+            library: libausaxs.dll
 
     runs-on: ${{ matrix.os }}
 
@@ -51,10 +54,10 @@ jobs:
           curl -L -o release.zip "$DOWNLOAD_URL"
           unzip -q release.zip
           mkdir -p pyausaxs/resources
-          LIBRARY_PATH=$(find . -name "${{ matrix.library }}" -type f | head -n 1)
+          LIBRARY_PATH=$(find . -name "${{ matrix.library_zip_name }}" -type f | head -n 1)
 
           if [ -z "$LIBRARY_PATH" ]; then
-            echo "Error: Could not find ${{ matrix.library }} in extracted files"
+            echo "Error: Could not find ${{ matrix.library_zip_name }} in extracted files"
             echo "Available library files:"
             find . -name "*.so" -o -name "*.dylib" -o -name "*.dll" | head -10
             echo "Directory structure:"
@@ -63,7 +66,7 @@ jobs:
           fi
 
           cp "$LIBRARY_PATH" "pyausaxs/resources/${{ matrix.library }}"
-          echo "Library copied: ${{ matrix.library }}"
+          echo "Library copied: ${{ matrix.library_zip_name }}"
           ls -la pyausaxs/resources/
 
       - name: Generate platform-specific pyproject.toml
