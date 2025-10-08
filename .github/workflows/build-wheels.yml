@@ -11,15 +11,21 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux_x86_64
-            library: "libausaxs.so"
+            zip: ubuntu-22.04-binaries.zip
+            library_zip_name: libausaxs.so
+            library: libausaxs.so
 
           - os: macos-latest  
             platform: macosx_11_0_universal2
-            library: "libausaxs.dylib"
+            zip: macos-universal-binaries.zip
+            library_zip_name: libausaxs.dylib
+            library: libausaxs.dylib
 
           - os: windows-latest
             platform: win_amd64
-            library: "libausaxs.dll"
+            zip: windows-binaries.zip
+            library_zip_name: ausaxs.dll
+            library: libausaxs.dll
 
     runs-on: ${{ matrix.os }}
 
@@ -30,12 +36,38 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Copy platform-specific library
+      - name: Download and extract platform-specific library
         shell: bash
-        run: |
+        run: | 
+          echo "Downloading ${{ matrix.zip }} for platform ${{ matrix.platform }}..."
+          DOWNLOAD_URL=$(curl -s https://api.github.com/repos/AUSAXS/AUSAXS/releases/latest | \
+                         grep "browser_download_url.*${{ matrix.zip }}" | \
+                         cut -d '"' -f 4)
+
+          if [ -z "$DOWNLOAD_URL" ]; then
+            echo "Error: Could not find download URL for ${{ matrix.zip }}"
+            echo "Available releases:"
+            curl -s https://api.github.com/repos/AUSAXS/AUSAXS/releases/latest | grep "browser_download_url" | cut -d '"' -f 4
+            exit 1
+          fi
+
+          echo "Download URL: $DOWNLOAD_URL"
+          curl -L -o release.zip "$DOWNLOAD_URL"
+          unzip -q release.zip
           mkdir -p pyausaxs/resources
-          cp "resources/${{ matrix.library }}" "pyausaxs/resources/"
-          echo "Library copied for ${{ matrix.platform }}:"
+          LIBRARY_PATH=$(find . -name "${{ matrix.library_zip_name }}" -type f | head -n 1)
+
+          if [ -z "$LIBRARY_PATH" ]; then
+            echo "Error: Could not find ${{ matrix.library_zip_name }} in extracted files"
+            echo "Available library files:"
+            find . -name "*.so" -o -name "*.dylib" -o -name "*.dll" | head -10
+            echo "Directory structure:"
+            find . -type d | head -10
+            exit 1
+          fi
+
+          cp "$LIBRARY_PATH" "pyausaxs/resources/${{ matrix.library }}"
+          echo "Library copied: ${{ matrix.library_zip_name }}"
           ls -la pyausaxs/resources/
 
       - name: Generate platform-specific pyproject.toml
@@ -48,9 +80,9 @@ jobs:
       - name: Verify library exists
         shell: bash
         run: |
-          if [ ! -f "resources/${{ matrix.library }}" ]; then
-            echo "Error: Source library resources/${{ matrix.library }} not found!"
-            ls -la resources/
+          if [ ! -f "pyausaxs/resources/${{ matrix.library }}" ]; then
+            echo "Error: Library not found at pyausaxs/resources/${{ matrix.library }}"
+            ls -la pyausaxs/resources/
             exit 1
           fi
 
