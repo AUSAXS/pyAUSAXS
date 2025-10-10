@@ -110,39 +110,6 @@ jobs:
           if [ ! -f "pyausaxs/resources/${{ matrix.library }}" ]; then
             echo "Error: Library not found at pyausaxs/resources/${{ matrix.library }}"
             ls -la pyausaxs/resources/
-       
-          echo "Download URL: $DOWNLOAD_URL"
-          curl -L -o release.zip "$DOWNLOAD_URL"
-          unzip -q release.zip
-          mkdir -p pyausaxs/resources
-          LIBRARY_PATH=$(find . -name "${{ matrix.library }}" -type f | head -n 1)
-          
-          if [ -z "$LIBRARY_PATH" ]; then
-            echo "Error: Could not find ${{ matrix.library }} in extracted files"
-            echo "Available library files:"
-            find . -name "*.so" -o -name "*.dylib" -o -name "*.dll" | head -10
-            echo "Directory structure:"
-            find . -type d | head -10
-            exit 1
-          fi
-          
-          cp "$LIBRARY_PATH" "pyausaxs/resources/${{ matrix.library }}"
-          echo "Library copied: ${{ matrix.library }}"
-          ls -la pyausaxs/resources/
-
-      - name: Generate platform-specific pyproject.toml
-        shell: bash
-        run: |
-          sed 's|LIBRARY_PLACEHOLDER|resources/${{ matrix.library }}|' pyproject.template.toml > pyproject.toml
-          echo "Generated pyproject.toml for ${{ matrix.platform }}:"
-          cat pyproject.toml
-
-      - name: Verify library exists
-        shell: bash
-        run: |
-          if [ ! -f "pyausaxs/resources/${{ matrix.library }}" ]; then
-            echo "Error: Library not found at pyausaxs/resources/${{ matrix.library }}"
-            ls -la pyausaxs/resources/
             exit 1
           fi
 
