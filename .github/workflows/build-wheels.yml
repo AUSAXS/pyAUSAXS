@@ -41,20 +41,46 @@ jobs:
         shell: bash
         run: | 
           echo "Downloading ${{ matrix.zip }} for platform ${{ matrix.platform }}..."
-          DOWNLOAD_URL=$(curl -s https://api.github.com/repos/AUSAXS/AUSAXS/releases/latest | \
-                         grep "browser_download_url.*${{ matrix.zip }}" | \
-                         cut -d '"' -f 4)
+          
+          # Try multiple methods to get the download URL
+          echo "Fetching release information..."
+          RELEASES_JSON=$(curl -s https://api.github.com/repos/AUSAXS/AUSAXS/releases/latest)
+          if [ $? -ne 0 ]; then
+            echo "Error: Failed to fetch release information from GitHub API"
+            exit 1
+          fi
+          
+          DOWNLOAD_URL=$(echo "$RELEASES_JSON" | grep "browser_download_url.*${{ matrix.zip }}" | cut -d '"' -f 4)
 
           if [ -z "$DOWNLOAD_URL" ]; then
             echo "Error: Could not find download URL for ${{ matrix.zip }}"
             echo "Available releases:"
-            curl -s https://api.github.com/repos/AUSAXS/AUSAXS/releases/latest | grep "browser_download_url" | cut -d '"' -f 4
+            echo "$RELEASES_JSON" | grep "browser_download_url" | cut -d '"' -f 4
             exit 1
           fi
 
           echo "Download URL: $DOWNLOAD_URL"
-          curl -L -o release.zip "$DOWNLOAD_URL"
-          unzip -q release.zip
+          
+          # Download with better error handling
+          if ! curl -L -f -o release.zip "$DOWNLOAD_URL"; then
+            echo "Error: Failed to download $DOWNLOAD_URL"
+            exit 1
+          fi
+          
+          # Verify download
+          if [ ! -f release.zip ] || [ ! -s release.zip ]; then
+            echo "Error: Downloaded file is missing or empty"
+            ls -la release.zip 2>/dev/null || echo "release.zip does not exist"
+            exit 1
+          fi
+          
+          echo "Downloaded $(du -h release.zip | cut -f1) successfully"
+          
+          # Extract with error handling
+          if ! unzip -q release.zip; then
+            echo "Error: Failed to extract release.zip"
+            exit 1
+          fi
           mkdir -p pyausaxs/resources
           LIBRARY_PATH=$(find . -name "${{ matrix.library_zip_name }}" -type f | head -n 1)
 
@@ -69,6 +95,39 @@ jobs:
 
           cp "$LIBRARY_PATH" "pyausaxs/resources/${{ matrix.library }}"
           echo "Library copied: ${{ matrix.library_zip_name }}"
+          ls -la pyausaxs/resources/
+
+      - name: Generate platform-specific pyproject.toml
+        shell: bash
+        run: |
+          sed 's|LIBRARY_PLACEHOLDER|resources/${{ matrix.library }}|' pyproject.template.toml > pyproject.toml
+          echo "Generated pyproject.toml for ${{ matrix.platform }}:"
+          cat pyproject.toml
+
+      - name: Verify library exists
+        shell: bash
+        run: |
+          if [ ! -f "pyausaxs/resources/${{ matrix.library }}" ]; then
+            echo "Error: Library not found at pyausaxs/resources/${{ matrix.library }}"
+            ls -la pyausaxs/resources/
+       
+          echo "Download URL: $DOWNLOAD_URL"
+          curl -L -o release.zip "$DOWNLOAD_URL"
+          unzip -q release.zip
+          mkdir -p pyausaxs/resources
+          LIBRARY_PATH=$(find . -name "${{ matrix.library }}" -type f | head -n 1)
+          
+          if [ -z "$LIBRARY_PATH" ]; then
+            echo "Error: Could not find ${{ matrix.library }} in extracted files"
+            echo "Available library files:"
+            find . -name "*.so" -o -name "*.dylib" -o -name "*.dll" | head -10
+            echo "Directory structure:"
+            find . -type d | head -10
+            exit 1
+          fi
+          
+          cp "$LIBRARY_PATH" "pyausaxs/resources/${{ matrix.library }}"
+          echo "Library copied: ${{ matrix.library }}"
           ls -la pyausaxs/resources/
 
       - name: Generate platform-specific pyproject.toml
@@ -100,14 +159,14 @@ jobs:
           for wheel in *.whl; do
             # Replace the generic tag with platform-specific tag
             platform_wheel=$(echo "$wheel" | sed 's/-py3-none-any/-py3-none-${{ matrix.platform }}/')
-            final_wheel=$(echo "$platform_wheel" | sed 's/^/pyausaxs-wheel-/')
             
             if [ "$wheel" != "$platform_wheel" ]; then
               mv "$wheel" "$platform_wheel"
               echo "Applied platform tag: $wheel -> $platform_wheel"
+              wheel="$platform_wheel"
             fi
 
-            echo "Final wheel: $final_wheel ($(du -h "$final_wheel" | cut -f1))"
+            echo "Final wheel: $wheel ($(du -h "$wheel" | cut -f1))"
           done
 
       - name: Test wheel installation
