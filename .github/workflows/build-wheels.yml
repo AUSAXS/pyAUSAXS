@@ -42,8 +42,9 @@ jobs:
         with:
           repository: AUSAXS/AUSAXS
           fileName: ${{ matrix.library_zip_name }}
-          extract: true
           token: ${{ secrets.GITHUB_TOKEN }}
+          latest: true
+          extract: true
       
       - name: Rename and move library to resource folder
         shell: bash
