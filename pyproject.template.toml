@@ -18,11 +18,10 @@ where = ["."]
 include = ["pyausaxs*"]
 
 [tool.setuptools.package-data]
-"pyausaxs" = ["LIBRARY_PLACEHOLDER", "hooks/hook-pyausaxs.py"]
+"pyausaxs" = ["LIBRARY_PLACEHOLDER"]
 
 [tool.setuptools]
 include-package-data = false
 
 [project.entry-points."pyinstaller40"]
-hook-dirs = "pyausaxs.__pyinstaller:get_hook_dirs"
-tests = "pyausaxs.__pyinstaller:get_PyInstaller_tests"
+hook-dirs = "pyausaxs.__pyinstaller.pyinstaller:get_hook_dirs"

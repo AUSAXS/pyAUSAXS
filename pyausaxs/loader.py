@@ -7,5 +7,4 @@ def find_lib_path():
     lib_file = pkg_resources.files("pyausaxs").joinpath("resources", "libausaxs" + ext)
     with pkg_resources.as_file(lib_file) as p:
         return str(p)
-    print ("AUSAXS: failed to load library from package resources")
-    exit(1)
+    raise FileNotFoundError(f"AUSAXS: could not find library at expected path: {lib_file}")
