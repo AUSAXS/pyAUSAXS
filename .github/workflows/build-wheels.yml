@@ -41,7 +41,7 @@ jobs:
         uses: robinraju/release-downloader@v1
         with:
           repository: AUSAXS/AUSAXS
-          fileName: ${{ matrix.library_zip_name }}
+          fileName: ${{ matrix.zip }}
           token: ${{ secrets.GITHUB_TOKEN }}
           latest: true
           extract: true
