@@ -7,6 +7,7 @@ on:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -37,23 +38,17 @@ jobs:
           python-version: '3.10'
 
       - name: Download and extract platform-specific library
+        uses: robinraju/release-downloader@v1
+        with:
+          repository: AUSAXS/AUSAXS
+          fileName: ${{ matrix.zip }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          latest: true
+          extract: true
+      
+      - name: Rename and move library to resource folder
         shell: bash
         run: | 
-          echo "Downloading ${{ matrix.zip }} for platform ${{ matrix.platform }}..."
-          DOWNLOAD_URL=$(curl -s https://api.github.com/repos/AUSAXS/AUSAXS/releases/latest | \
-                         grep "browser_download_url.*${{ matrix.zip }}" | \
-                         cut -d '"' -f 4)
-
-          if [ -z "$DOWNLOAD_URL" ]; then
-            echo "Error: Could not find download URL for ${{ matrix.zip }}"
-            echo "Available releases:"
-            curl -s https://api.github.com/repos/AUSAXS/AUSAXS/releases/latest | grep "browser_download_url" | cut -d '"' -f 4
-            exit 1
-          fi
-
-          echo "Download URL: $DOWNLOAD_URL"
-          curl -L -o release.zip "$DOWNLOAD_URL"
-          unzip -q release.zip
           mkdir -p pyausaxs/resources
           LIBRARY_PATH=$(find . -name "${{ matrix.library_zip_name }}" -type f | head -n 1)
 

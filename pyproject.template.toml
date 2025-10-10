@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyausaxs"
-version = "1.0.3"
+version = "1.0.4"
 description = "Python wrapper for [AUSAXS library](https://github.com/AUSAXS/AUSAXS)."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -22,3 +22,6 @@ include = ["pyausaxs*"]
 
 [tool.setuptools]
 include-package-data = false
+
+[project.entry-points."pyinstaller40"]
+hook-dirs = "pyausaxs.__pyinstaller.pyinstaller:get_hook_dirs"
