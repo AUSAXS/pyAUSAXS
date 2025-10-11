@@ -79,7 +79,7 @@ jobs:
       - name: Build platform-specific wheel
         shell: bash
         run: |
-          python -m pip install --upgrade pip build
+          python -m pip install --upgrade pip build packaging
           python -m build --wheel
 
       - name: Apply platform tag

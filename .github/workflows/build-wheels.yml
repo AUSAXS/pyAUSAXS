@@ -45,7 +45,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           latest: true
           extract: true
-      
+
       - name: Rename and move library to resource folder
         shell: bash
         run: | 
@@ -84,7 +84,7 @@ jobs:
       - name: Build platform-specific wheel
         shell: bash
         run: |
-          python -m pip install --upgrade pip build
+          python -m pip install --upgrade pip build packaging
           python -m build --wheel
 
       - name: Apply platform tag and add project name
