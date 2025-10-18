@@ -98,6 +98,49 @@ class AUSAXSLIB:
             ]
             self.functions.data_get_data.restype = ct.c_int # return obj id
 
+            # molecule_from_file
+            self.functions.molecule_from_file.argtypes = [
+                ct.c_char_p,            # filename
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.molecule_from_file.restype = ct.c_int # return obj id
+
+            # molecule_from_pdb_id
+            self.functions.molecule_from_pdb_id.argtypes = [
+                ct.c_int,               # pdb id
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.molecule_from_pdb_id.restype = ct.c_int # return obj id
+
+            # molecule_from_arrays
+            self.functions.molecule_from_arrays.argtypes = [
+                ct.POINTER(ct.c_double), # x vector
+                ct.POINTER(ct.c_double), # y vector
+                ct.POINTER(ct.c_double), # z vector
+                ct.POINTER(ct.c_double), # weight vector
+                ct.c_int,                # n_atoms
+                ct.POINTER(ct.c_int)     # status (0 = success)
+            ]
+            self.functions.molecule_from_arrays.restype = ct.c_int # return obj id
+
+            # molecule_get_data
+            self.functions.molecule_get_data.argtypes = [
+                ct.c_int,                            # molecule id
+                ct.POINTER(ct.POINTER(ct.c_double)), # ax_out (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # ay_out (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # az_out (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # aw_out (output)
+                ct.POINTER(ct.POINTER(ct.c_char_p)), # aform_factors_out (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # wx_out (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # wy_out (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # wz_out (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # ww_out (output)
+                ct.POINTER(ct.c_int),                # na (output)
+                ct.POINTER(ct.c_int),                # nw (output)
+                ct.POINTER(ct.c_int)                 # status (0 = success)
+            ]
+            self.functions.molecule_get_data.restype = ct.c_int # return obj id
+
             # evaluate_sans_debye
             self.functions.evaluate_sans_debye.argtypes = [
                 ct.POINTER(ct.c_double), # q vector

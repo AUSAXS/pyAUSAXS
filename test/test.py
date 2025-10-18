@@ -119,17 +119,91 @@ def test_reset_singleton():
     assert ready1 == ready2, "Ready state should be consistent across resets"
 
 def test_read_datafile():
+    # first two lines of 2epe.dat:
+    # 9.81300045E-03 6.67934353E-03 1.33646582E-03 1
+    # 1.06309997E-02 7.27293547E-03 1.01892441E-03 1
     data = ausaxs.read_data("test/2epe.dat")
-    assert len(data.q()) > 0, "Data q should be loaded"
-    assert len(data.I()) > 0, "Data I should be loaded"
-    assert len(data.Ierr()) > 0, "Data Ierr should be loaded"
+    q, I, Ierr = data.data()
+    assert math.isclose(q[0], 9.81300045E-03, abs_tol=1e-6),    "First q value mismatch"
+    assert math.isclose(I[0], 6.67934353E-03, abs_tol=1e-6),    "First I value mismatch"
+    assert math.isclose(Ierr[0], 1.33646582E-03, abs_tol=1e-6), "First Ierr value mismatch"
+    assert math.isclose(q[1], 1.06309997E-02, abs_tol=1e-6),    "Second q value mismatch"
+    assert math.isclose(I[1], 7.27293547E-03, abs_tol=1e-6),    "Second I value mismatch"
+    assert math.isclose(Ierr[1], 1.01892441E-03, abs_tol=1e-6), "Second Ierr value mismatch"
 
 def test_read_pdbfile():
-    data = ausaxs.read_pdb("test/2epe.pdb")
-    x, y, z = data.get_coordinates()
-    assert len(x) > 0, "Coordinates x should be loaded"
-    assert len(y) > 0, "Coordinates y should be loaded"
-    assert len(z) > 0, "Coordinates z should be loaded"
+    # first line of 2epe.pdb (ignoring header stuff):
+    # ATOM      1  N   LYS A   1      -3.462  69.119  -8.662  1.00 19.81           N  
+    pdb = ausaxs.read_pdb("test/2epe.pdb")
+    serial, name, altloc, resname, chain_id, resseq, icode, x, y, z, occupancy, tempFactor, element, charge = pdb.data()
+    assert serial[0] == 1,                                  "serial number mismatch"
+    assert name[0].strip() == "N",                          "atom name mismatch"
+    assert altloc[0].strip() == "",                         "altLoc mismatch"
+    assert resname[0].strip() == "LYS",                     "resName mismatch"
+    assert chain_id[0].strip() == "A",                      "chainID mismatch"
+    assert resseq[0] == 1,                                  "resSeq mismatch"
+    assert icode[0].strip() == "",                          "iCode mismatch"
+    assert math.isclose(x[0], -3.462, abs_tol=1e-6),        "x coordinate mismatch"
+    assert math.isclose(y[0], 69.119, abs_tol=1e-6),        "y coordinate mismatch" 
+    assert math.isclose(z[0], -8.662, abs_tol=1e-6),        "z coordinate mismatch"
+    assert math.isclose(occupancy[0], 1.00, abs_tol=1e-6),  "occupancy mismatch"
+    assert math.isclose(tempFactor[0], 19.81, abs_tol=1e-6),"tempFactor mismatch"
+    assert element[0].strip() == "N",                       "element mismatch"
+    assert charge[0].strip() == "",                         "charge mismatch"
+
+def test_read_ciffile():
+    # first data line of 6LYZ.cif:
+    # ATOM   1    N N   . LYS A 1 1   ? 3.287   10.092 10.329 1.00 5.89  ? 1   LYS A N   1 
+    pdb = ausaxs.read_pdb("test/6LYZ.cif")
+    serial, name, altloc, resname, chain_id, resseq, icode, x, y, z, occupancy, tempFactor, element, charge = pdb.data()
+    assert serial[0] == 1,                                  "serial number mismatch"
+    assert name[0].strip() == "N",                          "atom name mismatch"
+    assert altloc[0].strip() == ".",                        "altLoc mismatch"
+    assert resname[0].strip() == "LYS",                     "resName mismatch"
+    assert chain_id[0].strip() == "A",                      "chainID mismatch"
+    assert resseq[0] == 1,                                  "resSeq mismatch"
+    assert icode[0].strip() == "?",                         "iCode mismatch"
+    assert math.isclose(x[0], 3.287, abs_tol=1e-6),         "x coordinate mismatch"
+    assert math.isclose(y[0], 10.092, abs_tol=1e-6),        "y coordinate mismatch" 
+    assert math.isclose(z[0], 10.329, abs_tol=1e-6),        "z coordinate mismatch"
+    assert math.isclose(occupancy[0], 1.00, abs_tol=1e-6),  "occupancy mismatch"
+    assert math.isclose(tempFactor[0], 5.89, abs_tol=1e-6), "tempFactor mismatch"
+    assert element[0].strip() == "N",                       "element mismatch"
+    assert charge[0].strip() == "?",                        "charge mismatch"
+
+def test_molecule():
+    # first line of 2epe.pdb (ignoring header stuff):
+    # ATOM      1  N   LYS A   1      -3.462  69.119  -8.662  1.00 19.81           N  
+    mol1 = ausaxs.create_molecule("test/2epe.pdb")
+    x1, y1, z1, w1, ff1 = mol1.atoms()
+    assert math.isclose(x1[0], -3.462, abs_tol=1e-6),   "x coordinate mismatch"
+    assert math.isclose(y1[0], 69.119, abs_tol=1e-6),   "y coordinate mismatch" 
+    assert math.isclose(z1[0], -8.662, abs_tol=1e-6),   "z coordinate mismatch"
+    assert ff1[0].strip() == "NH",                      "form factor type mismatch"
+
+    # create molecule from PDBfile
+    pdb = ausaxs.read_pdb("test/2epe.pdb")
+    mol2 = ausaxs.create_molecule(pdb)
+    x2, y2, z2, w2, ff2 = mol2.atoms()
+    print(w2)
+    print(w1)
+    assert np.allclose(x2, x1, atol=1e-6),      "Molecule coordinates should match PDB reader"
+    assert np.allclose(y2, y1, atol=1e-6),      "Molecule coordinates should match PDB reader"
+    assert np.allclose(z2, z1, atol=1e-6),      "Molecule coordinates should match PDB reader"
+    assert np.allclose(w2, w1, atol=1e-6),      "Molecule weights should match PDB reader"
+    assert np.array_equal(ff2, ff1),            "Molecule form factor types should match PDB reader"
+
+    # create molecule from coordinates
+    x = np.array([0.0, 1.0, 0.0])
+    y = np.array([0.0, 0.0, 1.0])
+    z = np.array([0.0, 0.0, 0.0])
+    weights = np.array([1.0, 1.0, 1.0])
+    mol2 = ausaxs.create_molecule(x, y, z, weights)
+    x2, y2, z2, w2, ff2 = mol2.atoms()
+    assert np.allclose(x2, x, atol=1e-6),       "Molecule coordinates should match input"
+    assert np.allclose(y2, y, atol=1e-6),       "Molecule coordinates should match input"
+    assert np.allclose(z2, z, atol=1e-6),       "Molecule coordinates should match input"
+    assert np.allclose(w2, weights, atol=1e-6), "Molecule weights should match input"
 
 if __name__ == '__main__':
     import pyausaxs
@@ -140,6 +214,8 @@ if __name__ == '__main__':
     # test_reset_singleton()
     # test_fit()
     test_read_pdbfile()
+    test_read_ciffile()
     test_read_datafile()
+    test_molecule()
     print("All tests passed")
     sys.exit(0)

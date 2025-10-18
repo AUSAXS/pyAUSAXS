@@ -1,96 +1,191 @@
+from .AUSAXS import AUSAXS, _check_error_code
+from .PDBfile import PDBfile
+import ctypes as ct
+import numpy as np
+
 class Molecule:
-    def __init__(self, pdb_source):
-        if isinstance(pdb_source, PDBFile):
-            self.pdb_object_id = pdb_source.object_id
-            self._pdb_file = pdb_source
-        elif isinstance(pdb_source, int):
-            self.pdb_object_id = pdb_source
-            self._pdb_file = PDBFile.from_object_id(pdb_source)
-        elif isinstance(pdb_source, str):
-            self._pdb_file = PDBFile(pdb_source)
-            self.pdb_object_id = self._pdb_file.object_id
-        else:
-            raise TypeError("pdb_source must be PDBFile, object ID (int), or filename (str)")
+    def __init__(self, *args):
+        self._object_id: int = None
+        self._atom_data: dict[str, np.ndarray] = {}
+        self._water_data: dict[str, np.ndarray] = {}
+        self._create_molecule(*args)
 
-        # Create reduced representation for SAXS calculations
-        self._create_reduced_representation()
-
-    def _create_reduced_representation(self):
-        """Create reduced molecular representation with coordinates and form factors."""
-        # Get atomic data from PDB file
-        x, y, z = self._pdb_file.get_coordinates()
-        elements = self._pdb_file.get_elements()
-        occupancies = self._pdb_file.get_occupancies()
-
-        # TODO: Implement form factor calculation based on elements
-        # This would use AUSAXS form factor libraries
-
-        # For now, store basic information
-        self.coordinates = np.column_stack((x, y, z))
-        self.elements = elements
-        self.occupancies = occupancies if len(occupancies) > 0 else np.ones(len(x))
-
-        # Calculate effective weights (form factors * occupancy)
-        # This is a simplified version - real implementation would use proper form factors
-        self.weights = self.occupancies.copy()
-
-    def get_coordinates(self) -> np.ndarray:
-        """Get molecular coordinates as Nx3 numpy array."""
-        return self.coordinates.copy()
-
-    def get_atomic_coordinates(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Get coordinates as separate x, y, z arrays (compatible with AUSAXS functions)."""
-        return self.coordinates[:, 0], self.coordinates[:, 1], self.coordinates[:, 2]
-
-    def get_weights(self) -> np.ndarray:
-        """Get atomic weights/form factors."""
-        return self.weights.copy()
-
-    def get_atom_count(self) -> int:
-        """Get number of atoms in the molecule."""
-        return len(self.coordinates)
-
-    def calculate_scattering(self, q_vector: Union[list[float], np.ndarray]) -> np.ndarray:
+    def __del__(self):        
         ausaxs = AUSAXS()
-        x, y, z = self.get_atomic_coordinates()
-        return ausaxs.debye(q_vector, x, y, z, self.weights)
+        ausaxs.deallocate(self._object_id)
 
+    def _create_molecule_from_file(self, filename: str) -> None:
+        ausaxs = AUSAXS()
+        filename_c = filename.encode('utf-8')
+        status = ct.c_int()
+        self._object_id = ausaxs.lib().functions.molecule_from_file(
+            filename_c,
+            ct.byref(status)
+        )
+        _check_error_code(status, "_create_molecule_from_file")
 
-# Convenience functions for backward compatibility and easy access
-def read_pdb(filename: str) -> PDBFile:
-    """
-    Read a PDB file and return a PDBFile object.
-    
-    Args:
-        filename: Path to PDB or CIF file
-        
-    Returns:
-        PDBFile object with object ID for efficient reuse
-    """
-    return PDBFile(filename)
+    def _create_molecule_from_pdb(self, pdb: PDBfile) -> None:
+        if not isinstance(pdb, PDBfile):
+            raise TypeError(f"pdb must be of type PDBfile, got {type(pdb)} instead.")
+        if pdb._object_id is None:
+            raise ValueError("PDBfile object is not properly initialized.")
+        ausaxs = AUSAXS()
+        status = ct.c_int()
+        self._object_id = ausaxs.lib().functions.molecule_from_pdb_id(
+            pdb._object_id,
+            ct.byref(status)
+        )
+        _check_error_code(status, "_create_molecule_from_pdb")
 
+    def _create_molecule_from_arrays(
+        self, x: np.ndarray | list[float], y: np.ndarray | list[float], z: np.ndarray | list[float], weights: np.ndarray | list[float]
+    ) -> None:
+        ausaxs = AUSAXS()
+        n_atoms = ct.c_int(len(x))
+        x_c = x.astype(np.float64)
+        y_c = y.astype(np.float64)
+        z_c = z.astype(np.float64)
+        weights_c = weights.astype(np.float64)
+        status = ct.c_int()
+        self._object_id = ausaxs.lib().functions.molecule_from_arrays(
+            n_atoms,
+            x_c.ctypes.data_as(ct.POINTER(ct.c_double)),
+            y_c.ctypes.data_as(ct.POINTER(ct.c_double)),
+            z_c.ctypes.data_as(ct.POINTER(ct.c_double)),
+            weights_c.ctypes.data_as(ct.POINTER(ct.c_double)),
+            ct.byref(status)
+        )
+        _check_error_code(status, "_create_molecule_from_arrays")
 
-def read_data(filename: str) -> DataFile:
-    """
-    Read a SAXS/SANS data file and return a DataFile object.
-    
-    Args:
-        filename: Path to data file
-        
-    Returns:
-        DataFile object with object ID for efficient reuse
-    """
-    return DataFile(filename)
+    def _create_molecule(self, *args) -> None:
+        if len(args) == 1 and isinstance(args[0], str):
+            self._create_molecule_from_file(args[0])
+        elif len(args) == 1 and isinstance(args[0], PDBfile):
+            self._create_molecule_from_pdb(args[0])
+        elif len(args) == 4:
+            self._create_molecule_from_arrays(args[0], args[1], args[2], args[3])
+        else:
+            raise TypeError(
+                "Invalid arguments to create Molecule. " \
+                "Expected (filename: str), (pdb: PDBfile), or (x: array, y: array, z: array, weights: array)."
+            )
 
+    def _get_data(self) -> None:
+        if self._atom_data: return
+        ausaxs = AUSAXS()
+        ax_ptr = ct.POINTER(ct.c_double)()
+        ay_ptr = ct.POINTER(ct.c_double)()
+        az_ptr = ct.POINTER(ct.c_double)()
+        aw_ptr = ct.POINTER(ct.c_double)()
+        aff_ptr = ct.POINTER(ct.c_char_p)()
+        wx_ptr = ct.POINTER(ct.c_double)()
+        wy_ptr = ct.POINTER(ct.c_double)()
+        wz_ptr = ct.POINTER(ct.c_double)()
+        ww_ptr = ct.POINTER(ct.c_double)()
+        n_atoms = ct.c_int()
+        n_weights = ct.c_int()
+        status = ct.c_int()
 
-def molecule_from_pdb(pdb_source) -> Molecule:
-    """
-    Create a Molecule object from PDB source.
-    
-    Args:
-        pdb_source: PDBFile object, object ID, or filename
-        
-    Returns:
-        Molecule object optimized for scattering calculations
-    """
-    return Molecule(pdb_source)
+        data_id = ausaxs.lib().functions.molecule_get_data(
+            self._object_id,
+            ct.byref(ax_ptr),
+            ct.byref(ay_ptr),
+            ct.byref(az_ptr),
+            ct.byref(aw_ptr),
+            ct.byref(aff_ptr),
+            ct.byref(wx_ptr),
+            ct.byref(wy_ptr),
+            ct.byref(wz_ptr),
+            ct.byref(ww_ptr),
+            ct.byref(n_atoms),
+            ct.byref(n_weights),
+            ct.byref(status)
+        )
+        _check_error_code(status, "molecule_get_data")
+
+        n = n_atoms.value
+        self._atom_data["x"]       = np.array([ax_ptr[i] for i in range(n)],                    dtype=np.float64)
+        self._atom_data["y"]       = np.array([ay_ptr[i] for i in range(n)],                    dtype=np.float64)
+        self._atom_data["z"]       = np.array([az_ptr[i] for i in range(n)],                    dtype=np.float64)
+        self._atom_data["weights"] = np.array([aw_ptr[i] for i in range(n)],                    dtype=np.float64)
+        self._atom_data["ff_type"] = np.array([aff_ptr[i].decode('utf-8') for i in range(n)],    dtype=np.str_   )
+        m = n_weights.value
+        self._water_data["x"]       = np.array([wx_ptr[i] for i in range(m)],                    dtype=np.float64)
+        self._water_data["y"]       = np.array([wy_ptr[i] for i in range(m)],                    dtype=np.float64)
+        self._water_data["z"]       = np.array([wz_ptr[i] for i in range(m)],                    dtype=np.float64)
+        self._water_data["weights"] = np.array([ww_ptr[i] for i in range(m)],                    dtype=np.float64)
+        self._water_data["ff_type"] = "OH"
+        ausaxs.deallocate(data_id)
+
+    def hydrate(self, shell_thickness: float, shell_density: float) -> None:
+        """Add a hydration shell to the molecule."""
+        ausaxs = AUSAXS()
+        status = ct.c_int()
+        ausaxs.lib().functions.molecule_hydrate(
+            self._object_id,
+            ct.c_double(shell_thickness),
+            ct.c_double(shell_density),
+            ct.byref(status)
+        )
+        _check_error_code(status, "hydrate_molecule")
+
+        # invalidate cached data to refresh data on next access
+        self._atom_data = {}
+        self._water_data = {}
+
+    def distance_histogram(self) -> tuple[np.ndarray, np.ndarray]:
+        """Get distance histogram as (bin_centers, counts)."""
+        ausaxs = AUSAXS()
+        bin_ptr = ct.POINTER(ct.c_double)()
+        count_ptr = ct.POINTER(ct.c_int)()
+        n_bins = ct.c_int()
+        status = ct.c_int()
+
+        data_id = ausaxs.lib().functions.molecule_distance_histogram(
+            self._object_id,
+            ct.byref(bin_ptr),
+            ct.byref(count_ptr),
+            ct.byref(n_bins),
+            ct.byref(status)
+        )
+        _check_error_code(status, "molecule_distance_histogram")
+
+        n = n_bins.value
+        bins = np.array([bin_ptr[i] for i in range(n)],     dtype=np.float64)
+        counts = np.array([count_ptr[i] for i in range(n)], dtype=np.int32  )
+        ausaxs.deallocate(data_id)
+        return bins, counts
+
+    def atoms(self) -> list[np.ndarray]:
+        """Get atomic data as a list of numpy arrays: (x, y, z, weights, ff_type)."""
+        self._get_data()
+        return [
+            self._atom_data["x"],
+            self._atom_data["y"],
+            self._atom_data["z"],
+            self._atom_data["weights"],
+            self._atom_data["ff_type"]
+        ]
+
+    def waters(self) -> list[np.ndarray]:
+        """Get water data as a list of numpy arrays: (x, y, z, weights)."""
+        self._get_data()
+        return [
+            self._water_data["x"],
+            self._water_data["y"],
+            self._water_data["z"],
+            self._water_data["weights"]
+        ]
+
+    def atomic_dict(self) -> dict[str, np.ndarray]:
+        """Get atomic data as a dictionary with keys: 'x', 'y', 'z', 'weights', 'ff_type'."""
+        self._get_data()
+        return self._atom_data
+
+    def water_dict(self) -> dict[str, np.ndarray]:
+        """Get water data as a dictionary with keys: 'x', 'y', 'z', 'weights' 'ff_type'."""
+        self._get_data()
+        return self._water_data
+
+def create_molecule(*args) -> Molecule:
+    return Molecule(*args)

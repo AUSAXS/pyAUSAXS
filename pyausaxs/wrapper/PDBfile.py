@@ -2,17 +2,15 @@ from .AUSAXS import AUSAXS, _check_error_code
 import ctypes as ct
 import numpy as np
 
-class PDBFile:
+class PDBfile:
     def __init__(self, filename: str):
-        self._object_id: ct.c_int32 = None
-        self._data_id: ct.c_int32 = None
+        self._object_id: int = None
         self._data: dict[str, np.ndarray] = {}
         self._read_pdb(filename)
 
     def __del__(self):
         ausaxs = AUSAXS()
         ausaxs.deallocate(self._object_id)
-        if self._data_id: ausaxs.deallocate(self._data_id)
 
     def _read_pdb(self, filename: str) -> None:
         """Read a pdb (or cif) data file"""
@@ -25,13 +23,9 @@ class PDBFile:
         )
         _check_error_code(status, "read_pdb")
 
-    def _get_data(self):
-        # AUSAXS stores the PDB data in a manner which is hard to access directly.
-        # This call therefore constructs a new data object and links the pointers to it.
-        # We therefore store the data object id separately, so we can deallocate it later.
+    def _get_data(self) -> None:
+        if self._data: return
         ausaxs = AUSAXS()
-        if self._data_id: ausaxs.deallocate(self._data_id)
-
         serial_ptr = ct.POINTER(ct.c_int)()
         name_ptr = ct.POINTER(ct.c_char_p)()
         altLoc_ptr = ct.POINTER(ct.c_char_p)()
@@ -49,7 +43,7 @@ class PDBFile:
         n_atoms = ct.c_int()
         status = ct.c_int()
 
-        self._data_id = ausaxs.lib().functions.pdb_get_data(
+        data_id = ausaxs.lib().functions.pdb_get_data(
             self._object_id,
             ct.byref(serial_ptr),
             ct.byref(name_ptr), 
@@ -71,30 +65,109 @@ class PDBFile:
         _check_error_code(status, "pdb_get_data")
 
         n = n_atoms.value
-        self._data["serial"] = [serial_ptr[i] for i in range(n)]
-        self._data["name"] = [name_ptr[i].decode('utf-8') for i in range(n)]
-        self._data["altLoc"] = [altLoc_ptr[i].decode('utf-8') for i in range(n)]
-        self._data["resName"] = [resName_ptr[i].decode('utf-8') for i in range(n)]
-        self._data["chainID"] = [chainID_ptr[i].decode('utf-8') for i in range(n)]
-        self._data["resSeq"] = [resSeq_ptr[i] for i in range(n)]
-        self._data["iCode"] = [iCode_ptr[i].decode('utf-8') for i in range(n)]
-        self._data["x"] = [x_ptr[i] for i in range(n)]
-        self._data["y"] = [y_ptr[i] for i in range(n)]
-        self._data["z"] = [z_ptr[i] for i in range(n)]
-        self._data["occupancy"] = [occupancy_ptr[i] for i in range(n)]
-        self._data["tempFactor"] = [tempFactor_ptr[i] for i in range(n)]
-        self._data["element"] = [element_ptr[i].decode('utf-8') for i in range(n)]
-        self._data["charge"] = [charge_ptr[i].decode('utf-8') for i in range(n)]
+        self._data["serial"]     = np.array([serial_ptr[i] for i in range(n)],                  dtype=np.int32  )
+        self._data["name"]       = np.array([name_ptr[i].decode('utf-8') for i in range(n)],    dtype=np.str_   )
+        self._data["altLoc"]     = np.array([altLoc_ptr[i].decode('utf-8') for i in range(n)],  dtype=np.str_   )
+        self._data["resName"]    = np.array([resName_ptr[i].decode('utf-8') for i in range(n)], dtype=np.str_   )
+        self._data["chainID"]    = np.array([chainID_ptr[i].decode('utf-8') for i in range(n)], dtype=np.str_   )
+        self._data["resSeq"]     = np.array([resSeq_ptr[i] for i in range(n)],                  dtype=np.int32  )
+        self._data["iCode"]      = np.array([iCode_ptr[i].decode('utf-8') for i in range(n)],   dtype=np.str_   )
+        self._data["x"]          = np.array([x_ptr[i] for i in range(n)],                       dtype=np.float64)
+        self._data["y"]          = np.array([y_ptr[i] for i in range(n)],                       dtype=np.float64)
+        self._data["z"]          = np.array([z_ptr[i] for i in range(n)],                       dtype=np.float64)
+        self._data["occupancy"]  = np.array([occupancy_ptr[i] for i in range(n)],               dtype=np.float64)
+        self._data["tempFactor"] = np.array([tempFactor_ptr[i] for i in range(n)],              dtype=np.float64)
+        self._data["element"]    = np.array([element_ptr[i].decode('utf-8') for i in range(n)], dtype=np.str_   )
+        self._data["charge"]     = np.array([charge_ptr[i].decode('utf-8') for i in range(n)],  dtype=np.str_   )
+        ausaxs.deallocate(data_id)
 
-    def get_coordinates(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Get atomic coordinates as numpy arrays."""
-        if not self._data_id: self._get_data()
+    def serial(self) -> np.ndarray:
+        """Get atom serial numbers as numpy array."""
+        self._get_data()
+        return self._data['serial']
+
+    def names(self) -> np.ndarray:
+        """Get atom names as numpy array."""
+        self._get_data()
+        return self._data['name']
+
+    def resnames(self) -> np.ndarray:
+        """Get residue names as numpy array."""
+        self._get_data()
+        return self._data['resName']
+
+    def chain_ids(self) -> np.ndarray:
+        """Get chain IDs as numpy array."""
+        self._get_data()
+        return self._data['chainID']
+
+    def res_seqs(self) -> np.ndarray:
+        """Get residue sequence numbers as numpy array."""
+        self._get_data()
+        return self._data['resSeq']
+
+    def icodes(self) -> np.ndarray:
+        """Get insertion codes as numpy array."""
+        self._get_data()
+        return self._data['iCode']
+
+    def coordinates(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Get atomic coordinates as numpy arrays: (x, y, z)."""
+        self._get_data()
         return (
-            np.array(self._data['x'], dtype=np.float64),
-            np.array(self._data['y'], dtype=np.float64),
-            np.array(self._data['z'], dtype=np.float64)
+            self._data['x'],
+            self._data['y'],
+            self._data['z']
         )
 
-def read_pdb(filename: str) -> PDBFile:
+    def occupancies(self) -> np.ndarray:
+        """Get atomic occupancies as numpy array."""
+        self._get_data()
+        return self._data['occupancy']
+
+    def temp_factors(self) -> np.ndarray:
+        """Get atomic temperature factors as numpy array."""
+        self._get_data()
+        return self._data['tempFactor']
+
+    def elements(self) -> np.ndarray:
+        """Get atomic elements as numpy array."""
+        self._get_data()
+        return self._data['element']
+
+    def charges(self) -> np.ndarray:
+        """Get atomic charges as numpy array."""
+        self._get_data()
+        return self._data['charge']
+
+    def dict(self) -> dict[str, np.ndarray]:
+        """Get all parsed PDB data as a dictionary of numpy arrays."""
+        self._get_data()
+        return self._data
+
+    def data(self) -> list[np.ndarray]:
+        """
+        Get all parsed PDB data as a list of numpy arrays
+        (serial, name, altloc, resname, chain_id, resseq, icode, x, y, z, occupancy, tempFactor, element, charge).
+        """
+        self._get_data()
+        return [
+            self._data['serial'],
+            self._data['name'],
+            self._data['altLoc'],
+            self._data['resName'],
+            self._data['chainID'],
+            self._data['resSeq'],
+            self._data['iCode'],
+            self._data['x'],
+            self._data['y'],
+            self._data['z'],
+            self._data['occupancy'],
+            self._data['tempFactor'],
+            self._data['element'],
+            self._data['charge']
+        ]
+
+def read_pdb(filename: str) -> PDBfile:
     """Convenience function to read a PDB file and return a PDBFile instance."""
-    return PDBFile(filename)
+    return PDBfile(filename)

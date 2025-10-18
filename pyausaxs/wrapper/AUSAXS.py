@@ -90,7 +90,8 @@ class AUSAXS:
         """Deallocate an object in the AUSAXS library by its ID."""
         if not self.ready():
             raise RuntimeError(f"AUSAXS: library failed to initialize. Reason: {self.init_error()}")
-
+        if not isinstance(object_id, int):
+            raise TypeError(f"object_id must be of type int, got {type(object_id)} instead.")
         status = ct.c_int()
         self._lib.functions.deallocate(object_id, ct.byref(status))
         _check_error_code(status, "deallocate")
