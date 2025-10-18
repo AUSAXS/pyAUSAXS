@@ -141,6 +141,49 @@ class AUSAXSLIB:
             ]
             self.functions.molecule_get_data.restype = ct.c_int # return obj id
 
+            # molecule_hydrate
+            self.functions.molecule_hydrate.argtypes = [
+                ct.c_int,               # molecule id
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.molecule_hydrate.restype = None # returns void
+
+            # molecule_distance_histogram
+            self.functions.molecule_distance_histogram.argtypes = [
+                ct.c_int,                            # molecule id
+                ct.POINTER(ct.POINTER(ct.c_double)), # aa (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # aw (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # ww (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # ax (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # xx (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # wx (output)
+                ct.POINTER(ct.c_int),                # n_bins (output)
+                ct.POINTER(ct.c_double),             # delta_r (output)
+                ct.POINTER(ct.c_bool),               # exv_hists (output)
+                ct.POINTER(ct.c_int)                 # status (0 = success)
+            ]
+            self.functions.molecule_distance_histogram.restype = ct.c_int # return obj id
+
+            # debye_from_molecule
+            self.functions.debye_from_molecule.argtypes = [
+                ct.c_int,                            # molecule id
+                ct.POINTER(ct.POINTER(ct.c_double)), # q (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # I (output)
+                ct.POINTER(ct.c_int),                # n_points (output)
+                ct.POINTER(ct.c_int)                 # status (0 = success)
+            ]
+            self.functions.debye_from_molecule.restype = ct.c_int # return obj id
+
+            # debye_from_molecule_userq
+            self.functions.debye_from_molecule_userq.argtypes = [
+                ct.c_int,               # molecule id
+                ct.POINTER(ct.c_double), # q
+                ct.c_int,                # n_points
+                ct.POINTER(ct.c_double), # I (output)
+                ct.POINTER(ct.c_int)     # status (0 = success)
+            ]
+            self.functions.debye_from_molecule_userq.restype = None # returns void
+
             # evaluate_sans_debye
             self.functions.evaluate_sans_debye.argtypes = [
                 ct.POINTER(ct.c_double), # q vector

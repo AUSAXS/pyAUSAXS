@@ -118,44 +118,106 @@ class Molecule:
         self._water_data["ff_type"] = "OH"
         ausaxs.deallocate(data_id)
 
-    def hydrate(self, shell_thickness: float, shell_density: float) -> None:
+    def hydrate(self) -> None:
         """Add a hydration shell to the molecule."""
         ausaxs = AUSAXS()
         status = ct.c_int()
         ausaxs.lib().functions.molecule_hydrate(
             self._object_id,
-            ct.c_double(shell_thickness),
-            ct.c_double(shell_density),
             ct.byref(status)
         )
-        _check_error_code(status, "hydrate_molecule")
+        _check_error_code(status, "molecule_hydrate")
 
         # invalidate cached data to refresh data on next access
         self._atom_data = {}
         self._water_data = {}
 
-    def distance_histogram(self) -> tuple[np.ndarray, np.ndarray]:
-        """Get distance histogram as (bin_centers, counts)."""
+    def distance_histogram(self) -> dict[str, np.ndarray]:
+        """Get the partial distance histogram of the molecule."""
         ausaxs = AUSAXS()
-        bin_ptr = ct.POINTER(ct.c_double)()
-        count_ptr = ct.POINTER(ct.c_int)()
+        aa_ptr = ct.POINTER(ct.c_double)()
+        aw_ptr = ct.POINTER(ct.c_double)()
+        ww_ptr = ct.POINTER(ct.c_double)()
+        ax_ptr = ct.POINTER(ct.c_double)()
+        xx_ptr = ct.POINTER(ct.c_double)()
+        wx_ptr = ct.POINTER(ct.c_double)()
         n_bins = ct.c_int()
+        delta_r = ct.c_double()
+        exv_hists = ct.c_bool()
         status = ct.c_int()
-
-        data_id = ausaxs.lib().functions.molecule_distance_histogram(
+        tmp_id = ausaxs.lib().functions.molecule_distance_histogram(
             self._object_id,
-            ct.byref(bin_ptr),
-            ct.byref(count_ptr),
+            ct.byref(aa_ptr),
+            ct.byref(aw_ptr),
+            ct.byref(ww_ptr),
+            ct.byref(ax_ptr),
+            ct.byref(xx_ptr),
+            ct.byref(wx_ptr),
             ct.byref(n_bins),
+            ct.byref(delta_r),
+            ct.byref(exv_hists),
             ct.byref(status)
         )
         _check_error_code(status, "molecule_distance_histogram")
 
+        res = {}
         n = n_bins.value
-        bins = np.array([bin_ptr[i] for i in range(n)],     dtype=np.float64)
-        counts = np.array([count_ptr[i] for i in range(n)], dtype=np.int32  )
-        ausaxs.deallocate(data_id)
-        return bins, counts
+        res["bins"] = np.array([delta_r.value * (i + 0.5) for i in range(n)], dtype=np.float64)
+        res["aa"] = np.array([aa_ptr[i] for i in range(n)], dtype=np.float64)
+        res["aw"] = np.array([aw_ptr[i] for i in range(n)], dtype=np.float64)
+        res["ww"] = np.array([ww_ptr[i] for i in range(n)], dtype=np.float64)
+        if exv_hists.value:
+            res["ax"] = np.array([ax_ptr[i] for i in range(n)], dtype=np.float64)
+            res["xx"] = np.array([xx_ptr[i] for i in range(n)], dtype=np.float64)
+            res["wx"] = np.array([wx_ptr[i] for i in range(n)], dtype=np.float64)
+        else:
+            res["ax"] = None
+            res["xx"] = None
+            res["wx"] = None
+        ausaxs.deallocate(tmp_id)
+    
+    def histogram(self) -> dict[str, np.ndarray]:
+        return self.distance_histogram()
+
+    def debye(self, q_vals: list[float] | np.ndarray = None) -> tuple[np.ndarray, np.ndarray]:
+        """Calculate the Debye scattering intensity of the molecule."""
+        ausaxs = AUSAXS()
+        if q_vals:
+            q = np.array(q_vals, dtype=np.float64)
+            n_q = ct.c_int(len(q_vals))
+            i_ptr = ct.POINTER(ct.c_double)()
+            status = ct.c_int()
+            tmp_id = ausaxs.lib().functions.debye_from_molecule_userq(
+                self._object_id,
+                q.ctypes.data_as(ct.POINTER(ct.c_double)),
+                n_q,
+                ct.byref(i_ptr),
+                ct.byref(status)
+            )
+            _check_error_code(status, "molecule_debye_q")
+
+            i = np.array([i_ptr[i] for i in range(n_q.value)], dtype=np.float64)
+            ausaxs.deallocate(tmp_id)
+            return q, i
+        else:
+            q_ptr = ct.POINTER(ct.c_double)()
+            i_ptr = ct.POINTER(ct.c_double)()
+            n_q = ct.c_int()
+            status = ct.c_int()
+            tmp_id = ausaxs.lib().functions.debye_from_molecule(
+                self._object_id,
+                ct.byref(q_ptr),
+                ct.byref(i_ptr),
+                ct.byref(n_q),
+                ct.byref(status)
+            )
+            _check_error_code(status, "molecule_debye")
+
+            n = n_q.value
+            q = np.array([q_ptr[i] for i in range(n)], dtype=np.float64)
+            i = np.array([i_ptr[i] for i in range(n)], dtype=np.float64)
+            ausaxs.deallocate(tmp_id)
+            return q, i
 
     def atoms(self) -> list[np.ndarray]:
         """Get atomic data as a list of numpy arrays: (x, y, z, weights, ff_type)."""

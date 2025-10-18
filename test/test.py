@@ -3,6 +3,27 @@ import math
 import numpy as np
 import pyausaxs as ausaxs
 
+class simple_cube:
+    @staticmethod
+    def points():
+        corners = [
+            (-1, -1, -1), (-1, 1, -1), (1, -1, -1), (1, 1, -1),
+            (-1, -1, 1), (-1, 1, 1), (1, -1, 1), (1, 1, 1)
+            (0, 0, 0)
+        ]
+        w = np.ones(len(corners), dtype=float)
+        xs = np.array([p[0] for p in corners], dtype=float)
+        ys = np.array([p[1] for p in corners], dtype=float)
+        zs = np.array([p[2] for p in corners], dtype=float)
+        return xs, ys, zs, w
+    
+    @staticmethod
+    def hist(): 
+        return [
+            [0.0, math.sqrt(3.0), 2.0, math.sqrt(8.0), math.sqrt(12.0)],
+            [9, 16, 24, 24, 8]
+        ]
+
 def read_pdb(filename):
     """
     Simple PDB reader that extracts coordinates and atom information.
@@ -202,6 +223,12 @@ def test_molecule():
     assert np.allclose(y2, y, atol=1e-6),       "Molecule coordinates should match input"
     assert np.allclose(z2, z, atol=1e-6),       "Molecule coordinates should match input"
     assert np.allclose(w2, weights, atol=1e-6), "Molecule weights should match input"
+
+def test_histogram():
+    atoms = simple_cube.points()
+    hist_expected = simple_cube.hist()
+    mol = ausaxs.create_molecule(*atoms)
+    hist_native = mol.histogram() # hist should be its own class probably, with easy access to a total() method
 
 if __name__ == '__main__':
     import pyausaxs
