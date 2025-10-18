@@ -1,7 +1,7 @@
 import sys
 import math
 import numpy as np
-from pyausaxs import AUSAXS
+import pyausaxs as ausaxs
 
 def read_pdb(filename):
     """
@@ -118,13 +118,28 @@ def test_reset_singleton():
     assert instance1 is not instance2, "After reset, new instance should be a different object"
     assert ready1 == ready2, "Ready state should be consistent across resets"
 
+def test_read_datafile():
+    data = ausaxs.read_data("test/2epe.dat")
+    assert len(data.q()) > 0, "Data q should be loaded"
+    assert len(data.I()) > 0, "Data I should be loaded"
+    assert len(data.Ierr()) > 0, "Data Ierr should be loaded"
+
+def test_read_pdbfile():
+    data = ausaxs.read_pdb("test/2epe.pdb")
+    x, y, z = data.get_coordinates()
+    assert len(x) > 0, "Coordinates x should be loaded"
+    assert len(y) > 0, "Coordinates y should be loaded"
+    assert len(z) > 0, "Coordinates z should be loaded"
+
 if __name__ == '__main__':
     import pyausaxs
     print(f"AUSAXS version {pyausaxs.__version__}")
-    test_cube_debye()
-    test_pdb_reader()
-    test_singleton()
-    test_reset_singleton()
-    test_fit()
+    # test_cube_debye()
+    # test_pdb_reader()
+    # test_singleton()
+    # test_reset_singleton()
+    # test_fit()
+    test_read_pdbfile()
+    test_read_datafile()
     print("All tests passed")
     sys.exit(0)

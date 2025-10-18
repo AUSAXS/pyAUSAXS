@@ -44,6 +44,60 @@ class AUSAXSLIB:
             ]
             self.functions.test_integration.restype = None # returns void
 
+            # deallocate
+            self.functions.deallocate.argtypes = [
+                ct.c_int, # object id
+                ct.POINTER(ct.c_int) # status (0 = success)
+            ]
+            self.functions.deallocate.restype = None # returns void
+
+            # read_pdb
+            self.functions.pdb_read.argtypes = [
+                ct.c_char_p,                         # filename
+                ct.POINTER(ct.c_int)                 # status (0 = success)
+            ]
+            self.functions.pdb_read.restype = ct.c_int # return obj id
+
+            # pdb_get_data
+            self.functions.pdb_get_data.argtypes = [
+                ct.c_int,                            # object id
+                ct.POINTER(ct.POINTER(ct.c_int)),    # serial (output)
+                ct.POINTER(ct.POINTER(ct.c_char_p)), # name (output)
+                ct.POINTER(ct.POINTER(ct.c_char_p)), # altLoc (output)
+                ct.POINTER(ct.POINTER(ct.c_char_p)), # resName (output)
+                ct.POINTER(ct.POINTER(ct.c_char)),   # chainID (output)
+                ct.POINTER(ct.POINTER(ct.c_int)),    # resSeq (output)
+                ct.POINTER(ct.POINTER(ct.c_char_p)), # iCode (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # x (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # y (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # z (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # occupancy (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # tempFactor (output)
+                ct.POINTER(ct.POINTER(ct.c_char_p)), # element (output)
+                ct.POINTER(ct.POINTER(ct.c_char_p)), # charge (output)
+                ct.POINTER(ct.c_int),                # n_atoms (output)
+                ct.POINTER(ct.c_int)                 # status (0 = success)
+            ]
+            self.functions.pdb_get_data.restype = ct.c_int # return obj id
+
+            # data_read
+            self.functions.data_read.argtypes = [
+                ct.c_char_p,            # filename
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.data_read.restype = ct.c_int # return obj id
+
+            # data_get_data
+            self.functions.data_get_data.argtypes = [
+                ct.c_int,                            # object id
+                ct.POINTER(ct.POINTER(ct.c_double)), # q vector (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # I vector (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # Ierr vector (output)
+                ct.POINTER(ct.c_int),                # n_points (output)
+                ct.POINTER(ct.c_int)                 # status (0 = success)
+            ]
+            self.functions.data_get_data.restype = ct.c_int # return obj id
+
             # evaluate_sans_debye
             self.functions.evaluate_sans_debye.argtypes = [
                 ct.POINTER(ct.c_double), # q vector
@@ -56,7 +110,7 @@ class AUSAXSLIB:
                 ct.POINTER(ct.c_double), # Iq vector for return value
                 ct.POINTER(ct.c_int)     # status (0 = success)
             ]
-            self.functions.evaluate_sans_debye.restype = None # returns void
+            self.functions.evaluate_sans_debye.restype = None
 
             # fit_saxs
             self.functions.fit_saxs.argtypes = [
@@ -74,7 +128,7 @@ class AUSAXSLIB:
                 ct.POINTER(ct.c_double), # return I vector for return value
                 ct.POINTER(ct.c_int)     # return status (0 = success)
             ]
-            self.functions.fit_saxs.restype = None # returns void
+            self.functions.fit_saxs.restype = None
 
             # iterative_fit_start
             self.functions.iterative_fit_start.argtypes = [
@@ -91,7 +145,7 @@ class AUSAXSLIB:
                 ct.c_int,                # n_pdb (number of atoms)
                 ct.POINTER(ct.c_int)     # return status (0 = success)
             ]
-            self.functions.iterative_fit_start.restype = None # returns void
+            self.functions.iterative_fit_start.restype = None
 
             # iterative_fit_step
             self.functions.iterative_fit_step.argtypes = [
@@ -99,7 +153,7 @@ class AUSAXSLIB:
                 ct.POINTER(ct.c_double), # return I vector for return value
                 ct.POINTER(ct.c_int),    # return status (0 = success)
             ]
-            self.functions.iterative_fit_step.restype = None # returns void
+            self.functions.iterative_fit_step.restype = None
 
             # iterative_fit_finish
             self.functions.iterative_fit_finish.argtypes = [
@@ -107,7 +161,7 @@ class AUSAXSLIB:
                 ct.POINTER(ct.c_double), # return I vector for return value
                 ct.POINTER(ct.c_int),    # return status (0 = success)
             ]
-            self.functions.iterative_fit_finish.restype = None # returns void
+            self.functions.iterative_fit_finish.restype = None
 
             self.state = self.STATE.READY
 

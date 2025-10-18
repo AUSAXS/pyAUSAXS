@@ -1,5 +1,8 @@
-from .wrapper import AUSAXS, AUSAXSManualFit, ausaxs, create_ausaxs
+from .wrapper.PDBfile import read_pdb
+from .wrapper.DataFile import read_data
+from .wrapper.Debye import debye
 
-__all__ = ["AUSAXS", "AUSAXSManualFit", "ausaxs", "create_ausaxs"]
-__version__ = "1.0.3"
-ausaxs = ausaxs
+__all__ = [
+    "read_pdb", "read_data", "debye"
+]
+__version__ = "1.1.0"

@@ -33,11 +33,12 @@ def _as_numpy_f64_arrays(*arrays: Union[list, np.ndarray]) -> list[np.ndarray]:
         np_arrays.append(np_arr)
     return np_arrays
 
+def _check_error_code(status: ct.c_int, function_name: str) -> None:
+    """Check the status code returned by AUSAXS functions and raise an error if non-zero."""
+    if status.value != 0:
+        raise RuntimeError(f"AUSAXS: \"{function_name}\" failed with error code \"{status.value}\".")
+
 class AUSAXS:
-    """
-    AUSAXS Python wrapper for the C++ library.
-    Implemented as a singleton to avoid expensive reinitialization.
-    """
     _instance = None
     _lock = threading.Lock()
     
@@ -65,19 +66,34 @@ class AUSAXS:
         finally:
             self._initialized = True
 
-    def ready(self) -> bool:
-        """Check if the AUSAXS library is ready for use."""
-        return self._ready
-
-    def init_error(self) -> Optional[Exception]:
-        """Return the initialization error if any."""
-        return self._init_error
-    
     @classmethod
     def reset_singleton(cls):
         """Reset the singleton instance. Useful for testing or debugging."""
         with cls._lock:
             cls._instance = None
+
+    def ready(self) -> bool:
+        """Check if the AUSAXS library is ready for use."""
+        return self._ready
+
+    def init_error(self) -> Optional[Exception]:
+        """Return the initialization error, if any."""
+        return self._init_error
+
+    def lib(self) -> AUSAXSLIB:
+        """Get the underlying AUSAXSLIB instance."""
+        if not self.ready():
+            raise RuntimeError(f"AUSAXS: library failed to initialize. Reason: {self.init_error()}")
+        return self._lib
+    
+    def deallocate(self, object_id: int) -> None:
+        """Deallocate an object in the AUSAXS library by its ID."""
+        if not self.ready():
+            raise RuntimeError(f"AUSAXS: library failed to initialize. Reason: {self.init_error()}")
+
+        status = ct.c_int()
+        self._lib.functions.deallocate(object_id, ct.byref(status))
+        _check_error_code(status, "deallocate")
 
     def debye(
             self, q_vector: Union[list[float], np.ndarray], 
@@ -106,12 +122,11 @@ class AUSAXS:
         w = weights.ctypes.data_as(ct.POINTER(ct.c_double))
         status = ct.c_int()
         self._lib.functions.evaluate_sans_debye(q, x, y, z, w, nq, nc, Iq, ct.byref(status))
+        _check_error_code(status, "debye")
 
-        if (status.value == 0):
-            # convert ctypes array to numpy array
-            arr = np.ctypeslib.as_array(Iq)
-            return arr.copy()
-        raise RuntimeError(f"AUSAXS: \"debye\" terminated unexpectedly (error code \"{status.value}\").")
+        # convert ctypes array to numpy array
+        arr = np.ctypeslib.as_array(Iq)
+        return arr.copy()
 
     def fit(self, q, I, Ierr, x, y, z, names, resnames, elements) -> np.ndarray:
         """
@@ -131,16 +146,16 @@ class AUSAXS:
         
         nq = ct.c_int(len(q))
         nc = ct.c_int(len(x))
-        Iq = (ct.c_double * len(q))()
+        Iq = (ct.c_double*len(q))()
         q_ptr = q.ctypes.data_as(ct.POINTER(ct.c_double))
         I_ptr = I.ctypes.data_as(ct.POINTER(ct.c_double))
         Ierr_ptr = Ierr.ctypes.data_as(ct.POINTER(ct.c_double))
         x_ptr = x.ctypes.data_as(ct.POINTER(ct.c_double))
         y_ptr = y.ctypes.data_as(ct.POINTER(ct.c_double))
         z_ptr = z.ctypes.data_as(ct.POINTER(ct.c_double))
-        names_ptr = (ct.c_char_p * len(names))(*[s.encode('utf-8') for s in names])
-        resnames_ptr = (ct.c_char_p * len(resnames))(*[s.encode('utf-8') for s in resnames])
-        elements_ptr = (ct.c_char_p * len(elements))(*[s.encode('utf-8') for s in elements])
+        names_ptr = (ct.c_char_p*len(names))(*[s.encode('utf-8') for s in names])
+        resnames_ptr = (ct.c_char_p*len(resnames))(*[s.encode('utf-8') for s in resnames])
+        elements_ptr = (ct.c_char_p*len(elements))(*[s.encode('utf-8') for s in elements])
         status = ct.c_int()
 
         self._lib.functions.fit_saxs(q_ptr, I_ptr, Ierr_ptr, nq, x_ptr, y_ptr, z_ptr, names_ptr, resnames_ptr, elements_ptr, nc, Iq, ct.byref(status))
@@ -155,78 +170,3 @@ class AUSAXS:
         Returns an AUSAXSManualFit object with step() and finish() methods.
         """
         return AUSAXSManualFit(self, q, I, Ierr, x, y, z, names, resnames, elements)
-
-class AUSAXSManualFit:
-    """Manual fitting class for step-by-step SAXS fitting control."""
-    
-    def __init__(self, ausaxs_instance: AUSAXS, q, I, Ierr, x, y, z, names, resnames, elements):
-        self.ausaxs = ausaxs_instance
-
-        if not self.ausaxs.ready():
-            raise RuntimeError(f"AUSAXS: library failed to initialize. Reason: {self.ausaxs.init_error()}")
-        _check_array_inputs(
-            q, I, Ierr, x, y, z,
-            names=['q', 'I', 'Ierr', 'x', 'y', 'z']
-        )
-        _check_similar_length(x, y, z, names, resnames, elements, msg="Atomic coordinates, weights, and names must have the same length")
-        _check_similar_length(q, I, Ierr, msg="q, I, and Ierr must have the same length")
-
-        q, I, Ierr, x, y, z = _as_numpy_f64_arrays(q, I, Ierr, x, y, z)
-        self.nq = len(q)  # number of q points
-        self.nc = len(x)  # number of coordinates
-        self.nq_c = ct.c_int(self.nq)
-        self.nc_c = ct.c_int(self.nc)
-        self.q = q.ctypes.data_as(ct.POINTER(ct.c_double))
-        self.I = I.ctypes.data_as(ct.POINTER(ct.c_double))
-        self.Ierr = Ierr.ctypes.data_as(ct.POINTER(ct.c_double))
-        self.Iq = (ct.c_double * self.nq)()  # Output array
-
-        self.x = x.ctypes.data_as(ct.POINTER(ct.c_double))
-        self.y = y.ctypes.data_as(ct.POINTER(ct.c_double))
-        self.z = z.ctypes.data_as(ct.POINTER(ct.c_double))
-        self.names = (ct.c_char_p * len(names))(*[s.encode('utf-8') for s in names])
-        self.resnames = (ct.c_char_p * len(resnames))(*[s.encode('utf-8') for s in resnames])
-        self.elements = (ct.c_char_p * len(elements))(*[s.encode('utf-8') for s in elements])
-
-        status = ct.c_int()
-        self.ausaxs._lib.functions.iterative_fit_start(
-            self.q, self.I, self.Ierr, self.nq_c, 
-            self.x, self.y, self.z, self.names, self.resnames, self.elements, self.nc_c, 
-            ct.byref(status)
-        )
-        if status.value != 0:
-            raise RuntimeError(f"AUSAXS: manual fit initialization failed (error code {status.value})")
-
-    def step(self, params) -> np.ndarray:
-        """Perform one fitting iteration and return the current I(q)."""
-        _check_array_inputs(params, names=['params'])
-        params_ptr = _as_numpy_f64_arrays(params)[0].ctypes.data_as(ct.POINTER(ct.c_double))
-        status = ct.c_int()
-        self.ausaxs._lib.functions.iterative_fit_step(params_ptr, self.Iq, ct.byref(status))
-        if status.value == 0:
-            arr = np.ctypeslib.as_array(self.Iq)
-            return arr.copy()
-        raise RuntimeError(f"AUSAXS: fit step failed (error code {status.value})")
-
-    def finish(self, params) -> np.ndarray:
-        """Finalize the fitting process and return the optimal I(q)."""
-        _check_array_inputs(params, names=['params'])
-        params_ptr = _as_numpy_f64_arrays(params)[0].ctypes.data_as(ct.POINTER(ct.c_double))
-        status = ct.c_int()
-        self.ausaxs._lib.functions.iterative_fit_finish(params_ptr, self.Iq, ct.byref(status))
-        if status.value == 0:
-            arr = np.ctypeslib.as_array(self.Iq)
-            return arr.copy()
-        raise RuntimeError(f"AUSAXS: fit finish failed (error code {status.value})")
-
-def ausaxs() -> Optional[AUSAXS]:
-    """Return the AUSAXS singleton instance. If the library fails to initialize, returns None."""
-    instance = AUSAXS()
-    return instance if instance.ready() else None
-
-def create_ausaxs() -> AUSAXS:
-    """Return the AUSAXS singleton instance. If the library fails to initialize, raises an exception."""
-    instance = AUSAXS()
-    if not instance.ready():
-        raise RuntimeError(f"AUSAXS: library failed to initialize. Reason: {instance.init_error()}")
-    return instance
