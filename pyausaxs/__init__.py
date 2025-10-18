@@ -5,4 +5,4 @@ from .wrapper.Debye import debye
 __all__ = [
     "read_pdb", "read_data", "debye"
 ]
-__version__ = "1.1.0"
+__version__ = "1.0.5"
