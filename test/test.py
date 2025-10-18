@@ -185,8 +185,6 @@ def test_molecule():
     pdb = ausaxs.read_pdb("test/2epe.pdb")
     mol2 = ausaxs.create_molecule(pdb)
     x2, y2, z2, w2, ff2 = mol2.atoms()
-    print(w2)
-    print(w1)
     assert np.allclose(x2, x1, atol=1e-6),      "Molecule coordinates should match PDB reader"
     assert np.allclose(y2, y1, atol=1e-6),      "Molecule coordinates should match PDB reader"
     assert np.allclose(z2, z1, atol=1e-6),      "Molecule coordinates should match PDB reader"

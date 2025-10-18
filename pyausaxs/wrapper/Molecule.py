@@ -2,6 +2,7 @@ from .AUSAXS import AUSAXS, _check_error_code
 from .PDBfile import PDBfile
 import ctypes as ct
 import numpy as np
+from typing import overload
 
 class Molecule:
     def __init__(self, *args):
@@ -48,11 +49,11 @@ class Molecule:
         weights_c = weights.astype(np.float64)
         status = ct.c_int()
         self._object_id = ausaxs.lib().functions.molecule_from_arrays(
-            n_atoms,
             x_c.ctypes.data_as(ct.POINTER(ct.c_double)),
             y_c.ctypes.data_as(ct.POINTER(ct.c_double)),
             z_c.ctypes.data_as(ct.POINTER(ct.c_double)),
             weights_c.ctypes.data_as(ct.POINTER(ct.c_double)),
+            n_atoms,
             ct.byref(status)
         )
         _check_error_code(status, "_create_molecule_from_arrays")
@@ -186,6 +187,18 @@ class Molecule:
         """Get water data as a dictionary with keys: 'x', 'y', 'z', 'weights' 'ff_type'."""
         self._get_data()
         return self._water_data
+
+@overload
+def create_molecule(filename: str) -> Molecule: ...
+@overload
+def create_molecule(pdb: PDBfile) -> Molecule: ...
+@overload
+def create_molecule(
+    x: np.ndarray | list[float], 
+    y: np.ndarray | list[float], 
+    z: np.ndarray | list[float], 
+    weights: np.ndarray | list[float]
+) -> Molecule: ...
 
 def create_molecule(*args) -> Molecule:
     return Molecule(*args)
