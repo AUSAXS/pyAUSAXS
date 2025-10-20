@@ -8,7 +8,7 @@ class simple_cube:
     def points():
         corners = [
             (-1, -1, -1), (-1, 1, -1), (1, -1, -1), (1, 1, -1),
-            (-1, -1, 1), (-1, 1, 1), (1, -1, 1), (1, 1, 1)
+            (-1, -1, 1), (-1, 1, 1), (1, -1, 1), (1, 1, 1),
             (0, 0, 0)
         ]
         w = np.ones(len(corners), dtype=float)
@@ -23,66 +23,22 @@ class simple_cube:
             [0.0, math.sqrt(3.0), 2.0, math.sqrt(8.0), math.sqrt(12.0)],
             [9, 16, 24, 24, 8]
         ]
-
-def read_pdb(filename):
-    """
-    Simple PDB reader that extracts coordinates and atom information.
-    """
-    xx, yy, zz, an, rn, e = [], [], [], [], [], []
-    with open(filename, 'r') as f:
-        for line in f:
-            if line.startswith('ATOM'):
-                atom_name = line[12:16].strip()
-                res_name = line[17:20].strip()
-                x = float(line[30:38].strip())
-                y = float(line[38:46].strip())
-                z = float(line[46:54].strip())
-                element = line[76:78].strip()
-                if not element:
-                    element = ''.join(c for c in atom_name if c.isalpha())[:1]
-                    if not element:
-                        element = 'C'
-
-                xx.append(x)
-                yy.append(y)
-                zz.append(z)
-                an.append(atom_name)
-                rn.append(res_name)
-                e.append(element)
-    return (np.array(xx), np.array(yy), np.array(zz), an, rn, e)
-
-def test_cube_debye():
-    q = np.linspace(0.0, 1.0, 100)
-
-    # build coordinates for 8 cube corners and center (0,0,0) -> total 9 points
-    corners = [(-1, -1, -1), (-1, 1, -1), (1, -1, -1), (1, 1, -1),
-               (-1, -1, 1), (-1, 1, 1), (1, -1, 1), (1, 1, 1)]
-    pts = corners + [(0.0, 0.0, 0.0)]
-    xs = np.array([p[0] for p in pts], dtype=float)
-    ys = np.array([p[1] for p in pts], dtype=float)
-    zs = np.array([p[2] for p in pts], dtype=float)
-    ws = np.ones(len(pts), dtype=float)
-
-    # exact distances (unique) and multiplicities
-    d_vals = [0.0, math.sqrt(3.0), 2.0, math.sqrt(8.0), math.sqrt(12.0)]
-    multiplicities = [9, 16, 24, 24, 8]
-
-    # compute expected I(q) from multiplicities and distances (weights=1)
-    I_expected = np.zeros_like(q, dtype=float)
-    for m, r in zip(multiplicities, d_vals):
-        if r == 0.0:
-            I_expected += m
-        else:
-            qr = q*r
-            term = np.empty_like(qr)
-            mask = qr == 0
-            term[mask] = 1.0
-            term[~mask] = np.sin(qr[~mask]) / qr[~mask]
-            I_expected += m*term
-
-    ausaxs = AUSAXS()
-    I_native = ausaxs.debye(q, xs, ys, zs, ws)
-    assert(np.allclose(I_native, I_expected, rtol=1e-5, atol=1e-8))
+    
+    @staticmethod
+    def debye(q):
+        I_expected = np.zeros_like(q, dtype=float)
+        dist, mult = simple_cube.hist()
+        for m, r in zip(mult, dist):
+            if r == 0.0:
+                I_expected += m
+            else:
+                qr = q*r
+                term = np.empty_like(qr)
+                mask = qr == 0
+                term[mask] = 1.0
+                term[~mask] = np.sin(qr[~mask]) / qr[~mask]
+                I_expected += m*term
+        return I_expected*np.exp(-q*q) # ff term
 
 def test_fit():
     ausaxs = AUSAXS()
@@ -120,9 +76,10 @@ def test_pdb_reader():
 
 def test_singleton():
     """Test that AUSAXS instances are the same object."""
-    instance1 = AUSAXS()
-    instance2 = AUSAXS()
-    instance3 = AUSAXS()
+    cls = ausaxs.wrapper.AUSAXS.AUSAXS
+    instance1 = cls()
+    instance2 = cls()
+    instance3 = cls()
     assert instance1 is instance2, "Instance 1 and 2 should be the same object"
     assert instance2 is instance3, "Instance 2 and 3 should be the same object"
     assert instance1 is instance3, "Instance 1 and 3 should be the same object"
@@ -131,10 +88,11 @@ def test_singleton():
 
 def test_reset_singleton():
     """Test that reset_singleton works correctly."""
-    instance1 = AUSAXS()
+    cls = ausaxs.wrapper.AUSAXS.AUSAXS
+    instance1 = cls()
     ready1 = instance1.ready()
-    AUSAXS.reset_singleton()
-    instance2 = AUSAXS()
+    cls.reset_singleton()
+    instance2 = cls()
     ready2 = instance2.ready()
     assert instance1 is not instance2, "After reset, new instance should be a different object"
     assert ready1 == ready2, "Ready state should be consistent across resets"
@@ -226,21 +184,36 @@ def test_molecule():
 
 def test_histogram():
     atoms = simple_cube.points()
-    hist_expected = simple_cube.hist()
+    distances, counts_exact = simple_cube.hist()
     mol = ausaxs.create_molecule(*atoms)
-    hist_native = mol.histogram() # hist should be its own class probably, with easy access to a total() method
+    hist = mol.histogram()
+    bins, counts = hist.bins(), hist.counts()
+    w = (bins[1] - bins[0])
+    for d, c_exact in zip(distances, counts_exact):
+        index = np.round(d / w).astype(int)
+        c_hist = counts[index]
+        assert index < len(bins), f"Distance {d} out of histogram bin range"
+        assert math.isclose(bins[index], d, abs_tol=w/2), f"Bin mismatch for distance {d}: found {bins[index]}"
+        assert math.isclose(c_hist, c_exact, abs_tol=1e-6), f"Count mismatch for distance {d}: expected {c_exact}, got {c_hist}"
+
+def test_debye():
+    atoms = simple_cube.points()
+    mol = ausaxs.create_molecule(*atoms)
+    q, I = mol.debye(model="none")
+    I_expected = simple_cube.debye(q)
+    assert np.allclose(I, I_expected, atol=1e-6), f"Debye intensity mismatch: expected {I_expected}, got {I}"
 
 if __name__ == '__main__':
     import pyausaxs
     print(f"AUSAXS version {pyausaxs.__version__}")
-    # test_cube_debye()
-    # test_pdb_reader()
-    # test_singleton()
-    # test_reset_singleton()
+    test_singleton()
+    test_reset_singleton()
     # test_fit()
     test_read_pdbfile()
     test_read_ciffile()
     test_read_datafile()
     test_molecule()
+    test_histogram()
+    test_debye()
     print("All tests passed")
     sys.exit(0)

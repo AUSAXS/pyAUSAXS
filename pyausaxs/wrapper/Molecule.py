@@ -1,8 +1,10 @@
 from .AUSAXS import AUSAXS, _check_error_code
 from .PDBfile import PDBfile
+from .Histogram import Histogram
 import ctypes as ct
 import numpy as np
 from typing import overload
+from enum import Enum as enum
 
 class Molecule:
     def __init__(self, *args):
@@ -132,66 +134,66 @@ class Molecule:
         self._atom_data = {}
         self._water_data = {}
 
-    def distance_histogram(self) -> dict[str, np.ndarray]:
+    def distance_histogram(self) -> Histogram:
         """Get the partial distance histogram of the molecule."""
         ausaxs = AUSAXS()
         aa_ptr = ct.POINTER(ct.c_double)()
         aw_ptr = ct.POINTER(ct.c_double)()
         ww_ptr = ct.POINTER(ct.c_double)()
-        ax_ptr = ct.POINTER(ct.c_double)()
-        xx_ptr = ct.POINTER(ct.c_double)()
-        wx_ptr = ct.POINTER(ct.c_double)()
         n_bins = ct.c_int()
         delta_r = ct.c_double()
-        exv_hists = ct.c_bool()
         status = ct.c_int()
         tmp_id = ausaxs.lib().functions.molecule_distance_histogram(
             self._object_id,
             ct.byref(aa_ptr),
             ct.byref(aw_ptr),
             ct.byref(ww_ptr),
-            ct.byref(ax_ptr),
-            ct.byref(xx_ptr),
-            ct.byref(wx_ptr),
             ct.byref(n_bins),
             ct.byref(delta_r),
-            ct.byref(exv_hists),
             ct.byref(status)
         )
         _check_error_code(status, "molecule_distance_histogram")
 
-        res = {}
         n = n_bins.value
-        res["bins"] = np.array([delta_r.value * (i + 0.5) for i in range(n)], dtype=np.float64)
-        res["aa"] = np.array([aa_ptr[i] for i in range(n)], dtype=np.float64)
-        res["aw"] = np.array([aw_ptr[i] for i in range(n)], dtype=np.float64)
-        res["ww"] = np.array([ww_ptr[i] for i in range(n)], dtype=np.float64)
-        if exv_hists.value:
-            res["ax"] = np.array([ax_ptr[i] for i in range(n)], dtype=np.float64)
-            res["xx"] = np.array([xx_ptr[i] for i in range(n)], dtype=np.float64)
-            res["wx"] = np.array([wx_ptr[i] for i in range(n)], dtype=np.float64)
-        else:
-            res["ax"] = None
-            res["xx"] = None
-            res["wx"] = None
+        hist = Histogram(
+            np.array([delta_r.value*i for i in range(n)], dtype=np.float64),
+            np.array([aa_ptr[i] for i in range(n)], dtype=np.float64),
+            np.array([aw_ptr[i] for i in range(n)], dtype=np.float64),
+            np.array([ww_ptr[i] for i in range(n)], dtype=np.float64),
+        )
         ausaxs.deallocate(tmp_id)
+        return hist
     
-    def histogram(self) -> dict[str, np.ndarray]:
+    def histogram(self) -> Histogram:
         return self.distance_histogram()
 
-    def debye(self, q_vals: list[float] | np.ndarray = None) -> tuple[np.ndarray, np.ndarray]:
-        """Calculate the Debye scattering intensity of the molecule."""
+    class ExvModel(enum):
+        simple = "simple"; average = "average"; fraser = "fraser"; grid_base = "grid-base"; grid_scalable = "grid-scalable",
+        grid = "grid"; crysol = "crysol"; foxs = "foxs"; pepsi = "pepsi"; none = "none"; waxsis = "waxsis"
+
+    def debye(self, q_vals: list[float] | np.ndarray = None, model: ExvModel | str = ExvModel.simple) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Calculate the Debye scattering intensity of the molecule.
+        Returns: (q, I)
+        """
+        if not isinstance(model, self.ExvModel):
+            try:
+                model = self.ExvModel(model)
+            except ValueError:
+                raise ValueError(f"Invalid ExvModel: {model}. Valid models are: {[m.value for m in self.ExvModel]}")
         ausaxs = AUSAXS()
+        model_ptr = ct.c_char_p(model.value.encode('utf-8'))
         if q_vals:
             q = np.array(q_vals, dtype=np.float64)
+            i = np.zeros_like(q, dtype=np.float64)
             n_q = ct.c_int(len(q_vals))
-            i_ptr = ct.POINTER(ct.c_double)()
             status = ct.c_int()
-            tmp_id = ausaxs.lib().functions.debye_from_molecule_userq(
+            tmp_id = ausaxs.lib().functions.molecule_debye_userq(
                 self._object_id,
+                model_ptr,
                 q.ctypes.data_as(ct.POINTER(ct.c_double)),
+                i.ctypes.data_as(ct.POINTER(ct.c_double)),
                 n_q,
-                ct.byref(i_ptr),
                 ct.byref(status)
             )
             _check_error_code(status, "molecule_debye_q")
@@ -204,8 +206,9 @@ class Molecule:
             i_ptr = ct.POINTER(ct.c_double)()
             n_q = ct.c_int()
             status = ct.c_int()
-            tmp_id = ausaxs.lib().functions.debye_from_molecule(
+            tmp_id = ausaxs.lib().functions.molecule_debye(
                 self._object_id,
+                model_ptr,
                 ct.byref(q_ptr),
                 ct.byref(i_ptr),
                 ct.byref(n_q),

@@ -40,16 +40,23 @@ class AUSAXSLIB:
 
             # test_integration
             self.functions.test_integration.argtypes = [
-                ct.POINTER(ct.c_int) # test val
+                ct.POINTER(ct.c_int)    # test val
             ]
             self.functions.test_integration.restype = None # returns void
 
             # deallocate
             self.functions.deallocate.argtypes = [
-                ct.c_int, # object id
-                ct.POINTER(ct.c_int) # status (0 = success)
+                ct.c_int,               # object id
+                ct.POINTER(ct.c_int)    # status (0 = success)
             ]
             self.functions.deallocate.restype = None # returns void
+
+            # get_last_error_msg
+            self.functions.get_last_error_msg.argtypes = [
+                ct.POINTER(ct.c_char_p),    # msg (output)
+                ct.POINTER(ct.c_int)        # status (0 = success)
+            ]
+            self.functions.get_last_error_msg.restype = None # returns void
 
             # read_pdb
             self.functions.pdb_read.argtypes = [
@@ -144,6 +151,7 @@ class AUSAXSLIB:
             # molecule_hydrate
             self.functions.molecule_hydrate.argtypes = [
                 ct.c_int,               # molecule id
+                ct.POINTER(ct.c_char_p),# hydration model
                 ct.POINTER(ct.c_int)    # status (0 = success)
             ]
             self.functions.molecule_hydrate.restype = None # returns void
@@ -154,35 +162,33 @@ class AUSAXSLIB:
                 ct.POINTER(ct.POINTER(ct.c_double)), # aa (output)
                 ct.POINTER(ct.POINTER(ct.c_double)), # aw (output)
                 ct.POINTER(ct.POINTER(ct.c_double)), # ww (output)
-                ct.POINTER(ct.POINTER(ct.c_double)), # ax (output)
-                ct.POINTER(ct.POINTER(ct.c_double)), # xx (output)
-                ct.POINTER(ct.POINTER(ct.c_double)), # wx (output)
                 ct.POINTER(ct.c_int),                # n_bins (output)
                 ct.POINTER(ct.c_double),             # delta_r (output)
-                ct.POINTER(ct.c_bool),               # exv_hists (output)
                 ct.POINTER(ct.c_int)                 # status (0 = success)
             ]
             self.functions.molecule_distance_histogram.restype = ct.c_int # return obj id
 
-            # debye_from_molecule
-            self.functions.debye_from_molecule.argtypes = [
+            # molecule_debye
+            self.functions.molecule_debye.argtypes = [
                 ct.c_int,                            # molecule id
+                ct.c_char_p,                         # exv model
                 ct.POINTER(ct.POINTER(ct.c_double)), # q (output)
                 ct.POINTER(ct.POINTER(ct.c_double)), # I (output)
                 ct.POINTER(ct.c_int),                # n_points (output)
                 ct.POINTER(ct.c_int)                 # status (0 = success)
             ]
-            self.functions.debye_from_molecule.restype = ct.c_int # return obj id
+            self.functions.molecule_debye.restype = ct.c_int # return obj id
 
-            # debye_from_molecule_userq
-            self.functions.debye_from_molecule_userq.argtypes = [
-                ct.c_int,               # molecule id
+            # molecule_debye_userq
+            self.functions.molecule_debye_userq.argtypes = [
+                ct.c_int,                # molecule id
+                ct.c_char_p,             # exv model
                 ct.POINTER(ct.c_double), # q
-                ct.c_int,                # n_points
                 ct.POINTER(ct.c_double), # I (output)
+                ct.c_int,                # n_points
                 ct.POINTER(ct.c_int)     # status (0 = success)
             ]
-            self.functions.debye_from_molecule_userq.restype = None # returns void
+            self.functions.molecule_debye_userq.restype = None # returns void
 
             # evaluate_sans_debye
             self.functions.evaluate_sans_debye.argtypes = [

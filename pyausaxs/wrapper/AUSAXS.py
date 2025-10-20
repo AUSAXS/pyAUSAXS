@@ -36,7 +36,14 @@ def _as_numpy_f64_arrays(*arrays: Union[list, np.ndarray]) -> list[np.ndarray]:
 def _check_error_code(status: ct.c_int, function_name: str) -> None:
     """Check the status code returned by AUSAXS functions and raise an error if non-zero."""
     if status.value != 0:
-        raise RuntimeError(f"AUSAXS: \"{function_name}\" failed with error code \"{status.value}\".")
+        ausaxs = AUSAXS()
+        msg = ct.c_char_p()
+        status_msg = ct.c_int()
+        ausaxs.lib().functions.get_last_error_msg(ct.byref(msg), ct.byref(status_msg))
+        if status_msg.value != 0:
+            raise RuntimeError(f"AUSAXS: \"{function_name}\" failed with error code {status.value}.")
+        error_message = msg.value.decode('utf-8') if msg.value is not None else "Unknown error"
+        raise RuntimeError(f"AUSAXS: \"{function_name}\" failed with error code {status.value}: \n\"{error_message}\"")
 
 class AUSAXS:
     _instance = None
