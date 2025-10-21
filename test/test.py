@@ -203,6 +203,12 @@ def test_debye():
     I_expected = simple_cube.debye(q)
     assert np.allclose(I, I_expected, atol=1e-6), f"Debye intensity mismatch: expected {I_expected}, got {I}"
 
+def test_debye_fit():
+    mol = ausaxs.create_molecule("test/2epe.pdb")
+    data = ausaxs.read_data("test/2epe.dat")
+    res = mol.fit(data)
+    ausaxs.plot(res)
+
 if __name__ == '__main__':
     import pyausaxs
     print(f"AUSAXS version {pyausaxs.__version__}")

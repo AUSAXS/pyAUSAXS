@@ -42,28 +42,28 @@ class AUSAXSLIB:
             self.functions.test_integration.argtypes = [
                 ct.POINTER(ct.c_int)    # test val
             ]
-            self.functions.test_integration.restype = None # returns void
+            self.functions.test_integration.restype = None
 
             # deallocate
             self.functions.deallocate.argtypes = [
                 ct.c_int,               # object id
                 ct.POINTER(ct.c_int)    # status (0 = success)
             ]
-            self.functions.deallocate.restype = None # returns void
+            self.functions.deallocate.restype = None
 
             # get_last_error_msg
             self.functions.get_last_error_msg.argtypes = [
                 ct.POINTER(ct.c_char_p),    # msg (output)
                 ct.POINTER(ct.c_int)        # status (0 = success)
             ]
-            self.functions.get_last_error_msg.restype = None # returns void
+            self.functions.get_last_error_msg.restype = None
 
             # read_pdb
             self.functions.pdb_read.argtypes = [
                 ct.c_char_p,                         # filename
                 ct.POINTER(ct.c_int)                 # status (0 = success)
             ]
-            self.functions.pdb_read.restype = ct.c_int # return obj id
+            self.functions.pdb_read.restype = ct.c_int # return pdb id
 
             # pdb_get_data
             self.functions.pdb_get_data.argtypes = [
@@ -85,14 +85,14 @@ class AUSAXSLIB:
                 ct.POINTER(ct.c_int),                # n_atoms (output)
                 ct.POINTER(ct.c_int)                 # status (0 = success)
             ]
-            self.functions.pdb_get_data.restype = ct.c_int # return obj id
+            self.functions.pdb_get_data.restype = ct.c_int # return data id
 
             # data_read
             self.functions.data_read.argtypes = [
                 ct.c_char_p,            # filename
                 ct.POINTER(ct.c_int)    # status (0 = success)
             ]
-            self.functions.data_read.restype = ct.c_int # return obj id
+            self.functions.data_read.restype = ct.c_int # return data id
 
             # data_get_data
             self.functions.data_get_data.argtypes = [
@@ -103,21 +103,21 @@ class AUSAXSLIB:
                 ct.POINTER(ct.c_int),                # n_points (output)
                 ct.POINTER(ct.c_int)                 # status (0 = success)
             ]
-            self.functions.data_get_data.restype = ct.c_int # return obj id
+            self.functions.data_get_data.restype = ct.c_int # return data id
 
             # molecule_from_file
             self.functions.molecule_from_file.argtypes = [
                 ct.c_char_p,            # filename
                 ct.POINTER(ct.c_int)    # status (0 = success)
             ]
-            self.functions.molecule_from_file.restype = ct.c_int # return obj id
+            self.functions.molecule_from_file.restype = ct.c_int # return mol id
 
             # molecule_from_pdb_id
             self.functions.molecule_from_pdb_id.argtypes = [
                 ct.c_int,               # pdb id
                 ct.POINTER(ct.c_int)    # status (0 = success)
             ]
-            self.functions.molecule_from_pdb_id.restype = ct.c_int # return obj id
+            self.functions.molecule_from_pdb_id.restype = ct.c_int # return mol id
 
             # molecule_from_arrays
             self.functions.molecule_from_arrays.argtypes = [
@@ -128,7 +128,7 @@ class AUSAXSLIB:
                 ct.c_int,                # n_atoms
                 ct.POINTER(ct.c_int)     # status (0 = success)
             ]
-            self.functions.molecule_from_arrays.restype = ct.c_int # return obj id
+            self.functions.molecule_from_arrays.restype = ct.c_int # return mol id
 
             # molecule_get_data
             self.functions.molecule_get_data.argtypes = [
@@ -146,7 +146,7 @@ class AUSAXSLIB:
                 ct.POINTER(ct.c_int),                # nw (output)
                 ct.POINTER(ct.c_int)                 # status (0 = success)
             ]
-            self.functions.molecule_get_data.restype = ct.c_int # return obj id
+            self.functions.molecule_get_data.restype = ct.c_int # return data id
 
             # molecule_hydrate
             self.functions.molecule_hydrate.argtypes = [
@@ -154,7 +154,7 @@ class AUSAXSLIB:
                 ct.POINTER(ct.c_char_p),# hydration model
                 ct.POINTER(ct.c_int)    # status (0 = success)
             ]
-            self.functions.molecule_hydrate.restype = None # returns void
+            self.functions.molecule_hydrate.restype = None
 
             # molecule_distance_histogram
             self.functions.molecule_distance_histogram.argtypes = [
@@ -188,7 +188,25 @@ class AUSAXSLIB:
                 ct.c_int,                # n_points
                 ct.POINTER(ct.c_int)     # status (0 = success)
             ]
-            self.functions.molecule_debye_userq.restype = None # returns void
+            self.functions.molecule_debye_userq.restype = None
+
+            # molecule_debye_fit
+            self.functions.molecule_debye_fit.argtypes = [
+                ct.c_int,              # molecule id
+                ct.c_int,              # data id
+                ct.c_char_p,           # exv model
+                ct.POINTER(ct.c_int)   # status (0 = success)
+            ]
+            self.functions.molecule_debye_fit.restype = int # return res id
+
+            # pdb_debye_fit
+            self.functions.pdb_debye_fit.argtypes = [
+                ct.c_int,              # pdb id
+                ct.c_int,              # data id
+                ct.c_char_p,           # exv model
+                ct.POINTER(ct.c_int)   # status (0 = success)
+            ]
+            self.functions.pdb_debye_fit.restype = None # return res id
 
             # evaluate_sans_debye
             self.functions.evaluate_sans_debye.argtypes = [

@@ -8,7 +8,7 @@ from enum import Enum as enum
 
 class Molecule:
     def __init__(self, *args):
-        self._object_id: int = None
+        self._object_id: int = -1
         self._atom_data: dict[str, np.ndarray] = {}
         self._water_data: dict[str, np.ndarray] = {}
         self._create_molecule(*args)
