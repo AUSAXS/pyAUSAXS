@@ -2,7 +2,7 @@ from .AUSAXS import AUSAXS, _check_error_code
 import ctypes as ct
 import numpy as np
 
-class DataFile:
+class Datafile:
     def __init__(self, filename: str):
         self._object_id: int = None
         self._data: dict[str, np.ndarray] = {}
@@ -72,6 +72,6 @@ class DataFile:
         self._get_data()
         return [self._data['q'], self._data['I'], self._data['Ierr']]
 
-def read_data(filename: str) -> DataFile:
+def read_data(filename: str) -> Datafile:
     """Read a data file and return a DataFile object."""
-    return DataFile(filename)
+    return Datafile(filename)

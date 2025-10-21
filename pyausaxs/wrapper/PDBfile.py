@@ -1,4 +1,7 @@
 from .AUSAXS import AUSAXS, _check_error_code
+from .Models import ExvModel
+from .Datafile import Datafile
+from .FitResult import FitResult
 import ctypes as ct
 import numpy as np
 
@@ -80,6 +83,22 @@ class PDBfile:
         self._data["element"]    = np.array([element_ptr[i].decode('utf-8') for i in range(n)], dtype=np.str_   )
         self._data["charge"]     = np.array([charge_ptr[i].decode('utf-8') for i in range(n)],  dtype=np.str_   )
         ausaxs.deallocate(data_id)
+
+    def fit(self, data: Datafile, model: ExvModel | str = ExvModel.simple) -> FitResult:
+        """Fit the Debye scattering intensity of the PDB data to the provided data.
+        Returns: chi-squared value of the fit.
+        """
+        ausaxs = AUSAXS()
+        model_ptr = ct.c_char_p(model.value.encode('utf-8'))
+        status = ct.c_int()
+        res_id = ausaxs.lib().functions.pdb_debye_fit(
+            self._object_id,
+            data._object_id,
+            model_ptr,
+            ct.byref(status)
+        )
+        _check_error_code(status, "pdb_fit")
+        return FitResult(res_id)
 
     def serial(self) -> np.ndarray:
         """Get atom serial numbers as numpy array."""

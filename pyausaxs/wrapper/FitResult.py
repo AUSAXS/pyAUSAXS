@@ -1,0 +1,2 @@
+class FitResult:
+    pass

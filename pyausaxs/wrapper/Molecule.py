@@ -1,10 +1,12 @@
 from .AUSAXS import AUSAXS, _check_error_code
 from .PDBfile import PDBfile
 from .Histogram import Histogram
+from .Datafile import Datafile
+from .FitResult import FitResult
+from .Models import ExvModel, WaterModel
 import ctypes as ct
 import numpy as np
 from typing import overload
-from enum import Enum as enum
 
 class Molecule:
     def __init__(self, *args):
@@ -120,17 +122,20 @@ class Molecule:
         self._water_data["ff_type"] = "OH"
         ausaxs.deallocate(data_id)
 
-    def hydrate(self) -> None:
+    def hydrate(self, model: WaterModel | str = WaterModel.radial) -> None:
         """Add a hydration shell to the molecule."""
         ausaxs = AUSAXS()
+        model = WaterModel.validate(model)
+        model_ptr = ct.c_char_p(model.value.encode('utf-8'))
         status = ct.c_int()
         ausaxs.lib().functions.molecule_hydrate(
             self._object_id,
+            model_ptr,
             ct.byref(status)
         )
         _check_error_code(status, "molecule_hydrate")
 
-        # invalidate cached data to refresh data on next access
+        # invalidate cache to refresh data on next access
         self._atom_data = {}
         self._water_data = {}
 
@@ -167,21 +172,13 @@ class Molecule:
     def histogram(self) -> Histogram:
         return self.distance_histogram()
 
-    class ExvModel(enum):
-        simple = "simple"; average = "average"; fraser = "fraser"; grid_base = "grid-base"; grid_scalable = "grid-scalable",
-        grid = "grid"; crysol = "crysol"; foxs = "foxs"; pepsi = "pepsi"; none = "none"; waxsis = "waxsis"
-
     def debye(self, q_vals: list[float] | np.ndarray = None, model: ExvModel | str = ExvModel.simple) -> tuple[np.ndarray, np.ndarray]:
         """
         Calculate the Debye scattering intensity of the molecule.
         Returns: (q, I)
         """
-        if not isinstance(model, self.ExvModel):
-            try:
-                model = self.ExvModel(model)
-            except ValueError:
-                raise ValueError(f"Invalid ExvModel: {model}. Valid models are: {[m.value for m in self.ExvModel]}")
         ausaxs = AUSAXS()
+        model = ExvModel.validate(model)
         model_ptr = ct.c_char_p(model.value.encode('utf-8'))
         if q_vals:
             q = np.array(q_vals, dtype=np.float64)
@@ -221,6 +218,24 @@ class Molecule:
             i = np.array([i_ptr[i] for i in range(n)], dtype=np.float64)
             ausaxs.deallocate(tmp_id)
             return q, i
+
+    def fit(self, data: Datafile, model: ExvModel | str = ExvModel.simple) -> float:
+        """
+        Fit the Debye scattering intensity of the molecule to the provided data.
+        Returns: chi-squared value of the fit.
+        """
+        ausaxs = AUSAXS()
+        model = ExvModel.validate(model)
+        model_ptr = ct.c_char_p(model.value.encode('utf-8'))
+        status = ct.c_int()
+        res_id = ausaxs.lib().functions.molecule_debye_fit(
+            self._object_id,
+            data._object_id,
+            model_ptr,
+            ct.byref(status)
+        )
+        _check_error_code(status, "molecule_fit")
+        return FitResult(res_id)
 
     def atoms(self) -> list[np.ndarray]:
         """Get atomic data as a list of numpy arrays: (x, y, z, weights, ff_type)."""
