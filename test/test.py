@@ -180,6 +180,13 @@ def test_molecule():
     assert np.allclose(z2, z, atol=1e-6),       "Molecule coordinates should match input"
     assert np.allclose(w2, weights, atol=1e-6), "Molecule weights should match input"
 
+def test_hydrate():
+    mol = ausaxs.create_molecule("test/2epe.pdb")
+    mol.clear_hydration()
+    assert len(mol.waters()[0]) == 0, "Should have no hydration waters after clear_hydration"
+    mol.hydrate()
+    assert len(mol.waters()[0]) > 0, "Should have hydration waters after hydrate"
+
 def test_histogram():
     atoms = simple_cube.points()
     distances, counts_exact = simple_cube.hist()
@@ -207,6 +214,11 @@ def test_debye_fit():
     res = mol.fit(data)
     ausaxs.plot(res)
 
+def test_Rg():
+    mol = ausaxs.create_molecule("test/2epe.pdb")
+    Rg = mol.Rg()
+    assert math.isclose(Rg, 13.89, abs_tol=0.1), f"Radius of gyration mismatch: expected 16.2162, got {Rg}"
+
 if __name__ == '__main__':
     import pyausaxs
     print(f"AUSAXS version {pyausaxs.__version__}")
@@ -216,6 +228,8 @@ if __name__ == '__main__':
     test_read_ciffile()
     test_read_datafile()
     test_molecule()
+    test_Rg()
+    test_hydrate()
     test_histogram()
     test_debye()
     test_fit()

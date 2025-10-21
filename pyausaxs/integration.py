@@ -151,10 +151,25 @@ class AUSAXSLIB:
             # molecule_hydrate
             self.functions.molecule_hydrate.argtypes = [
                 ct.c_int,               # molecule id
-                ct.POINTER(ct.c_char_p),# hydration model
+                ct.c_char_p,            # hydration model
                 ct.POINTER(ct.c_int)    # status (0 = success)
             ]
             self.functions.molecule_hydrate.restype = None
+
+            # molecule_clear_hydration
+            self.functions.molecule_clear_hydration.argtypes = [
+                ct.c_int,               # molecule id
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.molecule_clear_hydration.restype = None
+
+            # molecule_Rg
+            self.functions.molecule_Rg.argtypes = [
+                ct.c_int,               # molecule id
+                ct.POINTER(ct.c_double),# Rg (output)
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.molecule_Rg.restype = None
 
             # molecule_distance_histogram
             self.functions.molecule_distance_histogram.argtypes = [

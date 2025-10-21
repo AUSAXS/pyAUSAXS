@@ -132,10 +132,36 @@ class Molecule(BackendObject):
             ct.byref(status)
         )
         _check_error_code(status, "molecule_hydrate")
-
-        # invalidate cache to refresh data on next access
         self._atom_data = {}
         self._water_data = {}
+
+    def clear_hydration(self) -> None:
+        """Remove the hydration shell from the molecule."""
+        ausaxs = AUSAXS()
+        status = ct.c_int()
+        ausaxs.lib().functions.molecule_clear_hydration(
+            self._object_id,
+            ct.byref(status)
+        )
+        _check_error_code(status, "molecule_clear_hydration")
+        self._atom_data = {}
+        self._water_data = {}
+
+    def radius_of_gyration(self) -> float:
+        """Get the radius of gyration of the molecule."""
+        ausaxs = AUSAXS()
+        rg = ct.c_double()
+        status = ct.c_int()
+        ausaxs.lib().functions.molecule_Rg(
+            self._object_id,
+            ct.byref(rg),
+            ct.byref(status)
+        )
+        _check_error_code(status, "molecule_radius_of_gyration")
+        return rg.value
+
+    def Rg(self) -> float:
+        return self.radius_of_gyration()
 
     def distance_histogram(self) -> Histogram:
         """Get the partial distance histogram of the molecule."""
