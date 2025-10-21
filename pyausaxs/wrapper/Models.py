@@ -14,7 +14,7 @@ class ExvModel(enum):
         return model
 
 class WaterModel(enum):
-    radial = "radial", axes = "axes", none = "none"
+    radial = "radial"; axes = "axes"; none = "none"
 
     def validate(model: WaterModel | str) -> WaterModel:
         if not isinstance(model, WaterModel):

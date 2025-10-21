@@ -41,28 +41,27 @@ class simple_cube:
         return I_expected*np.exp(-q*q) # ff term
 
 def test_fit():
-    ausaxs = AUSAXS()
-    def manual_fitting():
-        q, I, Ierr = np.loadtxt("test/2epe.dat", usecols=(0,1,2), unpack=True)
-        x, y, z, atom_names, res_names, elements = read_pdb("test/2epe.pdb")
-        fitter = ausaxs.manual_fit(
-            q, I, Ierr,
-            x, y, z, atom_names, res_names, elements
-        )
-        Iq = fitter.step([1, 2])
-        assert len(Iq) == len(I)
+    # def manual_fitting():
+    #     q, I, Ierr = np.loadtxt("test/2epe.dat", usecols=(0,1,2), unpack=True)
+    #     x, y, z, atom_names, res_names, elements = read_pdb("test/2epe.pdb")
+    #     fitter = ausaxs.manual_fit(
+    #         q, I, Ierr,
+    #         x, y, z, atom_names, res_names, elements
+    #     )
+    #     Iq = fitter.step([1, 2])
+    #     assert len(Iq) == len(I)
 
-    def automatic_fitting():
-        q, I, Ierr = np.loadtxt("test/2epe.dat", usecols=(0,1,2), unpack=True)
-        x, y, z, atom_names, res_names, elements = read_pdb("test/2epe.pdb")
-        Iq = ausaxs.fit(
-            q, I, Ierr,
-            x, y, z, atom_names, res_names, elements
-        )
-        assert len(Iq) == len(I)
-
-    manual_fitting()
-    automatic_fitting()
+    data = ausaxs.read_data("test/2epe.dat")
+    mol = ausaxs.create_molecule("test/2epe.pdb")
+    fit_result = mol.fit(data)
+    q_fit, I_data, I_err, I_model = fit_result.fit_curves()
+    chi2 = fit_result.chi2()
+    dof = fit_result.dof()
+    params = fit_result.fit_parameters()
+    assert len(q_fit) == len(I_data) == len(I_err) == len(I_model), "Fitted curves should have same length"
+    assert chi2 > 0, "Chi2 should be positive"
+    assert dof > 0, "Degrees of freedom should be positive"
+    assert len(params) > 0, "Should have some fit parameters"
 
 def test_pdb_reader():
     """Test that the PDB reader correctly parses atomic information."""
@@ -72,7 +71,6 @@ def test_pdb_reader():
     assert all(isinstance(name, str) for name in atom_names), "Atom names should be strings"
     assert all(isinstance(name, str) for name in res_names), "Residue names should be strings" 
     assert all(isinstance(elem, str) for elem in elements), "Elements should be strings"
-    return True
 
 def test_singleton():
     """Test that AUSAXS instances are the same object."""
@@ -214,12 +212,12 @@ if __name__ == '__main__':
     print(f"AUSAXS version {pyausaxs.__version__}")
     test_singleton()
     test_reset_singleton()
-    # test_fit()
     test_read_pdbfile()
     test_read_ciffile()
     test_read_datafile()
     test_molecule()
     test_histogram()
     test_debye()
+    test_fit()
     print("All tests passed")
     sys.exit(0)

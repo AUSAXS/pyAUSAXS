@@ -1,16 +1,14 @@
 from .AUSAXS import AUSAXS, _check_error_code
+from .BackendObject import BackendObject
 import ctypes as ct
 import numpy as np
 
-class Datafile:
+class Datafile(BackendObject):
+    __slots__ = ['_data']
     def __init__(self, filename: str):
-        self._object_id: int = None
+        super().__init__()
         self._data: dict[str, np.ndarray] = {}
         self._read_data(filename)
-
-    def __del__(self):        
-        ausaxs = AUSAXS()
-        ausaxs.deallocate(self._object_id)
 
     def _read_data(self, filename: str) -> None:
         ausaxs = AUSAXS()

@@ -1,6 +1,7 @@
 import numpy as np
 
 class Histogram:
+    __slots__ = ['_bins', '_aa', '_aw', '_ww']
     def __init__(self, bins, aa, aw, ww):
         self._bins = bins
         self._aa = aa

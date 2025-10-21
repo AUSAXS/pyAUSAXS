@@ -1,4 +1,5 @@
 from .AUSAXS import AUSAXS, _check_error_code
+from .BackendObject import BackendObject
 from .PDBfile import PDBfile
 from .Histogram import Histogram
 from .Datafile import Datafile
@@ -8,16 +9,13 @@ import ctypes as ct
 import numpy as np
 from typing import overload
 
-class Molecule:
+class Molecule(BackendObject):
+    __slots__ = ['_atom_data', '_water_data']
     def __init__(self, *args):
-        self._object_id: int = -1
+        super().__init__()
         self._atom_data: dict[str, np.ndarray] = {}
         self._water_data: dict[str, np.ndarray] = {}
         self._create_molecule(*args)
-
-    def __del__(self):        
-        ausaxs = AUSAXS()
-        ausaxs.deallocate(self._object_id)
 
     def _create_molecule_from_file(self, filename: str) -> None:
         ausaxs = AUSAXS()

@@ -1,19 +1,16 @@
 from .AUSAXS import AUSAXS, _check_error_code
+from .BackendObject import BackendObject
 from .Models import ExvModel
 from .Datafile import Datafile
 from .FitResult import FitResult
 import ctypes as ct
 import numpy as np
 
-class PDBfile:
+class PDBfile(BackendObject):
     def __init__(self, filename: str):
-        self._object_id: int = None
+        super().__init__()
         self._data: dict[str, np.ndarray] = {}
         self._read_pdb(filename)
-
-    def __del__(self):
-        ausaxs = AUSAXS()
-        ausaxs.deallocate(self._object_id)
 
     def _read_pdb(self, filename: str) -> None:
         """Read a pdb (or cif) data file"""

@@ -208,6 +208,32 @@ class AUSAXSLIB:
             ]
             self.functions.pdb_debye_fit.restype = None # return res id
 
+            # fit_get_fit_info
+            self.functions.fit_get_fit_info.argtypes = [
+                ct.c_int,                               # fit id
+                ct.POINTER(ct.POINTER(ct.c_char_p)),    # pars (output)
+                ct.POINTER(ct.POINTER(ct.c_double)),    # pvals (output)
+                ct.POINTER(ct.POINTER(ct.c_double)),    # perr_min (output)
+                ct.POINTER(ct.POINTER(ct.c_double)),    # perr_max (output)
+                ct.POINTER(ct.c_int),                   # n_pars (output)
+                ct.POINTER(ct.c_double),                # chi_squared (output)
+                ct.POINTER(ct.c_int),                   # dof (output)
+                ct.POINTER(ct.c_int)                    # status (0 = success)
+            ]
+            self.functions.fit_get_fit_info.restype = ct.c_int # return data id
+
+            # fit_get_fit_curves
+            self.functions.fit_get_fit_curves.argtypes = [
+                ct.c_int,                               # fit id
+                ct.POINTER(ct.POINTER(ct.c_double)),    # q (output)
+                ct.POINTER(ct.POINTER(ct.c_double)),    # I_data (output)
+                ct.POINTER(ct.POINTER(ct.c_double)),    # I_err (output)
+                ct.POINTER(ct.POINTER(ct.c_double)),    # I_model (output)
+                ct.POINTER(ct.c_int),                   # n_points (output)
+                ct.POINTER(ct.c_int)                    # status (0 = success)
+            ]
+            self.functions.fit_get_fit_curves.restype = ct.c_int # return data id
+
             # evaluate_sans_debye
             self.functions.evaluate_sans_debye.argtypes = [
                 ct.POINTER(ct.c_double), # q vector
