@@ -1,14 +1,36 @@
-from .AUSAXS import AUSAXS, _check_error_code
+from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _as_numpy_f64_arrays, _check_similar_length
 from .BackendObject import BackendObject
+from typing import overload
 import ctypes as ct
 import numpy as np
 
 class Datafile(BackendObject):
     __slots__ = ['_data']
-    def __init__(self, filename: str):
-        super().__init__()
+
+    @overload
+    def __init__(self, filename: str): ...
+    @overload
+    def __init__(self, q: list[float] | np.ndarray, I: list[float] | np.ndarray, Ierr: list[float] | np.ndarray): ...
+    def __init__(self, *args):
         self._data: dict[str, np.ndarray] = {}
-        self._read_data(filename)
+        def init_filename(filename: str):
+            super().__init__()
+            self._read_data(filename)
+
+        def init_arrays(q: list[float] | np.ndarray, I: list[float] | np.ndarray, Ierr: list[float] | np.ndarray):
+            _check_array_inputs(q, I, Ierr, names=['q', 'I', 'Ierr'])
+            _check_similar_length(q, I, Ierr, msg="q, I, and Ierr must have the same length")
+            q_arr, I_arr, Ierr_arr = _as_numpy_f64_arrays(q, I, Ierr)
+            self._data['q'] = q_arr
+            self._data['I'] = I_arr
+            self._data['Ierr'] = Ierr_arr
+
+        if len(args) == 1 and isinstance(args[0], str):
+            init_filename(args[0])
+        elif len(args) == 3:
+            init_arrays(args[0], args[1], args[2])
+        else:
+            raise TypeError("Datafile constructor accepts either a filename (str) or three arrays (q, I, Ierr).")
 
     def _read_data(self, filename: str) -> None:
         ausaxs = AUSAXS()
@@ -73,3 +95,7 @@ class Datafile(BackendObject):
 def read_data(filename: str) -> Datafile:
     """Read a data file and return a DataFile object."""
     return Datafile(filename)
+
+def create_datafile(q: list[float] | np.ndarray, I: list[float] | np.ndarray, Ierr: list[float] | np.ndarray) -> Datafile:
+    """Create a DataFile object from given q, I, and Ierr arrays."""
+    return Datafile(q, I, Ierr)

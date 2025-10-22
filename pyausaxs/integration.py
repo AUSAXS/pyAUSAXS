@@ -263,24 +263,6 @@ class AUSAXSLIB:
             ]
             self.functions.evaluate_sans_debye.restype = None
 
-            # fit_saxs
-            self.functions.fit_saxs.argtypes = [
-                ct.POINTER(ct.c_double), # data q vector
-                ct.POINTER(ct.c_double), # data I vector
-                ct.POINTER(ct.c_double), # data Ierr vector
-                ct.c_int,                # n_data (number of points in q, I, Ierr)
-                ct.POINTER(ct.c_double), # pdb x vector
-                ct.POINTER(ct.c_double), # pdb y vector
-                ct.POINTER(ct.c_double), # pdb z vector
-                ct.POINTER(ct.c_char_p), # pdb atom names
-                ct.POINTER(ct.c_char_p), # pdb residue names
-                ct.POINTER(ct.c_char_p), # pdb elements
-                ct.c_int,                # n_pdb (number of atoms)
-                ct.POINTER(ct.c_double), # return I vector for return value
-                ct.POINTER(ct.c_int)     # return status (0 = success)
-            ]
-            self.functions.fit_saxs.restype = None
-
             # iterative_fit_start
             self.functions.iterative_fit_start.argtypes = [
                 ct.POINTER(ct.c_double), # data q vector

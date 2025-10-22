@@ -1,12 +1,15 @@
-from pyausaxs.wrapper import AUSAXS, _check_array_inputs, _check_similar_length, _as_numpy_f64_arrays
+from .AUSAXS import AUSAXS, _check_array_inputs, _check_similar_length, _as_numpy_f64_arrays
+from .PDBfile import PDBfile
+from .Datafile import Datafile
 import ctypes as ct
 import numpy as np
 
-class AUSAXSManualFit:
+class IterativeFit:
     """Manual fitting class for step-by-step SAXS fitting control."""
-    
-    def __init__(self, q, I, Ierr, x, y, z, names, resnames, elements):
-        ausaxs = AUSAXS()
+
+    def __init__(self, pdb: PDBfile, data: Datafile):
+        
+
         _check_array_inputs(
             q, I, Ierr, x, y, z,
             names=['q', 'I', 'Ierr', 'x', 'y', 'z']
