@@ -14,7 +14,6 @@ class AUSAXSLIB:
     def __init__(self):
         self.functions = None
         self.state = self.STATE.UNINITIALIZED
-        # prefer library bundled inside package resources; fall back to top-level resources/
         self.lib_path = find_lib_path()
 
         self._check_cpu_compatibility()
@@ -262,6 +261,59 @@ class AUSAXSLIB:
                 ct.POINTER(ct.c_int)     # status (0 = success)
             ]
             self.functions.evaluate_sans_debye.restype = None
+
+            # set_exv_settings
+            self.functions.set_exv_settings.argtypes = [
+                ct.c_char_p,            # exv_model
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.set_exv_settings.restype = None
+
+            # set_fit_settings
+            self.functions.set_fit_settings.argtypes = [
+                ct.c_uint,              # N
+                ct.c_uint,              # max_iterations
+                ct.c_bool,              # fit_excluded_volume
+                ct.c_bool,              # fit_solvent_density
+                ct.c_bool,              # fit_hydration
+                ct.c_bool,              # fit_atomic_debye_waller
+                ct.c_bool,              # fit_exv_debye_waller
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.set_fit_settings.restype = None
+
+            # set_grid_settings
+            self.functions.set_grid_settings.argtypes = [
+                ct.c_double,            # water_scaling
+                ct.c_double,            # cell_width
+                ct.c_double,            # scaling
+                ct.c_double,            # min_exv_radius
+                ct.c_uint,              # min_bins
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.set_grid_settings.restype = None
+
+            # set_hist_settings
+            self.functions.set_hist_settings.argtypes = [
+                ct.c_uint,              # skip
+                ct.c_double,            # qmin
+                ct.c_double,            # qmax
+                ct.c_bool,              # weighted_bins
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.set_hist_settings.restype = None
+
+            # set_molecule_settings
+            self.functions.set_molecule_settings.argtypes = [
+                ct.c_bool,              # center
+                ct.c_bool,              # throw_on_unknown_atom
+                ct.c_bool,              # implicit_hydrogens
+                ct.c_bool,              # use_occupancy
+                ct.c_char_p,           # exv_set
+                ct.c_char_p,           # hydration_strategy
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.set_molecule_settings.restype = None
 
             # iterative_fit_start
             self.functions.iterative_fit_start.argtypes = [

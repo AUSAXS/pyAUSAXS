@@ -4,7 +4,6 @@ from .PDBfile import PDBfile
 from .Histogram import Histogram
 from .Datafile import Datafile
 from .FitResult import FitResult
-from .Models import ExvModel, WaterModel
 import ctypes as ct
 import numpy as np
 from typing import overload
@@ -120,15 +119,12 @@ class Molecule(BackendObject):
         self._water_data["ff_type"] = "OH"
         ausaxs.deallocate(data_id)
 
-    def hydrate(self, model: WaterModel | str = WaterModel.radial) -> None:
+    def hydrate(self) -> None:
         """Add a hydration shell to the molecule."""
         ausaxs = AUSAXS()
-        model = WaterModel.validate(model)
-        model_ptr = ct.c_char_p(model.value.encode('utf-8'))
         status = ct.c_int()
         ausaxs.lib().functions.molecule_hydrate(
             self._object_id,
-            model_ptr,
             ct.byref(status)
         )
         _check_error_code(status, "molecule_hydrate")
@@ -196,14 +192,12 @@ class Molecule(BackendObject):
     def histogram(self) -> Histogram:
         return self.distance_histogram()
 
-    def debye(self, q_vals: list[float] | np.ndarray = None, model: ExvModel | str = ExvModel.simple) -> tuple[np.ndarray, np.ndarray]:
+    def debye(self, q_vals: list[float] | np.ndarray = None) -> tuple[np.ndarray, np.ndarray]:
         """
         Calculate the Debye scattering intensity of the molecule.
         Returns: (q, I)
         """
         ausaxs = AUSAXS()
-        model = ExvModel.validate(model)
-        model_ptr = ct.c_char_p(model.value.encode('utf-8'))
         if q_vals:
             q = np.array(q_vals, dtype=np.float64)
             i = np.zeros_like(q, dtype=np.float64)
@@ -211,7 +205,6 @@ class Molecule(BackendObject):
             status = ct.c_int()
             tmp_id = ausaxs.lib().functions.molecule_debye_userq(
                 self._object_id,
-                model_ptr,
                 q.ctypes.data_as(ct.POINTER(ct.c_double)),
                 i.ctypes.data_as(ct.POINTER(ct.c_double)),
                 n_q,
@@ -229,7 +222,6 @@ class Molecule(BackendObject):
             status = ct.c_int()
             tmp_id = ausaxs.lib().functions.molecule_debye(
                 self._object_id,
-                model_ptr,
                 ct.byref(q_ptr),
                 ct.byref(i_ptr),
                 ct.byref(n_q),
@@ -243,19 +235,16 @@ class Molecule(BackendObject):
             ausaxs.deallocate(tmp_id)
             return q, i
 
-    def fit(self, data: Datafile, model: ExvModel | str = ExvModel.simple) -> float:
+    def fit(self, data: Datafile) -> float:
         """
         Fit the Debye scattering intensity of the molecule to the provided data.
         Returns: chi-squared value of the fit.
         """
         ausaxs = AUSAXS()
-        model = ExvModel.validate(model)
-        model_ptr = ct.c_char_p(model.value.encode('utf-8'))
         status = ct.c_int()
         res_id = ausaxs.lib().functions.molecule_debye_fit(
             self._object_id,
             data._object_id,
-            model_ptr,
             ct.byref(status)
         )
         _check_error_code(status, "molecule_fit")
