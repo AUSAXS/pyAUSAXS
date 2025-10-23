@@ -32,7 +32,6 @@ class AUSAXSLIB:
         if self.state == self.STATE.FAILED:
             return
 
-        # see the corresponding API at https://github.com/AUSAXS/AUSAXS/blob/master/include/core/api/sasview.h 
         self.state = self.STATE.READY
         try:
             self.functions = ct.CDLL(str(self.lib_path))
