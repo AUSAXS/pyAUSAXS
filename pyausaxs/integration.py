@@ -149,7 +149,6 @@ class AUSAXSLIB:
             # molecule_hydrate
             self.functions.molecule_hydrate.argtypes = [
                 ct.c_int,               # molecule id
-                ct.c_char_p,            # hydration model
                 ct.POINTER(ct.c_int)    # status (0 = success)
             ]
             self.functions.molecule_hydrate.restype = None
@@ -184,7 +183,6 @@ class AUSAXSLIB:
             # molecule_debye
             self.functions.molecule_debye.argtypes = [
                 ct.c_int,                            # molecule id
-                ct.c_char_p,                         # exv model
                 ct.POINTER(ct.POINTER(ct.c_double)), # q (output)
                 ct.POINTER(ct.POINTER(ct.c_double)), # I (output)
                 ct.POINTER(ct.c_int),                # n_points (output)
@@ -195,7 +193,6 @@ class AUSAXSLIB:
             # molecule_debye_userq
             self.functions.molecule_debye_userq.argtypes = [
                 ct.c_int,                # molecule id
-                ct.c_char_p,             # exv model
                 ct.POINTER(ct.c_double), # q
                 ct.POINTER(ct.c_double), # I (output)
                 ct.c_int,                # n_points
@@ -207,7 +204,6 @@ class AUSAXSLIB:
             self.functions.molecule_debye_fit.argtypes = [
                 ct.c_int,              # molecule id
                 ct.c_int,              # data id
-                ct.c_char_p,           # exv model
                 ct.POINTER(ct.c_int)   # status (0 = success)
             ]
             self.functions.molecule_debye_fit.restype = int # return res id
@@ -216,7 +212,6 @@ class AUSAXSLIB:
             self.functions.pdb_debye_fit.argtypes = [
                 ct.c_int,              # pdb id
                 ct.c_int,              # data id
-                ct.c_char_p,           # exv model
                 ct.POINTER(ct.c_int)   # status (0 = success)
             ]
             self.functions.pdb_debye_fit.restype = None # return res id
@@ -248,7 +243,7 @@ class AUSAXSLIB:
             self.functions.fit_get_fit_curves.restype = ct.c_int # return data id
 
             # evaluate_sans_debye
-            self.functions.evaluate_sans_debye.argtypes = [
+            self.functions.debye_no_ff.argtypes = [
                 ct.POINTER(ct.c_double), # q vector
                 ct.POINTER(ct.c_double), # atom x vector
                 ct.POINTER(ct.c_double), # atom y vector
@@ -259,7 +254,7 @@ class AUSAXSLIB:
                 ct.POINTER(ct.c_double), # Iq vector for return value
                 ct.POINTER(ct.c_int)     # status (0 = success)
             ]
-            self.functions.evaluate_sans_debye.restype = None
+            self.functions.debye_no_ff.restype = None
 
             # set_exv_settings
             self.functions.set_exv_settings.argtypes = [
@@ -308,42 +303,33 @@ class AUSAXSLIB:
                 ct.c_bool,              # throw_on_unknown_atom
                 ct.c_bool,              # implicit_hydrogens
                 ct.c_bool,              # use_occupancy
-                ct.c_char_p,           # exv_set
-                ct.c_char_p,           # hydration_strategy
+                ct.c_char_p,            # exv_set
+                ct.c_char_p,            # hydration_strategy
                 ct.POINTER(ct.c_int)    # status (0 = success)
             ]
             self.functions.set_molecule_settings.restype = None
 
             # iterative_fit_start
             self.functions.iterative_fit_start.argtypes = [
-                ct.POINTER(ct.c_double), # data q vector
-                ct.POINTER(ct.c_double), # data I vector
-                ct.POINTER(ct.c_double), # data Ierr vector
-                ct.c_int,                # n_data (number of points in q, I, Ierr)
-                ct.POINTER(ct.c_double), # pdb x vector
-                ct.POINTER(ct.c_double), # pdb y vector
-                ct.POINTER(ct.c_double), # pdb z vector
-                ct.POINTER(ct.c_char_p), # pdb atom names
-                ct.POINTER(ct.c_char_p), # pdb residue names
-                ct.POINTER(ct.c_char_p), # pdb elements
-                ct.c_int,                # n_pdb (number of atoms)
-                ct.POINTER(ct.c_int)     # return status (0 = success)
+                ct.c_int,               # molecule id
+                ct.c_int,               # data id
+                ct.POINTER(ct.c_int)    # return status (0 = success)
             ]
             self.functions.iterative_fit_start.restype = None
 
             # iterative_fit_step
             self.functions.iterative_fit_step.argtypes = [
-                ct.POINTER(ct.c_double), # parameters vector
-                ct.POINTER(ct.c_double), # return I vector for return value
-                ct.POINTER(ct.c_int),    # return status (0 = success)
+                ct.c_int,               # iterative fit id
+                ct.POINTER(ct.c_double),# parameters vector
+                ct.POINTER(ct.c_double),# return I vector for return value
+                ct.POINTER(ct.c_int),   # return status (0 = success)
             ]
             self.functions.iterative_fit_step.restype = None
 
             # iterative_fit_finish
             self.functions.iterative_fit_finish.argtypes = [
-                ct.POINTER(ct.c_double), # parameters vector
-                ct.POINTER(ct.c_double), # return I vector for return value
-                ct.POINTER(ct.c_int),    # return status (0 = success)
+                ct.c_int,               # iterative fit id
+                ct.POINTER(ct.c_int),   # return status (0 = success)
             ]
             self.functions.iterative_fit_finish.restype = None
 

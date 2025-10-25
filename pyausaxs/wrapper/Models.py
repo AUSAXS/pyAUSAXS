@@ -15,8 +15,8 @@ class ExvModel(enum):
         return model
 
 class ExvTable(enum):
-    traube = "traube", voronoi_implicit_H = "voronoi_implicit_h", voronoi_explicit_H = "voronoi_explicit_h",
-    minimum_fluctutation_implicit_H = "minimum_fluctutation_implicit_h", minimum_fluctutation_explicit_H = "minimum_fluctutation_explicit_h",
+    traube = "traube"; voronoi_implicit_H = "voronoi_implicit_h"; voronoi_explicit_H = "voronoi_explicit_h",
+    minimum_fluctutation_implicit_H = "minimum_fluctutation_implicit_h"; minimum_fluctutation_explicit_H = "minimum_fluctutation_explicit_h",
     vdw = "vdw"
 
     @staticmethod

@@ -1,4 +1,4 @@
-from .AUSAXS import AUSAXS, _check_error_code
+from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _check_similar_length, _as_numpy_f64_arrays
 from .BackendObject import BackendObject
 from .PDBfile import PDBfile
 from .Histogram import Histogram
@@ -40,20 +40,23 @@ class Molecule(BackendObject):
         _check_error_code(status, "_create_molecule_from_pdb")
 
     def _create_molecule_from_arrays(
-        self, x: np.ndarray | list[float], y: np.ndarray | list[float], z: np.ndarray | list[float], weights: np.ndarray | list[float]
+        self, x: np.ndarray | list[float], y: np.ndarray | list[float], z: np.ndarray | list[float], w: np.ndarray | list[float]
     ) -> None:
+        _check_array_inputs(
+            x, y, z, w,
+            names=['x', 'y', 'z', 'w']
+        )
+        _check_similar_length(x, y, z, w, msg="Atomic coordinates and weights must have the same length")
+        x, y, z, w = _as_numpy_f64_arrays(x, y, z, w)
+
         ausaxs = AUSAXS()
         n_atoms = ct.c_int(len(x))
-        x_c = x.astype(np.float64)
-        y_c = y.astype(np.float64)
-        z_c = z.astype(np.float64)
-        weights_c = weights.astype(np.float64)
         status = ct.c_int()
         self._object_id = ausaxs.lib().functions.molecule_from_arrays(
-            x_c.ctypes.data_as(ct.POINTER(ct.c_double)),
-            y_c.ctypes.data_as(ct.POINTER(ct.c_double)),
-            z_c.ctypes.data_as(ct.POINTER(ct.c_double)),
-            weights_c.ctypes.data_as(ct.POINTER(ct.c_double)),
+            x.ctypes.data_as(ct.POINTER(ct.c_double)),
+            y.ctypes.data_as(ct.POINTER(ct.c_double)),
+            z.ctypes.data_as(ct.POINTER(ct.c_double)),
+            w.ctypes.data_as(ct.POINTER(ct.c_double)),
             n_atoms,
             ct.byref(status)
         )

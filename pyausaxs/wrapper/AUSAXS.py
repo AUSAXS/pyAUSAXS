@@ -47,20 +47,19 @@ def _check_error_code(status: ct.c_int, function_name: str) -> None:
 
 class AUSAXS:
     _instance = None
-    _lock = threading.Lock()
 
     def __new__(cls):
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super(AUSAXS, cls).__new__(cls)
-                    cls._instance._initialized = False
+        if cls._instance: return cls._instance
+        with threading.Lock():
+            if cls._instance is None:
+                cls._instance = super(AUSAXS, cls).__new__(cls)
+                cls._instance._initialized = False
         return cls._instance
 
     def __init__(self):
         if self._initialized:
             return
-            
+
         self._lib = None
         self._ready = False
         self._init_error = None
@@ -76,40 +75,32 @@ class AUSAXS:
     @classmethod
     def reset_singleton(cls):
         """Reset the singleton instance."""
-        with cls._lock:
-            cls._instance = None
+        cls._instance = None
 
     @classmethod
-    def ready(self) -> bool:
+    def ready(cls) -> bool:
         """Check if the AUSAXS library is ready for use."""
-        return self._ready
+        return cls._instance._ready
 
     @classmethod
-    def init_error(self) -> Optional[Exception]:
+    def init_error(cls) -> Optional[Exception]:
         """Return the initialization error, if any."""
-        return self._init_error
+        return cls._instance._init_error
 
     @classmethod
-    def lib(self) -> AUSAXSLIB:
+    def lib(cls) -> AUSAXSLIB:
         """Get the underlying AUSAXSLIB instance."""
-        if not self.ready():
-            raise RuntimeError(f"AUSAXS: library failed to initialize. Reason: {self.init_error()}")
-        return self._lib
+        if not cls.ready():
+            raise RuntimeError(f"AUSAXS: library failed to initialize. Reason: {cls.init_error()}")
+        return cls._instance._lib
 
     @classmethod
-    def deallocate(self, object_id: int) -> None:
+    def deallocate(cls, object_id: int) -> None:
         """Deallocate an object in the AUSAXS library by its ID."""
-        if not self.ready():
-            raise RuntimeError(f"AUSAXS: library failed to initialize. Reason: {self.init_error()}")
+        if not cls.ready():
+            raise RuntimeError(f"AUSAXS: library failed to initialize. Reason: {cls.init_error()}")
         if not isinstance(object_id, int):
             raise TypeError(f"object_id must be of type int, got {type(object_id)} instead.")
         status = ct.c_int()
-        self._lib.functions.deallocate(object_id, ct.byref(status))
+        cls.lib().functions.deallocate(object_id, ct.byref(status))
         _check_error_code(status, "deallocate")
-
-    def manual_fit(self, q, I, Ierr, x, y, z, names, resnames, elements):
-        """
-        Create a manual fitting instance for iterative control.
-        Returns an AUSAXSManualFit object with step() and finish() methods.
-        """
-        return AUSAXSManualFit(self, q, I, Ierr, x, y, z, names, resnames, elements)

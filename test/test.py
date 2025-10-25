@@ -41,27 +41,27 @@ class simple_cube:
         return I_expected*np.exp(-q*q) # ff term
 
 def test_fit():
-    # def manual_fitting():
-    #     q, I, Ierr = np.loadtxt("test/2epe.dat", usecols=(0,1,2), unpack=True)
-    #     x, y, z, atom_names, res_names, elements = read_pdb("test/2epe.pdb")
-    #     fitter = ausaxs.manual_fit(
-    #         q, I, Ierr,
-    #         x, y, z, atom_names, res_names, elements
-    #     )
-    #     Iq = fitter.step([1, 2])
-    #     assert len(Iq) == len(I)
-
-    data = ausaxs.read_data("test/2epe.dat")
-    mol = ausaxs.create_molecule("test/2epe.pdb")
-    fit_result = mol.fit(data)
-    q_fit, I_data, I_err, I_model = fit_result.fit_curves()
-    chi2 = fit_result.chi2()
-    dof = fit_result.dof()
-    params = fit_result.fit_parameters()
-    assert len(q_fit) == len(I_data) == len(I_err) == len(I_model), "Fitted curves should have same length"
-    assert chi2 > 0, "Chi2 should be positive"
-    assert dof > 0, "Degrees of freedom should be positive"
-    assert len(params) > 0, "Should have some fit parameters"
+    def automatic():
+        data = ausaxs.read_data("test/2epe.dat")
+        mol = ausaxs.create_molecule("test/2epe.pdb")
+        fit_result = mol.fit(data)
+        q_fit, I_data, I_err, I_model = fit_result.fit_curves()
+        chi2 = fit_result.chi2()
+        dof = fit_result.dof()
+        params = fit_result.fit_parameters()
+        assert len(q_fit) == len(I_data) == len(I_err) == len(I_model), "Fitted curves should have same length"
+        assert chi2 > 0, "Chi2 should be positive"
+        assert dof > 0, "Degrees of freedom should be positive"
+        assert len(params) > 0, "Should have some fit parameters"
+    
+    def manual():
+        data = ausaxs.read_data("test/2epe.dat")
+        mol = ausaxs.create_molecule("test/2epe.pdb")
+        fit = ausaxs.manual_fit(mol, data)
+        pars = [1.0]
+        i = fit.step(pars)
+        assert len(i) == len(data.data()[0]), "Fitted I(q) should match data length"
+        
 
 def test_pdb_reader():
     """Test that the PDB reader correctly parses atomic information."""
@@ -204,7 +204,7 @@ def test_histogram():
 def test_debye():
     atoms = simple_cube.points()
     mol = ausaxs.create_molecule(*atoms)
-    q, I = mol.debye(model="none")
+    q, I = mol.debye()
     I_expected = simple_cube.debye(q)
     assert np.allclose(I, I_expected, atol=1e-6), f"Debye intensity mismatch: expected {I_expected}, got {I}"
 

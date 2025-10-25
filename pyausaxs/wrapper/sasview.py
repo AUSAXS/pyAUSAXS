@@ -26,7 +26,7 @@ class sasview:
         z = atom_z.ctypes.data_as(ct.POINTER(ct.c_double))
         w = weights.ctypes.data_as(ct.POINTER(ct.c_double))
         status = ct.c_int()
-        ausaxs.lib().functions.evaluate_sans_debye(q, x, y, z, w, nq, nc, Iq, ct.byref(status))
+        ausaxs.lib().functions.debye_no_ff(q, x, y, z, w, nq, nc, Iq, ct.byref(status))
         _check_error_code(status, "debye")
 
         return np.ctypeslib.as_array(Iq)

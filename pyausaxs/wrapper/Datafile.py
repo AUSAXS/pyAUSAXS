@@ -12,9 +12,10 @@ class Datafile(BackendObject):
     @overload
     def __init__(self, q: list[float] | np.ndarray, I: list[float] | np.ndarray, Ierr: list[float] | np.ndarray): ...
     def __init__(self, *args):
+        super().__init__()
         self._data: dict[str, np.ndarray] = {}
+
         def init_filename(filename: str):
-            super().__init__()
             self._read_data(filename)
 
         def init_arrays(q: list[float] | np.ndarray, I: list[float] | np.ndarray, Ierr: list[float] | np.ndarray):
