@@ -242,7 +242,7 @@ class AUSAXSLIB:
             ]
             self.functions.fit_get_fit_curves.restype = ct.c_int # return data id
 
-            # evaluate_sans_debye
+            # debye_no_ff
             self.functions.debye_no_ff.argtypes = [
                 ct.POINTER(ct.c_double), # q vector
                 ct.POINTER(ct.c_double), # atom x vector
@@ -325,13 +325,6 @@ class AUSAXSLIB:
                 ct.POINTER(ct.c_int),   # return status (0 = success)
             ]
             self.functions.iterative_fit_step.restype = None
-
-            # iterative_fit_finish
-            self.functions.iterative_fit_finish.argtypes = [
-                ct.c_int,               # iterative fit id
-                ct.POINTER(ct.c_int),   # return status (0 = success)
-            ]
-            self.functions.iterative_fit_finish.restype = None
 
             self.state = self.STATE.READY
 

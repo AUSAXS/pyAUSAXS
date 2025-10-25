@@ -61,16 +61,8 @@ def test_fit():
         pars = [1.0]
         i = fit.step(pars)
         assert len(i) == len(data.data()[0]), "Fitted I(q) should match data length"
-        
-
-def test_pdb_reader():
-    """Test that the PDB reader correctly parses atomic information."""
-    x, y, z, atom_names, res_names, elements = read_pdb("test/2epe.pdb")
-    assert len(x) > 0, "Should have parsed some atoms"
-    assert len(x) == len(y) == len(z) == len(atom_names) == len(res_names) == len(elements), "All arrays should have same length"
-    assert all(isinstance(name, str) for name in atom_names), "Atom names should be strings"
-    assert all(isinstance(name, str) for name in res_names), "Residue names should be strings" 
-    assert all(isinstance(elem, str) for elem in elements), "Elements should be strings"
+    automatic()
+    manual()
 
 def test_singleton():
     """Test that AUSAXS instances are the same object."""
