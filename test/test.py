@@ -211,9 +211,19 @@ def test_Rg():
     Rg = mol.Rg()
     assert math.isclose(Rg, 13.89, abs_tol=0.1), f"Radius of gyration mismatch: expected 16.2162, got {Rg}"
 
+def test_settings():
+    # just call all settings to ensure no errors occur
+    ausaxs.settings.set_general_settings()
+    ausaxs.settings.set_fit_settings()
+    ausaxs.settings.set_grid_settings()
+    ausaxs.settings.set_hist_settings()
+    ausaxs.settings.set_molecule_settings()
+    ausaxs.settings.set_exv_settings()
+
 if __name__ == '__main__':
     import pyausaxs
     print(f"AUSAXS version {pyausaxs.__version__}")
+    pyausaxs.settings.set_general_settings(verbose=False)
     test_singleton()
     test_reset_singleton()
     test_read_pdbfile()
@@ -225,5 +235,6 @@ if __name__ == '__main__':
     test_histogram()
     test_debye()
     test_fit()
+    test_settings()
     print("All tests passed")
     sys.exit(0)

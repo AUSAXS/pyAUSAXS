@@ -2,8 +2,17 @@ from __future__ import annotations
 from enum import Enum as enum
 
 class ExvModel(enum):
-    simple = "simple"; average = "average"; fraser = "fraser"; grid_base = "grid-base"; grid_scalable = "grid-scalable",
-    grid = "grid"; crysol = "crysol"; foxs = "foxs"; pepsi = "pepsi"; none = "none"; waxsis = "waxsis"
+    simple = "simple"
+    average = "average"
+    fraser = "fraser"
+    grid_base = "grid-base"
+    grid_scalable = "grid-scalable"
+    grid = "grid"
+    crysol = "crysol"
+    foxs = "foxs"
+    pepsi = "pepsi"
+    waxsis = "waxsis"
+    none = "none"
 
     @staticmethod
     def validate(model: ExvModel | str) -> ExvModel:
@@ -15,8 +24,11 @@ class ExvModel(enum):
         return model
 
 class ExvTable(enum):
-    traube = "traube"; voronoi_implicit_H = "voronoi_implicit_h"; voronoi_explicit_H = "voronoi_explicit_h",
-    minimum_fluctutation_implicit_H = "minimum_fluctutation_implicit_h"; minimum_fluctutation_explicit_H = "minimum_fluctutation_explicit_h",
+    traube = "traube",
+    voronoi_implicit_H = "voronoi_implicit_h"
+    voronoi_explicit_H = "voronoi_explicit_h"
+    minimum_fluctutation_implicit_H = "minimum_fluctuation_implicit_h"
+    minimum_fluctutation_explicit_H = "minimum_fluctuation_explicit_h"
     vdw = "vdw"
 
     @staticmethod
@@ -36,7 +48,9 @@ class ExvTable(enum):
         return table
 
 class WaterModel(enum):
-    radial = "radial"; axes = "axes"; none = "none"
+    radial = "radial" 
+    axes = "axes" 
+    none = "none"
 
     @staticmethod
     def validate(model: WaterModel | str) -> WaterModel:

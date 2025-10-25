@@ -18,16 +18,19 @@ class IterativeFit(BackendObject):
             ct.byref(status)
         )
         _check_error_code(status, "iterative_fit_start")
+        self._qsize = len(data.q())
 
     def step(self, params: np.ndarray | list[float]) -> np.ndarray:
         """Perform one fitting iteration and return the current I(q)."""
         _check_array_inputs(params, names=['params'])
         params_ptr = _as_numpy_f64_arrays(params)[0].ctypes.data_as(ct.POINTER(ct.c_double))
-        Iq = (ct.c_double * len(self.data._data['q']))()
+        Iq = (ct.c_double * self._qsize)()
+        n_params = ct.c_int(len(params))
         status = ct.c_int()
         self.ausaxs._lib.functions.iterative_fit_step(
             self._object_id,
-            params_ptr,
+            params_ptr, 
+            n_params,
             Iq,
             ct.byref(status)
         )

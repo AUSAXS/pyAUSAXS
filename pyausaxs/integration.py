@@ -265,7 +265,7 @@ class AUSAXSLIB:
 
             # set_fit_settings
             self.functions.set_fit_settings.argtypes = [
-                ct.c_uint,              # N
+                ct.c_uint,              # sampled points
                 ct.c_uint,              # max_iterations
                 ct.c_bool,              # fit_excluded_volume
                 ct.c_bool,              # fit_solvent_density
@@ -309,18 +309,29 @@ class AUSAXSLIB:
             ]
             self.functions.set_molecule_settings.restype = None
 
+            # set_general_settings
+            self.functions.set_general_settings.argtypes = [
+                ct.c_bool,              # offline
+                ct.c_bool,              # verbose
+                ct.c_bool,              # warnings
+                ct.c_uint,              # threads
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.set_general_settings.restype = None
+
             # iterative_fit_start
             self.functions.iterative_fit_start.argtypes = [
                 ct.c_int,               # molecule id
                 ct.c_int,               # data id
                 ct.POINTER(ct.c_int)    # return status (0 = success)
             ]
-            self.functions.iterative_fit_start.restype = None
+            self.functions.iterative_fit_start.restype = ct.c_int # return iterative fit id
 
             # iterative_fit_step
             self.functions.iterative_fit_step.argtypes = [
                 ct.c_int,               # iterative fit id
                 ct.POINTER(ct.c_double),# parameters vector
+                ct.c_int,               # number of parameters
                 ct.POINTER(ct.c_double),# return I vector for return value
                 ct.POINTER(ct.c_int),   # return status (0 = success)
             ]
