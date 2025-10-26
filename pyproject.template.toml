@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyausaxs"
-version = "1.0.4"
+version = "1.0.5"
 description = "Python wrapper for [AUSAXS library](https://github.com/AUSAXS/AUSAXS)."
 readme = "README.md"
 license = "LGPL-3.0-or-later"

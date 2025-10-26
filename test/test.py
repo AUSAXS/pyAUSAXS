@@ -1,107 +1,75 @@
 import sys
 import math
 import numpy as np
-from pyausaxs import AUSAXS
+import pyausaxs as ausaxs
 
-def read_pdb(filename):
-    """
-    Simple PDB reader that extracts coordinates and atom information.
-    """
-    xx, yy, zz, an, rn, e = [], [], [], [], [], []
-    with open(filename, 'r') as f:
-        for line in f:
-            if line.startswith('ATOM'):
-                atom_name = line[12:16].strip()
-                res_name = line[17:20].strip()
-                x = float(line[30:38].strip())
-                y = float(line[38:46].strip())
-                z = float(line[46:54].strip())
-                element = line[76:78].strip()
-                if not element:
-                    element = ''.join(c for c in atom_name if c.isalpha())[:1]
-                    if not element:
-                        element = 'C'
-
-                xx.append(x)
-                yy.append(y)
-                zz.append(z)
-                an.append(atom_name)
-                rn.append(res_name)
-                e.append(element)
-    return (np.array(xx), np.array(yy), np.array(zz), an, rn, e)
-
-def test_cube_debye():
-    q = np.linspace(0.0, 1.0, 100)
-
-    # build coordinates for 8 cube corners and center (0,0,0) -> total 9 points
-    corners = [(-1, -1, -1), (-1, 1, -1), (1, -1, -1), (1, 1, -1),
-               (-1, -1, 1), (-1, 1, 1), (1, -1, 1), (1, 1, 1)]
-    pts = corners + [(0.0, 0.0, 0.0)]
-    xs = np.array([p[0] for p in pts], dtype=float)
-    ys = np.array([p[1] for p in pts], dtype=float)
-    zs = np.array([p[2] for p in pts], dtype=float)
-    ws = np.ones(len(pts), dtype=float)
-
-    # exact distances (unique) and multiplicities
-    d_vals = [0.0, math.sqrt(3.0), 2.0, math.sqrt(8.0), math.sqrt(12.0)]
-    multiplicities = [9, 16, 24, 24, 8]
-
-    # compute expected I(q) from multiplicities and distances (weights=1)
-    I_expected = np.zeros_like(q, dtype=float)
-    for m, r in zip(multiplicities, d_vals):
-        if r == 0.0:
-            I_expected += m
-        else:
-            qr = q*r
-            term = np.empty_like(qr)
-            mask = qr == 0
-            term[mask] = 1.0
-            term[~mask] = np.sin(qr[~mask]) / qr[~mask]
-            I_expected += m*term
-
-    ausaxs = AUSAXS()
-    I_native = ausaxs.debye(q, xs, ys, zs, ws)
-    assert(np.allclose(I_native, I_expected, rtol=1e-5, atol=1e-8))
+class simple_cube:
+    @staticmethod
+    def points():
+        corners = [
+            (-1, -1, -1), (-1, 1, -1), (1, -1, -1), (1, 1, -1),
+            (-1, -1, 1), (-1, 1, 1), (1, -1, 1), (1, 1, 1),
+            (0, 0, 0)
+        ]
+        w = np.ones(len(corners), dtype=float)
+        xs = np.array([p[0] for p in corners], dtype=float)
+        ys = np.array([p[1] for p in corners], dtype=float)
+        zs = np.array([p[2] for p in corners], dtype=float)
+        return xs, ys, zs, w
+    
+    @staticmethod
+    def hist(): 
+        return [
+            [0.0, math.sqrt(3.0), 2.0, math.sqrt(8.0), math.sqrt(12.0)],
+            [9, 16, 24, 24, 8]
+        ]
+    
+    @staticmethod
+    def debye(q):
+        I_expected = np.zeros_like(q, dtype=float)
+        dist, mult = simple_cube.hist()
+        for m, r in zip(mult, dist):
+            if r == 0.0:
+                I_expected += m
+            else:
+                qr = q*r
+                term = np.empty_like(qr)
+                mask = qr == 0
+                term[mask] = 1.0
+                term[~mask] = np.sin(qr[~mask]) / qr[~mask]
+                I_expected += m*term
+        return I_expected*np.exp(-q*q) # ff term
 
 def test_fit():
-    ausaxs = AUSAXS()
-    def manual_fitting():
-        q, I, Ierr = np.loadtxt("test/2epe.dat", usecols=(0,1,2), unpack=True)
-        x, y, z, atom_names, res_names, elements = read_pdb("test/2epe.pdb")
-        fitter = ausaxs.manual_fit(
-            q, I, Ierr,
-            x, y, z, atom_names, res_names, elements
-        )
-        Iq = fitter.step([1, 2])
-        assert len(Iq) == len(I)
-
-    def automatic_fitting():
-        q, I, Ierr = np.loadtxt("test/2epe.dat", usecols=(0,1,2), unpack=True)
-        x, y, z, atom_names, res_names, elements = read_pdb("test/2epe.pdb")
-        Iq = ausaxs.fit(
-            q, I, Ierr,
-            x, y, z, atom_names, res_names, elements
-        )
-        assert len(Iq) == len(I)
-
-    manual_fitting()
-    automatic_fitting()
-
-def test_pdb_reader():
-    """Test that the PDB reader correctly parses atomic information."""
-    x, y, z, atom_names, res_names, elements = read_pdb("test/2epe.pdb")
-    assert len(x) > 0, "Should have parsed some atoms"
-    assert len(x) == len(y) == len(z) == len(atom_names) == len(res_names) == len(elements), "All arrays should have same length"
-    assert all(isinstance(name, str) for name in atom_names), "Atom names should be strings"
-    assert all(isinstance(name, str) for name in res_names), "Residue names should be strings" 
-    assert all(isinstance(elem, str) for elem in elements), "Elements should be strings"
-    return True
+    def automatic():
+        data = ausaxs.read_data("test/2epe.dat")
+        mol = ausaxs.create_molecule("test/2epe.pdb")
+        fit_result = mol.fit(data)
+        q_fit, I_data, I_err, I_model = fit_result.fit_curves()
+        chi2 = fit_result.chi2()
+        dof = fit_result.dof()
+        params = fit_result.fit_parameters()
+        assert len(q_fit) == len(I_data) == len(I_err) == len(I_model), "Fitted curves should have same length"
+        assert chi2 > 0, "Chi2 should be positive"
+        assert dof > 0, "Degrees of freedom should be positive"
+        assert len(params) > 0, "Should have some fit parameters"
+    
+    def manual():
+        data = ausaxs.read_data("test/2epe.dat")
+        mol = ausaxs.create_molecule("test/2epe.pdb")
+        fit = ausaxs.manual_fit(mol, data)
+        pars = [1.0]
+        i = fit.step(pars)
+        assert len(i) == len(data.data()[0]), "Fitted I(q) should match data length"
+    automatic()
+    manual()
 
 def test_singleton():
     """Test that AUSAXS instances are the same object."""
-    instance1 = AUSAXS()
-    instance2 = AUSAXS()
-    instance3 = AUSAXS()
+    cls = ausaxs.wrapper.AUSAXS.AUSAXS
+    instance1 = cls()
+    instance2 = cls()
+    instance3 = cls()
     assert instance1 is instance2, "Instance 1 and 2 should be the same object"
     assert instance2 is instance3, "Instance 2 and 3 should be the same object"
     assert instance1 is instance3, "Instance 1 and 3 should be the same object"
@@ -110,21 +78,163 @@ def test_singleton():
 
 def test_reset_singleton():
     """Test that reset_singleton works correctly."""
-    instance1 = AUSAXS()
+    cls = ausaxs.wrapper.AUSAXS.AUSAXS
+    instance1 = cls()
     ready1 = instance1.ready()
-    AUSAXS.reset_singleton()
-    instance2 = AUSAXS()
+    cls.reset_singleton()
+    instance2 = cls()
     ready2 = instance2.ready()
     assert instance1 is not instance2, "After reset, new instance should be a different object"
     assert ready1 == ready2, "Ready state should be consistent across resets"
 
+def test_read_datafile():
+    # first two lines of 2epe.dat:
+    # 9.81300045E-03 6.67934353E-03 1.33646582E-03 1
+    # 1.06309997E-02 7.27293547E-03 1.01892441E-03 1
+    data = ausaxs.read_data("test/2epe.dat")
+    q, I, Ierr = data.data()
+    assert math.isclose(q[0], 9.81300045E-03, abs_tol=1e-6),    "First q value mismatch"
+    assert math.isclose(I[0], 6.67934353E-03, abs_tol=1e-6),    "First I value mismatch"
+    assert math.isclose(Ierr[0], 1.33646582E-03, abs_tol=1e-6), "First Ierr value mismatch"
+    assert math.isclose(q[1], 1.06309997E-02, abs_tol=1e-6),    "Second q value mismatch"
+    assert math.isclose(I[1], 7.27293547E-03, abs_tol=1e-6),    "Second I value mismatch"
+    assert math.isclose(Ierr[1], 1.01892441E-03, abs_tol=1e-6), "Second Ierr value mismatch"
+
+def test_read_pdbfile():
+    # first line of 2epe.pdb (ignoring header stuff):
+    # ATOM      1  N   LYS A   1      -3.462  69.119  -8.662  1.00 19.81           N  
+    pdb = ausaxs.read_pdb("test/2epe.pdb")
+    serial, name, altloc, resname, chain_id, resseq, icode, x, y, z, occupancy, tempFactor, element, charge = pdb.data()
+    assert serial[0] == 1,                                  "serial number mismatch"
+    assert name[0].strip() == "N",                          "atom name mismatch"
+    assert altloc[0].strip() == "",                         "altLoc mismatch"
+    assert resname[0].strip() == "LYS",                     "resName mismatch"
+    assert chain_id[0].strip() == "A",                      "chainID mismatch"
+    assert resseq[0] == 1,                                  "resSeq mismatch"
+    assert icode[0].strip() == "",                          "iCode mismatch"
+    assert math.isclose(x[0], -3.462, abs_tol=1e-6),        "x coordinate mismatch"
+    assert math.isclose(y[0], 69.119, abs_tol=1e-6),        "y coordinate mismatch" 
+    assert math.isclose(z[0], -8.662, abs_tol=1e-6),        "z coordinate mismatch"
+    assert math.isclose(occupancy[0], 1.00, abs_tol=1e-6),  "occupancy mismatch"
+    assert math.isclose(tempFactor[0], 19.81, abs_tol=1e-6),"tempFactor mismatch"
+    assert element[0].strip() == "N",                       "element mismatch"
+    assert charge[0].strip() == "",                         "charge mismatch"
+
+def test_read_ciffile():
+    # first data line of 6LYZ.cif:
+    # ATOM   1    N N   . LYS A 1 1   ? 3.287   10.092 10.329 1.00 5.89  ? 1   LYS A N   1 
+    pdb = ausaxs.read_pdb("test/6LYZ.cif")
+    serial, name, altloc, resname, chain_id, resseq, icode, x, y, z, occupancy, tempFactor, element, charge = pdb.data()
+    assert serial[0] == 1,                                  "serial number mismatch"
+    assert name[0].strip() == "N",                          "atom name mismatch"
+    assert altloc[0].strip() == ".",                        "altLoc mismatch"
+    assert resname[0].strip() == "LYS",                     "resName mismatch"
+    assert chain_id[0].strip() == "A",                      "chainID mismatch"
+    assert resseq[0] == 1,                                  "resSeq mismatch"
+    assert icode[0].strip() == "?",                         "iCode mismatch"
+    assert math.isclose(x[0], 3.287, abs_tol=1e-6),         "x coordinate mismatch"
+    assert math.isclose(y[0], 10.092, abs_tol=1e-6),        "y coordinate mismatch" 
+    assert math.isclose(z[0], 10.329, abs_tol=1e-6),        "z coordinate mismatch"
+    assert math.isclose(occupancy[0], 1.00, abs_tol=1e-6),  "occupancy mismatch"
+    assert math.isclose(tempFactor[0], 5.89, abs_tol=1e-6), "tempFactor mismatch"
+    assert element[0].strip() == "N",                       "element mismatch"
+    assert charge[0].strip() == "?",                        "charge mismatch"
+
+def test_molecule():
+    # first line of 2epe.pdb (ignoring header stuff):
+    # ATOM      1  N   LYS A   1      -3.462  69.119  -8.662  1.00 19.81           N  
+    mol1 = ausaxs.create_molecule("test/2epe.pdb")
+    x1, y1, z1, w1, ff1 = mol1.atoms()
+    assert math.isclose(x1[0], -3.462, abs_tol=1e-6),   "x coordinate mismatch"
+    assert math.isclose(y1[0], 69.119, abs_tol=1e-6),   "y coordinate mismatch" 
+    assert math.isclose(z1[0], -8.662, abs_tol=1e-6),   "z coordinate mismatch"
+    assert ff1[0].strip() == "NH",                      "form factor type mismatch"
+
+    # create molecule from PDBfile
+    pdb = ausaxs.read_pdb("test/2epe.pdb")
+    mol2 = ausaxs.create_molecule(pdb)
+    x2, y2, z2, w2, ff2 = mol2.atoms()
+    assert np.allclose(x2, x1, atol=1e-6),      "Molecule coordinates should match PDB reader"
+    assert np.allclose(y2, y1, atol=1e-6),      "Molecule coordinates should match PDB reader"
+    assert np.allclose(z2, z1, atol=1e-6),      "Molecule coordinates should match PDB reader"
+    assert np.allclose(w2, w1, atol=1e-6),      "Molecule weights should match PDB reader"
+    assert np.array_equal(ff2, ff1),            "Molecule form factor types should match PDB reader"
+
+    # create molecule from coordinates
+    x = np.array([0.0, 1.0, 0.0])
+    y = np.array([0.0, 0.0, 1.0])
+    z = np.array([0.0, 0.0, 0.0])
+    weights = np.array([1.0, 1.0, 1.0])
+    mol2 = ausaxs.create_molecule(x, y, z, weights)
+    x2, y2, z2, w2, ff2 = mol2.atoms()
+    assert np.allclose(x2, x, atol=1e-6),       "Molecule coordinates should match input"
+    assert np.allclose(y2, y, atol=1e-6),       "Molecule coordinates should match input"
+    assert np.allclose(z2, z, atol=1e-6),       "Molecule coordinates should match input"
+    assert np.allclose(w2, weights, atol=1e-6), "Molecule weights should match input"
+
+def test_hydrate():
+    mol = ausaxs.create_molecule("test/2epe.pdb")
+    mol.clear_hydration()
+    assert len(mol.waters()[0]) == 0, "Should have no hydration waters after clear_hydration"
+    mol.hydrate()
+    assert len(mol.waters()[0]) > 0, "Should have hydration waters after hydrate"
+
+def test_histogram():
+    atoms = simple_cube.points()
+    distances, counts_exact = simple_cube.hist()
+    mol = ausaxs.create_molecule(*atoms)
+    hist = mol.histogram()
+    bins, counts = hist.bins(), hist.counts()
+    w = (bins[1] - bins[0])
+    for d, c_exact in zip(distances, counts_exact):
+        index = np.round(d / w).astype(int)
+        c_hist = counts[index]
+        assert index < len(bins), f"Distance {d} out of histogram bin range"
+        assert math.isclose(bins[index], d, abs_tol=w/2), f"Bin mismatch for distance {d}: found {bins[index]}"
+        assert math.isclose(c_hist, c_exact, abs_tol=1e-6), f"Count mismatch for distance {d}: expected {c_exact}, got {c_hist}"
+
+def test_debye():
+    atoms = simple_cube.points()
+    mol = ausaxs.create_molecule(*atoms)
+    q, I = mol.debye()
+    I_expected = simple_cube.debye(q)
+    assert np.allclose(I, I_expected, atol=1e-6), f"Debye intensity mismatch: expected {I_expected}, got {I}"
+
+def test_debye_fit():
+    mol = ausaxs.create_molecule("test/2epe.pdb")
+    data = ausaxs.read_data("test/2epe.dat")
+    res = mol.fit(data)
+    ausaxs.plot(res)
+
+def test_Rg():
+    mol = ausaxs.create_molecule("test/2epe.pdb")
+    Rg = mol.Rg()
+    assert math.isclose(Rg, 13.89, abs_tol=0.1), f"Radius of gyration mismatch: expected 16.2162, got {Rg}"
+
+def test_settings():
+    # just call all settings to ensure no errors occur
+    ausaxs.settings.set_general_settings()
+    ausaxs.settings.set_fit_settings()
+    ausaxs.settings.set_grid_settings()
+    ausaxs.settings.set_hist_settings()
+    ausaxs.settings.set_molecule_settings()
+    ausaxs.settings.set_exv_settings()
+
 if __name__ == '__main__':
     import pyausaxs
     print(f"AUSAXS version {pyausaxs.__version__}")
-    test_cube_debye()
-    test_pdb_reader()
+    pyausaxs.settings.set_general_settings(verbose=False)
     test_singleton()
     test_reset_singleton()
+    test_read_pdbfile()
+    test_read_ciffile()
+    test_read_datafile()
+    test_molecule()
+    test_Rg()
+    test_hydrate()
+    test_histogram()
+    test_debye()
     test_fit()
+    test_settings()
     print("All tests passed")
     sys.exit(0)

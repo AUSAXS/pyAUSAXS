@@ -1,5 +1,11 @@
-from .wrapper import AUSAXS, AUSAXSManualFit, ausaxs, create_ausaxs
+from .wrapper.PDBfile import read_pdb
+from .wrapper.Datafile import read_data, create_datafile
+from .wrapper.Molecule import create_molecule
+from .wrapper.IterativeFit import manual_fit
+from .wrapper.settings import settings
+from .wrapper.sasview import sasview
 
-__all__ = ["AUSAXS", "AUSAXSManualFit", "ausaxs", "create_ausaxs"]
-__version__ = "1.0.3"
-ausaxs = ausaxs
+__all__ = [
+    "read_pdb", "read_data", "create_datafile", "create_molecule", "sasview", "settings", "manual_fit"
+]
+__version__ = "1.0.5"
