@@ -248,21 +248,40 @@ def test_settings():
     ausaxs.settings.set_molecule_settings()
     ausaxs.settings.set_exv_settings()
 
+def test_custom_q_range():
+    # list of q values
+    q1 = [0.01*i for i in range(1, 51)]
+    mol = ausaxs.create_molecule("test/2epe.pdb")
+    q1, I1 = mol.debye(q1)
+
+    # array of q values
+    q2 = np.linspace(0.01, 0.5, 50)
+    _, I2 = mol.debye(q2)
+
+    assert np.allclose(q1, q2, atol=1e-6), "q values should match for list and array input"
+    assert np.allclose(I1, I2, atol=1e-6), "I(q) values should match for list and array input"
+
+    # qvals larger than 1
+    q3 = np.linspace(0.01, 5, 100)
+    q3, I3 = mol.debye(q3)
+    assert q3[-1] > 2
+
 if __name__ == '__main__':
     import pyausaxs
     print(f"AUSAXS version {pyausaxs.__version__}")
     pyausaxs.settings.set_general_settings(verbose=False)
-    test_singleton()
-    test_reset_singleton()
-    test_read_pdbfile()
-    test_read_ciffile()
-    test_read_datafile()
-    test_molecule()
-    test_Rg()
-    test_hydrate()
-    test_histogram()
-    test_debye()
-    test_fit()
-    test_settings()
+    # test_singleton()
+    # test_reset_singleton()
+    # test_read_pdbfile()
+    # test_read_ciffile()
+    # test_read_datafile()
+    # test_molecule()
+    # test_Rg()
+    # test_hydrate()
+    # test_histogram()
+    # test_debye()
+    # test_fit()
+    # test_settings()
+    test_custom_q_range()
     print("All tests passed")
     sys.exit(0)
