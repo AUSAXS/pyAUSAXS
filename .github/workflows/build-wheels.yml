@@ -104,6 +104,11 @@ jobs:
             echo "Final wheel: $final_wheel ($(du -h "$final_wheel" | cut -f1))"
           done
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.platform }}
+          path: dist/*.whl
+
       - name: Test wheel installation
         shell: bash
         run: |
@@ -112,8 +117,3 @@ jobs:
           rm -rf pyausaxs
           python -m pip install dist/*.whl
           python test/test.py
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: wheel-${{ matrix.platform }}
-          path: dist/*.whl

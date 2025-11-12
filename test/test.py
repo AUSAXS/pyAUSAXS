@@ -121,56 +121,84 @@ def test_read_pdbfile():
     assert charge[0].strip() == "",                         "charge mismatch"
 
 def test_read_ciffile():
-    # first data line of 6LYZ.cif:
-    # ATOM   1    N N   . LYS A 1 1   ? 3.287   10.092 10.329 1.00 5.89  ? 1   LYS A N   1 
-    pdb = ausaxs.read_pdb("test/6LYZ.cif")
-    serial, name, altloc, resname, chain_id, resseq, icode, x, y, z, occupancy, tempFactor, element, charge = pdb.data()
-    assert serial[0] == 1,                                  "serial number mismatch"
-    assert name[0].strip() == "N",                          "atom name mismatch"
-    assert altloc[0].strip() == ".",                        "altLoc mismatch"
-    assert resname[0].strip() == "LYS",                     "resName mismatch"
-    assert chain_id[0].strip() == "A",                      "chainID mismatch"
-    assert resseq[0] == 1,                                  "resSeq mismatch"
-    assert icode[0].strip() == "?",                         "iCode mismatch"
-    assert math.isclose(x[0], 3.287, abs_tol=1e-6),         "x coordinate mismatch"
-    assert math.isclose(y[0], 10.092, abs_tol=1e-6),        "y coordinate mismatch" 
-    assert math.isclose(z[0], 10.329, abs_tol=1e-6),        "z coordinate mismatch"
-    assert math.isclose(occupancy[0], 1.00, abs_tol=1e-6),  "occupancy mismatch"
-    assert math.isclose(tempFactor[0], 5.89, abs_tol=1e-6), "tempFactor mismatch"
-    assert element[0].strip() == "N",                       "element mismatch"
-    assert charge[0].strip() == "?",                        "charge mismatch"
+    pdb = ausaxs.read_pdb("test/Ag_crystal.cif")
+    # relevant lines in Ag_crystal.cif:
+    # _cell_length_a       26.3448
+    # _cell_length_b       26.3448
+    # _cell_length_c       26.3448
+    #  Ag  Ag1       1.0  0.1940970958215663  0.42412315333576267  0.42412315333576267  1.0000
+    #  Ag  Ag2       1.0  0.26936806770216515  0.34618267324101915  0.42269844295648484  1.0000
+    cell_a, cell_b, cell_c = 26.3448, 26.3448, 26.3448
+    coords = pdb.coordinates()
+    assert math.isclose(coords[0][0], 0.194097*cell_a, abs_tol=1e-3), "First atom x coordinate mismatch"
+    assert math.isclose(coords[1][0], 0.424123*cell_b, abs_tol=1e-3), "First atom y coordinate mismatch"
+    assert math.isclose(coords[2][0], 0.424123*cell_c, abs_tol=1e-3), "First atom z coordinate mismatch"
+    assert math.isclose(coords[0][1], 0.269368*cell_a, abs_tol=1e-3), "Second atom x coordinate mismatch"
+    assert math.isclose(coords[1][1], 0.346183*cell_b, abs_tol=1e-3), "Second atom y coordinate mismatch"
+    assert math.isclose(coords[2][1], 0.422698*cell_c, abs_tol=1e-3), "Second atom z coordinate mismatch"
+    ausaxs.settings.set_molecule_settings(implicit_hydrogens=True) # reading crystals disables implicit H for future tests
+
+    # ENABLE IN FUTURE WHEN FIXED IN UPSTREAM AUSAXS
+    # # first data line of 6LYZ.cif:
+    # # ATOM   1    N N   . LYS A 1 1   ? 3.287   10.092 10.329 1.00 5.89  ? 1   LYS A N   1 
+    # pdb = ausaxs.read_pdb("test/6LYZ.cif")
+    # serial, name, altloc, resname, chain_id, resseq, icode, x, y, z, occupancy, tempFactor, element, charge = pdb.data()
+    # assert serial[0] == 1,                                  "serial number mismatch"
+    # assert name[0].strip() == "N",                          "atom name mismatch"
+    # assert altloc[0].strip() == ".",                        "altLoc mismatch"
+    # assert resname[0].strip() == "LYS",                     "resName mismatch"
+    # assert chain_id[0].strip() == "A",                      "chainID mismatch"
+    # assert resseq[0] == 1,                                  "resSeq mismatch"
+    # assert icode[0].strip() == "?",                         "iCode mismatch"
+    # assert math.isclose(x[0], 3.287, abs_tol=1e-6),         "x coordinate mismatch"
+    # assert math.isclose(y[0], 10.092, abs_tol=1e-6),        "y coordinate mismatch" 
+    # assert math.isclose(z[0], 10.329, abs_tol=1e-6),        "z coordinate mismatch"
+    # assert math.isclose(occupancy[0], 1.00, abs_tol=1e-6),  "occupancy mismatch"
+    # assert math.isclose(tempFactor[0], 5.89, abs_tol=1e-6), "tempFactor mismatch"
+    # assert element[0].strip() == "N",                       "element mismatch"
+    # assert charge[0].strip() == "?",                        "charge mismatch"
 
 def test_molecule():
     # first line of 2epe.pdb (ignoring header stuff):
     # ATOM      1  N   LYS A   1      -3.462  69.119  -8.662  1.00 19.81           N  
+    ausaxs.settings.set_molecule_settings(implicit_hydrogens=False)
     mol1 = ausaxs.create_molecule("test/2epe.pdb")
     x1, y1, z1, w1, ff1 = mol1.atoms()
     assert math.isclose(x1[0], -3.462, abs_tol=1e-6),   "x coordinate mismatch"
     assert math.isclose(y1[0], 69.119, abs_tol=1e-6),   "y coordinate mismatch" 
     assert math.isclose(z1[0], -8.662, abs_tol=1e-6),   "z coordinate mismatch"
-    assert ff1[0].strip() == "NH",                      "form factor type mismatch"
+    assert ff1[0].strip() == "N",                       "form factor type mismatch"
+
+    # check correct form factors with implicit hydrogens
+    ausaxs.settings.set_molecule_settings(implicit_hydrogens=True)
+    mol2 = ausaxs.create_molecule("test/2epe.pdb")
+    x2, y2, z2, w2, ff2 = mol2.atoms()
+    assert math.isclose(x1[0], -3.462, abs_tol=1e-6),   "x coordinate mismatch"
+    assert math.isclose(y1[0], 69.119, abs_tol=1e-6),   "y coordinate mismatch" 
+    assert math.isclose(z1[0], -8.662, abs_tol=1e-6),   "z coordinate mismatch"
+    assert ff2[0].strip() == "NH",                      "form factor type mismatch"
 
     # create molecule from PDBfile
     pdb = ausaxs.read_pdb("test/2epe.pdb")
-    mol2 = ausaxs.create_molecule(pdb)
-    x2, y2, z2, w2, ff2 = mol2.atoms()
-    assert np.allclose(x2, x1, atol=1e-6),      "Molecule coordinates should match PDB reader"
-    assert np.allclose(y2, y1, atol=1e-6),      "Molecule coordinates should match PDB reader"
-    assert np.allclose(z2, z1, atol=1e-6),      "Molecule coordinates should match PDB reader"
-    assert np.allclose(w2, w1, atol=1e-6),      "Molecule weights should match PDB reader"
-    assert np.array_equal(ff2, ff1),            "Molecule form factor types should match PDB reader"
+    mol3 = ausaxs.create_molecule(pdb)
+    x3, y3, z3, w3, ff3 = mol3.atoms()
+    assert np.allclose(x3, x2, atol=1e-6),      "Molecule coordinates should match PDB reader"
+    assert np.allclose(y3, y2, atol=1e-6),      "Molecule coordinates should match PDB reader"
+    assert np.allclose(z3, z2, atol=1e-6),      "Molecule coordinates should match PDB reader"
+    assert np.allclose(w3, w2, atol=1e-6),      "Molecule weights should match PDB reader"
+    assert np.array_equal(ff3, ff2),            "Molecule form factor types should match PDB reader"
 
     # create molecule from coordinates
     x = np.array([0.0, 1.0, 0.0])
     y = np.array([0.0, 0.0, 1.0])
     z = np.array([0.0, 0.0, 0.0])
     weights = np.array([1.0, 1.0, 1.0])
-    mol2 = ausaxs.create_molecule(x, y, z, weights)
-    x2, y2, z2, w2, ff2 = mol2.atoms()
-    assert np.allclose(x2, x, atol=1e-6),       "Molecule coordinates should match input"
-    assert np.allclose(y2, y, atol=1e-6),       "Molecule coordinates should match input"
-    assert np.allclose(z2, z, atol=1e-6),       "Molecule coordinates should match input"
-    assert np.allclose(w2, weights, atol=1e-6), "Molecule weights should match input"
+    mol4 = ausaxs.create_molecule(x, y, z, weights)
+    x4, y4, z4, w4, ff4 = mol4.atoms()
+    assert np.allclose(x4, x, atol=1e-6),       "Molecule coordinates should match input"
+    assert np.allclose(y4, y, atol=1e-6),       "Molecule coordinates should match input"
+    assert np.allclose(z4, z, atol=1e-6),       "Molecule coordinates should match input"
+    assert np.allclose(w4, weights, atol=1e-6), "Molecule weights should match input"
 
 def test_hydrate():
     mol = ausaxs.create_molecule("test/2epe.pdb")

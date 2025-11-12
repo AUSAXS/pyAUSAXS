@@ -19,7 +19,7 @@ where = ["."]
 include = ["pyausaxs*"]
 
 [tool.setuptools.package-data]
-"pyausaxs" = ["LIBRARY_PLACEHOLDER"]
+"pyausaxs" = ["resources/libausaxs"]
 
 [tool.setuptools]
 include-package-data = false
