@@ -8,4 +8,4 @@ from .wrapper.sasview import sasview
 __all__ = [
     "read_pdb", "read_data", "create_datafile", "create_molecule", "sasview", "settings", "manual_fit"
 ]
-__version__ = "1.0.6"
+__version__ = "1.0.7"
