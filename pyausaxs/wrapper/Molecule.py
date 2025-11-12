@@ -201,12 +201,12 @@ class Molecule(BackendObject):
         Returns: (q, I)
         """
         ausaxs = AUSAXS()
-        if q_vals:
-            q = np.array(q_vals, dtype=np.float64)
+        if q_vals is not None:
+            q = _as_numpy_f64_arrays(q_vals)[0]
             i = np.zeros_like(q, dtype=np.float64)
             n_q = ct.c_int(len(q_vals))
             status = ct.c_int()
-            tmp_id = ausaxs.lib().functions.molecule_debye_userq(
+            ausaxs.lib().functions.molecule_debye_userq(
                 self._object_id,
                 q.ctypes.data_as(ct.POINTER(ct.c_double)),
                 i.ctypes.data_as(ct.POINTER(ct.c_double)),
@@ -214,9 +214,6 @@ class Molecule(BackendObject):
                 ct.byref(status)
             )
             _check_error_code(status, "molecule_debye_q")
-
-            i = np.array([i_ptr[i] for i in range(n_q.value)], dtype=np.float64)
-            ausaxs.deallocate(tmp_id)
             return q, i
         else:
             q_ptr = ct.POINTER(ct.c_double)()

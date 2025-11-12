@@ -70,7 +70,6 @@ jobs:
         run: |
           sed 's|LIBRARY_PLACEHOLDER|resources/${{ matrix.library }}|' pyproject.template.toml > pyproject.toml
           echo "Generated pyproject.toml for ${{ matrix.platform }}:"
-          cat pyproject.toml
 
       - name: Verify library exists
         shell: bash
