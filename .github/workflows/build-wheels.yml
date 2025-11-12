@@ -65,12 +65,12 @@ jobs:
           echo "Library copied: ${{ matrix.library_zip_name }}"
           ls -la pyausaxs/resources/
 
-      - name: Generate platform-specific pyproject.toml
-        shell: bash
-        run: |
-          sed 's|LIBRARY_PLACEHOLDER|resources/${{ matrix.library }}|' pyproject.template.toml > pyproject.toml
-          echo "Generated pyproject.toml for ${{ matrix.platform }}:"
-          cat pyproject.toml
+      # - name: Generate platform-specific pyproject.toml
+      #   shell: bash
+      #   run: |
+      #     sed 's|LIBRARY_PLACEHOLDER|resources/${{ matrix.library }}|' pyproject.template.toml > pyproject.toml
+      #     echo "Generated pyproject.toml for ${{ matrix.platform }}:"
+      #     cat pyproject.toml
 
       - name: Verify library exists
         shell: bash
