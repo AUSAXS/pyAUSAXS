@@ -66,7 +66,9 @@ class settings:
         skip_entries: int = 0,
         qmin: float = 1e-4, 
         qmax: float = 0.5, 
-        weighted_bins: bool = True
+        weighted_bins: bool = True,
+        bin_width: float = 0.25,
+        bin_count: int = 8000
     ):
         ausaxs = AUSAXS()
         status = ct.c_int()
@@ -75,6 +77,8 @@ class settings:
             ct.c_double(qmin),
             ct.c_double(qmax),
             ct.c_bool(weighted_bins),
+            ct.c_double(bin_width),
+            ct.c_uint(bin_count),
             ct.byref(status)
         )
         _check_error_code(status, "settings_set_hist_settings")

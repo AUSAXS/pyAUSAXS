@@ -16,14 +16,14 @@ class simple_cube:
         ys = np.array([p[1] for p in corners], dtype=float)
         zs = np.array([p[2] for p in corners], dtype=float)
         return xs, ys, zs, w
-    
+
     @staticmethod
     def hist(): 
         return [
             [0.0, math.sqrt(3.0), 2.0, math.sqrt(8.0), math.sqrt(12.0)],
             [9, 16, 24, 24, 8]
         ]
-    
+
     @staticmethod
     def debye(q):
         I_expected = np.zeros_like(q, dtype=float)
@@ -53,7 +53,7 @@ def test_fit():
         assert chi2 > 0, "Chi2 should be positive"
         assert dof > 0, "Degrees of freedom should be positive"
         assert len(params) > 0, "Should have some fit parameters"
-    
+
     def manual():
         data = ausaxs.read_data("test/2epe.dat")
         mol = ausaxs.create_molecule("test/2epe.pdb")
