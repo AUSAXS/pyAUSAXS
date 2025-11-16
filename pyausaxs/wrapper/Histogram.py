@@ -9,18 +9,23 @@ class Histogram:
         self._ww = ww
 
     def counts_aa(self) -> np.ndarray:
+        """The atomic-atomic distance counts."""
         return self._aa
 
     def counts_ww(self) -> np.ndarray:
+        """The water-water (hydration shell) distance counts."""
         return self._ww
 
     def counts_aw(self) -> np.ndarray:
+        """The atomic-water (hydration shell) distance counts."""
         return self._aw
 
     def counts_total(self) -> np.ndarray:
+        """The total distance counts."""
         return self._aa + self._ww + self._aw
 
     def counts(self) -> np.ndarray:
+        """The total distance counts."""
         return self.counts_total()
 
     def bins(self) -> np.ndarray:

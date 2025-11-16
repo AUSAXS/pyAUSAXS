@@ -75,14 +75,22 @@ class FitResult(BackendObject):
         ausaxs.deallocate(data_id)
 
     def chi2(self) -> float:
+        """Absolute chi-squared value for the fit."""
         self._get_fit_info()
         return self._fit_info["chi2"]
 
+    def chi2r(self) -> float:
+        """Reduced chi-squared value for the fit."""
+        self._get_fit_info()
+        return self._fit_info["chi2"] / self._fit_info["dof"]
+
     def dof(self) -> int:
+        """Number of degrees of freedom for the fit."""
         self._get_fit_info()
         return self._fit_info["dof"]
 
     def fit_parameters(self) -> dict[str, tuple[float, float, float]]:
+        """Returns a dictionary of fit parameters with their values and errors."""
         self._get_fit_info()
         params = {}
         for i, name in enumerate(self._fit_info["pars"]):
