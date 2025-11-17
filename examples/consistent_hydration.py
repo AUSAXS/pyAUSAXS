@@ -26,7 +26,7 @@ plt.figure(figsize=(10, 6))
 for Iq in Iq_list:
     plt.plot(q, Iq, "gray", alpha=0.5)
 plt.plot(q, Iq_avg, "r-")
-plt.xlabel("q (1/Angstrom)")
+plt.xlabel("q")
 plt.ylabel("I(q)")
 plt.loglog()
 plt.legend()

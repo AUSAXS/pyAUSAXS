@@ -5,9 +5,10 @@ from .wrapper.IterativeFit import manual_fit
 from .wrapper.Models import ExvModel, ExvTable
 from .wrapper.settings import settings
 from .wrapper.sasview import sasview
+from .wrapper.ExactDebye import unoptimized
 
 __all__ = [
     "read_pdb", "read_data", "create_datafile", "create_molecule", "sasview", "settings", "manual_fit",
-    "ExvModel", "ExvTable"
+    "ExvModel", "ExvTable", "unoptimized"
 ]
 __version__ = "1.0.7"

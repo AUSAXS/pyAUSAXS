@@ -220,6 +220,26 @@ class AUSAXSLIB:
             ]
             self.functions.molecule_debye_raw_userq.restype = None
 
+            # molecule_debye_exact
+            self.functions.molecule_debye_exact.argtypes = [
+                ct.c_int,                            # molecule id
+                ct.POINTER(ct.POINTER(ct.c_double)), # q
+                ct.POINTER(ct.POINTER(ct.c_double)), # I (output)
+                ct.POINTER(ct.c_int),                # n_points
+                ct.POINTER(ct.c_int)                 # status (0 = success)
+            ]
+            self.functions.molecule_debye_exact.restype = int # return obj id
+
+            # molecule_debye_exact_userq
+            self.functions.molecule_debye_exact_userq.argtypes = [
+                ct.c_int,                # molecule id
+                ct.POINTER(ct.c_double), # q
+                ct.POINTER(ct.c_double), # I (output)
+                ct.c_int,                # n_points
+                ct.POINTER(ct.c_int)     # status (0 = success)
+            ]
+            self.functions.molecule_debye_exact_userq.restype = None
+
             # molecule_debye_fit
             self.functions.molecule_debye_fit.argtypes = [
                 ct.c_int,              # molecule id

@@ -4,8 +4,7 @@ import pyausaxs as ausaxs
 import matplotlib.pyplot as plt
 
 # First read in the structure file and create a Molecule object.
-# Here, we use a PDB file as an example. PDBx/mmCIF & XYZ files are also supported. 
-# Limited support for crystal structures (CIF files) is available as well.
+# Here, we use a PDB file as an example. PDBx/mmCIF files are also supported.
 mol = ausaxs.create_molecule("tests/files/2epe.pdb")
 
 # Next, we have to decide what type of calculation we want to do. 
@@ -25,7 +24,7 @@ plt.figure(figsize=(10, 6))
 plt.plot(q_raw, Iq_raw, label="Raw Debye")
 plt.plot(q_simple, Iq_simple, label="Simple Excluded Volume")
 plt.plot(q_hydrated, Iq_hydrated, label="With Hydration Shell")
-plt.xlabel("q (1/Angstrom)")
+plt.xlabel("q")
 plt.ylabel("I(q)")
 plt.loglog()
 plt.legend()

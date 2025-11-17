@@ -197,7 +197,7 @@ class Molecule(BackendObject):
 
     def debye(self, q_vals: list[float] | np.ndarray = None) -> tuple[np.ndarray, np.ndarray]:
         """
-        Calculate the Debye scattering intensity of the molecule.
+        Calculate the Debye scattering intensity of the molecule. Form factors and excluded volume effects will be applied.
         Returns: (q, I)
         """
         ausaxs = AUSAXS()
@@ -237,7 +237,7 @@ class Molecule(BackendObject):
 
     def debye_raw(self, q_vals: list[float] | np.ndarray = None) -> tuple[np.ndarray, np.ndarray]:
         """
-        Calculate the pure Debye scattering intensity of the molecule without form factors or excluded volume. 
+        Calculate the Debye scattering intensity of the molecule. No form factors or excluded volume effects will be applied.
         Returns: (q, I)
         """
         ausaxs = AUSAXS()
