@@ -36,7 +36,6 @@ class settings:
         param max_iterations: Maximum number of fitting iterations.
         param sampled_points: Number of q-points to sample during fitting.
         """
-
         ausaxs = AUSAXS()
         status = ct.c_int()
         ausaxs.lib().functions.set_fit_settings(
@@ -124,7 +123,7 @@ class settings:
         param exv_table: The excluded volume table to use.
         """
         exv_table = ExvTable.validate(exv_table)
-        water_model = WaterModel.validate(water_model)
+        # water_model = WaterModel.validate(water_model)
         ausaxs = AUSAXS()
         status = ct.c_int()
         exv_model_ptr = ct.c_char_p(exv_table.value.encode('utf-8'))

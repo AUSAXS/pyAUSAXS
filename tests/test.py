@@ -38,7 +38,7 @@ class simple_cube:
                 term[mask] = 1.0
                 term[~mask] = np.sin(qr[~mask]) / qr[~mask]
                 I_expected += m*term
-        return I_expected*np.exp(-q*q) # ff term
+        return I_expected
 
 def test_fit():
     def automatic():
@@ -136,7 +136,7 @@ def test_read_ciffile():
     assert math.isclose(coords[0][1], 0.269368*cell_a, abs_tol=1e-3), "Second atom x coordinate mismatch"
     assert math.isclose(coords[1][1], 0.346183*cell_b, abs_tol=1e-3), "Second atom y coordinate mismatch"
     assert math.isclose(coords[2][1], 0.422698*cell_c, abs_tol=1e-3), "Second atom z coordinate mismatch"
-    ausaxs.settings.set_molecule_settings(implicit_hydrogens=True) # reading crystals disables implicit H for future tests
+    ausaxs.settings.molecule(implicit_hydrogens=True) # reading crystals disables implicit H for future tests
 
     # ENABLE IN FUTURE WHEN FIXED IN UPSTREAM AUSAXS
     # # first data line of 6LYZ.cif:
@@ -161,7 +161,7 @@ def test_read_ciffile():
 def test_molecule():
     # first line of 2epe.pdb (ignoring header stuff):
     # ATOM      1  N   LYS A   1      -3.462  69.119  -8.662  1.00 19.81           N  
-    ausaxs.settings.set_molecule_settings(implicit_hydrogens=False)
+    ausaxs.settings.molecule(implicit_hydrogens=False)
     mol1 = ausaxs.create_molecule("tests/files/2epe.pdb")
     x1, y1, z1, w1, ff1 = mol1.atoms()
     assert math.isclose(x1[0], -3.462, abs_tol=1e-6),   "x coordinate mismatch"
@@ -170,7 +170,7 @@ def test_molecule():
     assert ff1[0].strip() == "N",                       "form factor type mismatch"
 
     # check correct form factors with implicit hydrogens
-    ausaxs.settings.set_molecule_settings(implicit_hydrogens=True)
+    ausaxs.settings.molecule(implicit_hydrogens=True)
     mol2 = ausaxs.create_molecule("tests/files/2epe.pdb")
     x2, y2, z2, w2, ff2 = mol2.atoms()
     assert math.isclose(x1[0], -3.462, abs_tol=1e-6),   "x coordinate mismatch"
@@ -225,8 +225,33 @@ def test_debye():
     atoms = simple_cube.points()
     mol = ausaxs.create_molecule(*atoms)
     q, I = mol.debye()
+    I_expected = simple_cube.debye(q)*np.array([np.exp(-qi*qi) for qi in q])  # include ff term
+    assert np.allclose(I, I_expected, atol=1e-6), f"Debye intensity mismatch: expected \n{I_expected}, got \n{I}"
+
+def test_debye_raw():
+    # simple_cube
+    ausaxs.settings.histogram(qmax=1)
+    atoms = simple_cube.points()
+    mol = ausaxs.create_molecule(*atoms)
+    q, I = mol.debye_raw()
     I_expected = simple_cube.debye(q)
-    assert np.allclose(I, I_expected, atol=1e-6), f"Debye intensity mismatch: expected {I_expected}, got {I}"
+    assert np.allclose(I, I_expected, atol=1e-6), f"Debye raw intensity mismatch: expected \n{I_expected}, got \n{I}"
+
+    # 2epe
+    ausaxs.settings.histogram(bin_width=0.1)
+    mol = ausaxs.create_molecule("tests/files/2epe.pdb")
+    mol.clear_hydration()
+    q, I = mol.debye_raw()
+    I_expected = ausaxs.unoptimized.debye_exact(mol, q)[1]
+    assert np.allclose(I, I_expected, rtol=0.01, atol=1e-6), f"Debye raw intensity mismatch: expected \n{I_expected}, got \n{I}"
+
+def test_debye_exact():
+    atoms = simple_cube.points()
+    mol = ausaxs.create_molecule(*atoms)
+    q = np.linspace(0.01, 2.0, 100)
+    _, I = ausaxs.unoptimized.debye_exact(mol, q)
+    I_expected = simple_cube.debye(q)
+    assert np.allclose(I, I_expected, atol=1e-6), f"Debye exact intensity mismatch: expected \n{I_expected}, got \n{I}"
 
 def test_debye_fit():
     mol = ausaxs.create_molecule("tests/files/2epe.pdb")
@@ -241,12 +266,12 @@ def test_Rg():
 
 def test_settings():
     # just call all settings to ensure no errors occur
-    ausaxs.settings.set_general_settings()
-    ausaxs.settings.set_fit_settings()
-    ausaxs.settings.set_grid_settings()
-    ausaxs.settings.set_hist_settings()
-    ausaxs.settings.set_molecule_settings()
-    ausaxs.settings.set_exv_settings()
+    ausaxs.settings.general()
+    ausaxs.settings.fit()
+    ausaxs.settings.grid()
+    ausaxs.settings.histogram()
+    ausaxs.settings.molecule()
+    ausaxs.settings.exv()
 
 def test_custom_q_range():
     # list of q values
@@ -267,7 +292,7 @@ def test_custom_q_range():
     assert q3[-1] > 2
 
 def test_custom_bin_width():
-    ausaxs.settings.set_hist_settings(bin_width = 0.1)
+    ausaxs.settings.histogram(bin_width = 0.1)
     hist = ausaxs.create_molecule("tests/files/2epe.pdb").histogram()
     bins = hist.bins()
     assert math.isclose(bins[1]-bins[0], 0.1, abs_tol=1e-6), "Histogram bin width should be 0.1"
@@ -275,7 +300,7 @@ def test_custom_bin_width():
 if __name__ == '__main__':
     import pyausaxs
     print(f"AUSAXS version {pyausaxs.__version__}")
-    pyausaxs.settings.set_general_settings(verbose=False)
+    pyausaxs.settings.general(verbose=False, warnings=False)
     test_singleton()
     test_reset_singleton()
     test_read_pdbfile()
@@ -286,6 +311,9 @@ if __name__ == '__main__':
     test_hydrate()
     test_histogram()
     test_debye()
+    test_debye_raw()
+    test_debye_exact()
+    # test_debye_fit()
     test_fit()
     test_settings()
     test_custom_bin_width()
