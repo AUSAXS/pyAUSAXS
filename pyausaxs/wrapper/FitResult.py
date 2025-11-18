@@ -1,8 +1,11 @@
 from .AUSAXS import AUSAXS, _check_error_code
 from .BackendObject import BackendObject
-from typing import Any
+from typing import Any, TYPE_CHECKING
 import ctypes as ct
 import numpy as np
+
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
 
 class FitResult(BackendObject):
     def __init__(self, id: int):
@@ -120,3 +123,37 @@ class FitResult(BackendObject):
         """Returns the normalized residuals."""
         self._get_fit_curves()
         return (self._fit_curves[1] - self._fit_curves[3])/self._fit_curves[2]
+
+    def plot(self) -> "Figure":
+        """Plot the fit results using matplotlib."""
+
+        import importlib.util
+        plt = importlib.util.find_spec("matplotlib")
+        if plt is None:
+            raise ImportError("matplotlib is required for plotting fit results.")
+        import matplotlib.figure as fig
+        import matplotlib.pyplot as plt
+
+        self._get_fit_curves()
+        q = self._fit_curves[0]
+        I_data = self._fit_curves[1]
+        I_err = self._fit_curves[2]
+        I_model = self._fit_curves[3]
+
+        fig, ax = plt.subplots(2, 1, figsize=(10, 6), sharex=True, gridspec_kw={'height_ratios': [3, 1], 'hspace': 0.05})
+        ax[0].errorbar(q, I_data, yerr=I_err, fmt='ko', markersize=4)
+        ax[0].plot(q, I_model, '-', label=f'$\\chi^2_r = {self.chi2r():.2f}$', color='red', lw=2, zorder=10)
+        ax[0].set_xscale('log')
+        ax[0].set_yscale('log')
+        ax[0].set_ylabel('Intensity')
+        ax[0].legend()
+
+        residuals = (I_data - I_model) / I_err
+        ax[1].plot(q, residuals, 'ko', markersize=4)
+        ax[1].axhline(0, color='k', linestyle='--')
+        ax[1].set_xscale('log')
+        ax[1].set_xlabel('q [$\\AA^{-1}$]')
+        ax[1].set_ylabel('Residuals')
+
+        plt.tight_layout()
+        return fig
