@@ -13,7 +13,7 @@ access to most of its features.
 ## Who is this for?
 `pyAUSAXS` offers highly efficient calculation of the expected scattering intensity of your structures. These calculations include
 form factors, and both hydration shell and excluded volume modeling. For a full overview of how it works, see the `AUSAXS` article:
-doi: [10.1107/S160057672500562X](https://doi.org/10.1107/S160057672500562X).
+[10.1107/S160057672500562X](https://doi.org/10.1107/S160057672500562X).
 
 ## Installation
 To install, simply run:
