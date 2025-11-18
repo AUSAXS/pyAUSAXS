@@ -82,7 +82,8 @@ class PDBfile(BackendObject):
         ausaxs.deallocate(data_id)
 
     def fit(self, data: Datafile, model: ExvModel | str = ExvModel.simple) -> FitResult:
-        """Fit the Debye scattering intensity of the PDB data to the provided data.
+        """
+        Fit the Debye scattering intensity of the PDB data to the provided data.
         Returns: chi-squared value of the fit.
         """
         ausaxs = AUSAXS()

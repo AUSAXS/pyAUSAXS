@@ -197,7 +197,7 @@ class Molecule(BackendObject):
 
     def debye(self, q_vals: list[float] | np.ndarray = None) -> tuple[np.ndarray, np.ndarray]:
         """
-        Calculate the Debye scattering intensity of the molecule.
+        Calculate the Debye scattering intensity of the molecule. Form factors and excluded volume effects will be applied.
         Returns: (q, I)
         """
         ausaxs = AUSAXS()
@@ -235,11 +235,54 @@ class Molecule(BackendObject):
             ausaxs.deallocate(tmp_id)
             return q, i
 
-    def fit(self, data: Datafile) -> float:
+    def debye_raw(self, q_vals: list[float] | np.ndarray = None) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Calculate the Debye scattering intensity of the molecule. No form factors or excluded volume effects will be applied.
+        Returns: (q, I)
+        """
+        ausaxs = AUSAXS()
+        if q_vals is not None:
+            q = _as_numpy_f64_arrays(q_vals)[0]
+            i = np.zeros_like(q, dtype=np.float64)
+            n_q = ct.c_int(len(q_vals))
+            status = ct.c_int()
+            ausaxs.lib().functions.molecule_debye_raw_userq(
+                self._object_id,
+                q.ctypes.data_as(ct.POINTER(ct.c_double)),
+                i.ctypes.data_as(ct.POINTER(ct.c_double)),
+                n_q,
+                ct.byref(status)
+            )
+            _check_error_code(status, "molecule_debye_raw_q")
+            return q, i
+        else:
+            q_ptr = ct.POINTER(ct.c_double)()
+            i_ptr = ct.POINTER(ct.c_double)()
+            n_q = ct.c_int()
+            status = ct.c_int()
+            tmp_id = ausaxs.lib().functions.molecule_debye_raw(
+                self._object_id,
+                ct.byref(q_ptr),
+                ct.byref(i_ptr),
+                ct.byref(n_q),
+                ct.byref(status)
+            )
+            _check_error_code(status, "molecule_debye_raw")
+
+            n = n_q.value
+            q = np.array([q_ptr[i] for i in range(n)], dtype=np.float64)
+            i = np.array([i_ptr[i] for i in range(n)], dtype=np.float64)
+            ausaxs.deallocate(tmp_id)
+            return q, i
+
+    def fit(self, data: str | Datafile) -> FitResult:
         """
         Fit the Debye scattering intensity of the molecule to the provided data.
         Returns: chi-squared value of the fit.
         """
+        if isinstance(data, str):
+            data = Datafile(data)
+
         ausaxs = AUSAXS()
         status = ct.c_int()
         res_id = ausaxs.lib().functions.molecule_debye_fit(

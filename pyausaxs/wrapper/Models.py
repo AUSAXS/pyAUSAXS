@@ -3,15 +3,15 @@ from enum import Enum as enum
 
 class ExvModel(enum):
     simple = "simple"
-    average = "average"
+    # average = "average"
     fraser = "fraser"
-    grid_base = "grid-base"
-    grid_scalable = "grid-scalable"
+    # grid_base = "grid-base"
+    # grid_scalable = "grid-scalable"
     grid = "grid"
-    crysol = "crysol"
-    foxs = "foxs"
-    pepsi = "pepsi"
-    waxsis = "waxsis"
+    # crysol = "crysol"
+    # foxs = "foxs"
+    # pepsi = "pepsi"
+    # waxsis = "waxsis"
     none = "none"
 
     @staticmethod

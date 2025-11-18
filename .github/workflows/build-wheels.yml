@@ -115,4 +115,4 @@ jobs:
           twine check dist/*.whl
           rm -rf pyausaxs
           python -m pip install dist/*.whl
-          python test/test.py
+          python tests/test.py
