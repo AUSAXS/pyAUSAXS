@@ -4,7 +4,7 @@
 [![pip install](https://img.shields.io/badge/pip%20install-pyausaxs-blue)](#installation)
 [![Python version](https://img.shields.io/badge/python-%3E%3D3.9-blue)](https://python.org/downloads)
 [![PyPI - Version](https://img.shields.io/pypi/v/pyausaxs)](https://pypi.org/project/pyausaxs)
-[![PyPI - Downloads](https://img.shields.io/pypi/dm/pyausaxs)](https://pypistats.org/package/pyausaxs)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/pyausaxs)](https://pypistats.org/packages/pyausaxs)
 
 Welcome to `pyAUSAXS`, the perhaps fastest Python tool for evaluating the scattering intensity of biological samples and crystals. 
 `pyAUSAXS` is a Python wrapper around [`AUSAXS`](https://github.com/AUSAXS/AUSAXS), the high-performance C++ backend, offering easy
