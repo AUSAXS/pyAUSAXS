@@ -22,15 +22,8 @@ pip install pyausaxs
 ```
 and you are good to go!
 
-## Quickstart
-Verify installation and print version:
-
-```bash
-python -c "import pyausaxs; print(pyausaxs.__version__)"
-```
-
 ## Usage
-Proper documentation is currently being written. For now, please refer to the runnable examples: https://github.com/AUSAXS/pyAUSAXS/tree/master/examples
+Proper documentation is currently being written. For now, please refer to the runnable examples [here](https://github.com/AUSAXS/pyAUSAXS/tree/master/examples).
 
 ## Contributing
 Are you encountering problems, have feedback or suggestions, or are you considering contributing to the project? Please check out the [contributor guidelines](CONTRIBUTING.md).
