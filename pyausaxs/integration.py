@@ -364,18 +364,27 @@ class AUSAXSLIB:
             # iterative_fit_start
             self.functions.iterative_fit_start.argtypes = [
                 ct.c_int,               # molecule id
-                ct.c_int,               # data id
+                ct.POINTER(ct.c_int),   # result n_points q
+                ct.POINTER(ct.c_int)    # return status (0 = success)
+            ]
+            self.functions.iterative_fit_start.restype = ct.c_int # return iterative fit id
+
+            # iterative_fit_start_userq
+            self.functions.iterative_fit_start_userq.argtypes = [
+                ct.c_int,               # molecule id
+                ct.POINTER(ct.c_double),# q vector to use for fitting
+                ct.c_int,               # n_points q
                 ct.POINTER(ct.c_int)    # return status (0 = success)
             ]
             self.functions.iterative_fit_start.restype = ct.c_int # return iterative fit id
 
             # iterative_fit_step
             self.functions.iterative_fit_step.argtypes = [
-                ct.c_int,               # iterative fit id
-                ct.POINTER(ct.c_double),# parameters vector
-                ct.c_int,               # number of parameters
-                ct.POINTER(ct.c_double),# return I vector for return value
-                ct.POINTER(ct.c_int),   # return status (0 = success)
+                ct.c_int,                           # iterative fit id
+                ct.POINTER(ct.c_double),            # parameters vector
+                ct.c_int,                           # number of parameters
+                ct.POINTER(ct.POINTER(ct.c_double)),# resulting I vector
+                ct.POINTER(ct.c_int),               # return status (0 = success)
             ]
             self.functions.iterative_fit_step.restype = None
 
