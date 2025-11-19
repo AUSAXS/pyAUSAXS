@@ -362,31 +362,31 @@ class AUSAXSLIB:
             self.functions.set_general_settings.restype = None
 
             # iterative_fit_start
-            self.functions.iterative_fit_start.argtypes = [
+            self.functions.iterative_fit_init.argtypes = [
                 ct.c_int,               # molecule id
                 ct.POINTER(ct.c_int),   # result n_points q
                 ct.POINTER(ct.c_int)    # return status (0 = success)
             ]
-            self.functions.iterative_fit_start.restype = ct.c_int # return iterative fit id
+            self.functions.iterative_fit_init.restype = ct.c_int # return iterative fit id
 
             # iterative_fit_start_userq
-            self.functions.iterative_fit_start_userq.argtypes = [
+            self.functions.iterative_fit_init_userq.argtypes = [
                 ct.c_int,               # molecule id
                 ct.POINTER(ct.c_double),# q vector to use for fitting
                 ct.c_int,               # n_points q
                 ct.POINTER(ct.c_int)    # return status (0 = success)
             ]
-            self.functions.iterative_fit_start.restype = ct.c_int # return iterative fit id
+            self.functions.iterative_fit_init_userq.restype = ct.c_int # return iterative fit id
 
-            # iterative_fit_step
-            self.functions.iterative_fit_step.argtypes = [
+            # iterative_fit_evaluate
+            self.functions.iterative_fit_evaluate.argtypes = [
                 ct.c_int,                           # iterative fit id
                 ct.POINTER(ct.c_double),            # parameters vector
                 ct.c_int,                           # number of parameters
                 ct.POINTER(ct.POINTER(ct.c_double)),# resulting I vector
                 ct.POINTER(ct.c_int),               # return status (0 = success)
             ]
-            self.functions.iterative_fit_step.restype = None
+            self.functions.iterative_fit_evaluate.restype = None
 
             self.state = self.STATE.READY
 

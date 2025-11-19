@@ -4,6 +4,7 @@ from .Molecule import Molecule
 from .Datafile import Datafile
 import ctypes as ct
 import numpy as np
+from typing import overload
 
             # # iterative_fit_start
             # self.functions.iterative_fit_start.argtypes = [
@@ -27,53 +28,61 @@ import numpy as np
 class IterativeFit(BackendObject):
     """Manual fitting class for step-by-step SAXS fitting control."""
 
-    def __init__(self, mol: Molecule, q_vals: list[float] | np.ndarray = None):
+    @overload
+    def __init__(self, mol: Molecule, q_vals: list[float] | np.ndarray): ...
+    @overload
+    def __init__(self, mol: Molecule, data: Datafile): ...
+
+    _qsize: int = 0
+    def __init__(self, mol: Molecule, arg: list[float] | np.ndarray | Datafile = None):
         super().__init__()
         self.ausaxs = AUSAXS()
-        if q_vals:
-            q_vals = _as_numpy_f64_arrays(q_vals)[0]
+        if isinstance(arg, Datafile):
+            arg = arg.q()
+        if arg is not None:
+            q_vals = _as_numpy_f64_arrays(arg)[0]
             status = ct.c_int()
-            self._object_id = self.ausaxs._lib.functions.iterative_fit_start_userq(
+            self._object_id = self.ausaxs._lib.functions.iterative_fit_init_userq(
                 mol._object_id,
                 q_vals.ctypes.data_as(ct.POINTER(ct.c_double)),
                 ct.c_int(len(q_vals)),
                 ct.byref(status)
             )
-            _check_error_code(status, "iterative_fit_start_userq")
+            _check_error_code(status, "iterative_fit_init_userq")
+            self._qsize = len(q_vals)
         else:
+            nq = ct.c_int()
             status = ct.c_int()
-            self._object_id = self.ausaxs._lib.functions.iterative_fit_start(
+            self._object_id = self.ausaxs._lib.functions.iterative_fit_init(
                 mol._object_id,
+                ct.byref(nq),
                 ct.byref(status)
             )
-            _check_error_code(status, "iterative_fit_start")
-            self._qsize = len(data.q())
+            _check_error_code(status, "iterative_fit_init")
+            self._qsize = nq.value
 
-    def step(self, params: np.ndarray | list[float]) -> np.ndarray:
+    def evaluate(self, params: np.ndarray | list[float]) -> np.ndarray:
         """Perform one fitting iteration and return the current I(q)."""
-        _check_array_inputs(params, names=['params'])
-        params_ptr = _as_numpy_f64_arrays(params)[0].ctypes.data_as(ct.POINTER(ct.c_double))
-        Iq = (ct.c_double * self._qsize)()
+        _check_array_inputs(params)
+        params_ptr = _as_numpy_f64_arrays(params)[0]
+        out_ptr = ct.POINTER(ct.c_double)()
         n_params = ct.c_int(len(params))
         status = ct.c_int()
-        self.ausaxs._lib.functions.iterative_fit_step(
+        self.ausaxs._lib.functions.iterative_fit_evaluate(
             self._object_id,
-            params_ptr, 
+            params_ptr.ctypes.data_as(ct.POINTER(ct.c_double)),
             n_params,
-            Iq,
+            ct.byref(out_ptr),
             ct.byref(status)
         )
-        _check_error_code(status, "iterative_fit_step")
-        return np.ctypeslib.as_array(Iq)
+        _check_error_code(status, "iterative_fit_evaluate")
+        return np.ctypeslib.as_array(out_ptr, shape=(self._qsize,))
 
-    def finish(self, params) -> np.ndarray:
-        """Finalize the fitting process and return the optimal I(q)."""
-        _check_array_inputs(params, names=['params'])
-        params_ptr = _as_numpy_f64_arrays(params)[0].ctypes.data_as(ct.POINTER(ct.c_double))
-        status = ct.c_int()
-        self.ausaxs._lib.functions.iterative_fit_finish(params_ptr, ct.byref(status))
-        _check_error_code(status, "iterative_fit_finish")
+@overload
+def manual_fit(mol: Molecule, q_vals: list[float] | np.ndarray) -> IterativeFit: ...
+@overload
+def manual_fit(mol: Molecule, data: Datafile) -> IterativeFit: ...
 
-def manual_fit(mol: Molecule, data: Datafile) -> IterativeFit:
-    """Create an IterativeFit object for manual fitting control."""
-    return IterativeFit(mol, data)
+def manual_fit(mol: Molecule, arg) -> IterativeFit:
+    """Start a fitting session with manual control over the fitting session."""
+    return IterativeFit(mol, arg)

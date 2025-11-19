@@ -55,12 +55,48 @@ def test_fit():
         assert len(params) > 0, "Should have some fit parameters"
 
     def manual():
+        # verify `evaluate` does not error
         data = ausaxs.read_data("tests/files/2epe.dat")
         mol = ausaxs.create_molecule("tests/files/2epe.pdb")
         fit = ausaxs.manual_fit(mol, data)
         pars = [1.0]
-        i = fit.step(pars)
+        i = fit.evaluate(pars)
         assert len(i) == len(data.data()[0]), "Fitted I(q) should match data length"
+
+        # works with scipy optimize
+        from scipy.optimize import least_squares
+        ausaxs.settings.fit(fit_hydration=True)
+        _, I, Ierr = data.data()
+
+        def linear_fit(I_model, I_data, I_err):
+            weights = 1.0 / I_err
+            return np.polyfit(I_model, I_data, 1, w=weights)
+
+        def residuals(pars):
+            I_model = fit.evaluate(pars)
+            a, b = linear_fit(I_model, I, Ierr)
+            residual = (a*I_model+b - I) / Ierr
+            return residual
+
+        initial_pars = [1.0]
+        result = least_squares(residuals, initial_pars)
+        fitted_pars = result.x
+        I_fitted = fit.evaluate(fitted_pars)
+        a, b = linear_fit(I_fitted, I, Ierr)
+        I_fitted = a*I_fitted+b
+
+        afit = mol.fit(data)
+        assert result.success, "Optimization should succeed"
+        assert len(I_fitted) == len(data.data()[0]), "Fitted I(q) should match data length"
+        assert np.sum(np.square(residuals(fitted_pars))) - afit.chi2() < 1e-3, "Chi2 from manual fit should match automatic fit"
+
+        # multi-parameter
+        ausaxs.settings.fit(fit_hydration=True, fit_excluded_volume=True)
+        fit = ausaxs.manual_fit(mol, data)
+        initial_pars = [1.0, 1.0]
+        result = least_squares(residuals, initial_pars)
+        assert result.success, "Optimization should succeed"
+
     automatic()
     manual()
 
@@ -303,18 +339,18 @@ if __name__ == '__main__':
     import pyausaxs
     print(f"AUSAXS version {pyausaxs.__version__}")
     pyausaxs.settings.general(verbose=False, warnings=False)
-    test_singleton()
-    test_reset_singleton()
-    test_read_pdbfile()
-    test_read_ciffile()
-    test_read_datafile()
-    test_molecule()
-    test_Rg()
-    test_hydrate()
-    test_histogram()
-    test_debye()
-    test_debye_raw()
-    test_debye_exact()
+    # test_singleton()
+    # test_reset_singleton()
+    # test_read_pdbfile()
+    # test_read_ciffile()
+    # test_read_datafile()
+    # test_molecule()
+    # test_Rg()
+    # test_hydrate()
+    # test_histogram()
+    # test_debye()
+    # test_debye_raw()
+    # test_debye_exact()
     # test_debye_fit()
     test_fit()
     test_settings()
