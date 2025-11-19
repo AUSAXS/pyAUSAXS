@@ -1,6 +1,8 @@
 import numpy as np
 import pyausaxs as ausaxs
 
+from scipy.optimize import least_squares
+
 
 def test_automatic_fit():
     data = ausaxs.read_data("tests/files/2epe.dat")
@@ -16,20 +18,24 @@ def test_automatic_fit():
     assert len(params) > 0, "Should have some fit parameters"
 
 
-def test_manual_fit():
-    # trivial
+def test_manual_fit_trivial():
+    # trivial fit with single scaling parameter
     data = ausaxs.read_data("tests/files/2epe.dat")
     mol = ausaxs.create_molecule("tests/files/2epe.pdb")
     fit = ausaxs.manual_fit(mol, data)
     pars = [1.0]
-    i = fit.evaluate(pars)
-    assert len(i) == len(data.data()[0]), "Fitted I(q) should match data length"
+    I_fitted = fit.evaluate(pars)
+    _, I_data, _ = data.data()
+    assert len(I_fitted) == len(I_data), "Fitted I(q) should match data length"
 
-    # works with scipy optimize
-    from scipy.optimize import least_squares
+
+def test_manual_fit_works_with_scipy():
+    data = ausaxs.read_data("tests/files/2epe.dat")
+    mol = ausaxs.create_molecule("tests/files/2epe.pdb")
+    fit = ausaxs.manual_fit(mol, data)
 
     ausaxs.settings.fit(fit_hydration=True)
-    q, I, Ierr = data.data()
+    _, I, Ierr = data.data()
 
     def linear_fit(I_model, I_data, I_err):
         weights = 1.0 / I_err
@@ -38,12 +44,17 @@ def test_manual_fit():
     def residuals(pars):
         I_model = fit.evaluate(pars)
         a, b = linear_fit(I_model, I, Ierr)
-        return (a * I_model - b - I) / Ierr
+        residual = (a*I_model+b - I) / Ierr
+        return residual
 
     initial_pars = [1.0]
     result = least_squares(residuals, initial_pars)
     fitted_pars = result.x
     I_fitted = fit.evaluate(fitted_pars)
     a, b = linear_fit(I_fitted, I, Ierr)
+    I_fitted = a*I_fitted+b
 
+    afit = mol.fit(data)
+    assert result.success, "Optimization should succeed"
     assert len(I_fitted) == len(data.data()[0]), "Fitted I(q) should match data length"
+    assert np.sum(np.square(residuals(fitted_pars))) - afit.chi2() < 1e-3, "Chi2 from manual fit should match automatic fit"

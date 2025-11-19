@@ -3,7 +3,9 @@ import numpy as np
 import pyausaxs as ausaxs
 
 
-def test_molecule_and_atoms():
+def test_molecule():
+    # first line of 2epe.pdb (ignoring header stuff):
+    # ATOM      1  N   LYS A   1      -3.462  69.119  -8.662  1.00 19.81           N  
     ausaxs.settings.molecule(implicit_hydrogens=False)
     mol1 = ausaxs.create_molecule("tests/files/2epe.pdb")
     x1, y1, z1, w1, ff1 = mol1.atoms()

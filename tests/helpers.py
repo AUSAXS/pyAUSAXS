@@ -16,7 +16,7 @@ class simple_cube:
         return xs, ys, zs, w
 
     @staticmethod
-    def hist():
+    def hist(): 
         return [
             [0.0, math.sqrt(3.0), 2.0, math.sqrt(8.0), math.sqrt(12.0)],
             [9, 16, 24, 24, 8]
@@ -30,10 +30,10 @@ class simple_cube:
             if r == 0.0:
                 I_expected += m
             else:
-                qr = q * r
+                qr = q*r
                 term = np.empty_like(qr)
                 mask = qr == 0
                 term[mask] = 1.0
                 term[~mask] = np.sin(qr[~mask]) / qr[~mask]
-                I_expected += m * term
+                I_expected += m*term
         return I_expected

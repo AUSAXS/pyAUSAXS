@@ -2,6 +2,7 @@ import pyausaxs as ausaxs
 
 
 def test_singleton():
+    """Test that AUSAXS instances are the same object."""
     cls = ausaxs.wrapper.AUSAXS.AUSAXS
     instance1 = cls()
     instance2 = cls()
@@ -14,6 +15,7 @@ def test_singleton():
 
 
 def test_reset_singleton():
+    """Test that reset_singleton works correctly."""
     cls = ausaxs.wrapper.AUSAXS.AUSAXS
     instance1 = cls()
     ready1 = instance1.ready()

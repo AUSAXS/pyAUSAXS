@@ -3,6 +3,9 @@ import pyausaxs as ausaxs
 
 
 def test_read_datafile():
+    # first two lines of 2epe.dat:
+    # 9.81300045E-03 6.67934353E-03 1.33646582E-03 1
+    # 1.06309997E-02 7.27293547E-03 1.01892441E-03 1
     data = ausaxs.read_data("tests/files/2epe.dat")
     q, I, Ierr = data.data()
     assert math.isclose(q[0], 9.81300045E-03, abs_tol=1e-6),    "First q value mismatch"
@@ -14,6 +17,8 @@ def test_read_datafile():
 
 
 def test_read_pdbfile():
+    # first line of 2epe.pdb (ignoring header stuff):
+    # ATOM      1  N   LYS A   1      -3.462  69.119  -8.662  1.00 19.81           N  
     pdb = ausaxs.read_pdb("tests/files/2epe.pdb")
     serial, name, altloc, resname, chain_id, resseq, icode, x, y, z, occupancy, tempFactor, element, charge = pdb.data()
     assert serial[0] == 1,                                  "serial number mismatch"
@@ -34,6 +39,12 @@ def test_read_pdbfile():
 
 def test_read_ciffile():
     pdb = ausaxs.read_pdb("tests/files/Ag_crystal.cif")
+    # relevant lines in Ag_crystal.cif:
+    # _cell_length_a       26.3448
+    # _cell_length_b       26.3448
+    # _cell_length_c       26.3448
+    #  Ag  Ag1       1.0  0.1940970958215663  0.42412315333576267  0.42412315333576267  1.0000
+    #  Ag  Ag2       1.0  0.26936806770216515  0.34618267324101915  0.42269844295648484  1.0000
     cell_a, cell_b, cell_c = 26.3448, 26.3448, 26.3448
     coords = pdb.coordinates()
     assert math.isclose(coords[0][0], 0.194097*cell_a, abs_tol=1e-3), "First atom x coordinate mismatch"
@@ -42,8 +53,10 @@ def test_read_ciffile():
     assert math.isclose(coords[0][1], 0.269368*cell_a, abs_tol=1e-3), "Second atom x coordinate mismatch"
     assert math.isclose(coords[1][1], 0.346183*cell_b, abs_tol=1e-3), "Second atom y coordinate mismatch"
     assert math.isclose(coords[2][1], 0.422698*cell_c, abs_tol=1e-3), "Second atom z coordinate mismatch"
-    ausaxs.settings.molecule(implicit_hydrogens=True)
+    ausaxs.settings.molecule(implicit_hydrogens=True) # reading crystals disables implicit H for future tests
 
+    # # first data line of 6LYZ.cif:
+    # # ATOM   1    N N   . LYS A 1 1   ? 3.287   10.092 10.329 1.00 5.89  ? 1   LYS A N   1 
     pdb = ausaxs.read_pdb("tests/files/6LYZ.cif")
     serial, name, altloc, resname, chain_id, resseq, icode, x, y, z, occupancy, tempFactor, element, charge = pdb.data()
     assert serial[0] == 1,                                  "serial number mismatch"
