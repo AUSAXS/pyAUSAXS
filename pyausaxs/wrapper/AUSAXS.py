@@ -10,8 +10,8 @@ def _check_array_inputs(*arrays: Union[list, np.ndarray], names: list[str] = Non
         names = [f"array_{i}" for i in range(len(arrays))]
     
     for name, arr in zip(names, arrays):
-        if not isinstance(arr, (list, np.ndarray)):
-            raise TypeError(f"{name} must be a list or numpy array, got {type(arr)} instead.")
+        if not isinstance(arr, (list, np.ndarray, tuple)):
+            raise TypeError(f"{name} must be a list, tuple, or numpy array, got {type(arr)} instead.")
 
 def _check_similar_length(*arrays: Union[list, np.ndarray], msg: str) -> None:
     """Check that all input arrays have the same length."""
@@ -24,7 +24,7 @@ def _as_numpy_f64_arrays(*arrays: Union[list, np.ndarray]) -> list[np.ndarray]:
     """Convert all input arrays to numpy arrays of type float64."""
     np_arrays = []
     for arr in arrays:
-        if isinstance(arr, list):
+        if isinstance(arr, list) or isinstance(arr, tuple):
             np_arr = np.array(arr, dtype=np.float64)
         elif isinstance(arr, np.ndarray):
             np_arr = arr.astype(np.float64)

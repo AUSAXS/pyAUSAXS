@@ -2,6 +2,7 @@ import numpy as np
 import pyausaxs as ausaxs
 
 from scipy.optimize import least_squares
+from scipy.optimize import curve_fit
 
 
 def test_automatic_fit():
@@ -58,3 +59,22 @@ def test_manual_fit_works_with_scipy():
     assert result.success, "Optimization should succeed"
     assert len(I_fitted) == len(data.data()[0]), "Fitted I(q) should match data length"
     assert np.sum(np.square(residuals(fitted_pars))) - afit.chi2() < 1e-3, "Chi2 from manual fit should match automatic fit"
+
+def test_manual_fit_multiple_pars():
+    data = ausaxs.read_data("tests/files/2epe.dat")
+    mol = ausaxs.create_molecule("tests/files/2epe.pdb")
+
+    ausaxs.settings.fit(fit_hydration=True, fit_excluded_volume=True)
+    ausaxs.settings.exv(ausaxs.ExvModel.fraser)
+    fit = ausaxs.manual_fit(mol, data)
+    q, I, Ierr = data.data()
+
+    def evaluate(q, *pars):
+        assert(q.shape[0] == I.shape[0])
+        print( f"Evaluating with params: {pars}" )
+        I_model = fit.evaluate(pars)
+        a, b = np.polyfit(I_model, I, 1, w=1.0/Ierr)
+        return a*I_model + b
+    _, _ = curve_fit(evaluate, xdata=q, ydata=I, sigma=Ierr, p0=[1, 1])
+
+test_manual_fit_multiple_pars()

@@ -64,13 +64,14 @@ class IterativeFit(BackendObject):
     def evaluate(self, params: np.ndarray | list[float]) -> np.ndarray:
         """Perform one fitting iteration and return the current I(q)."""
         _check_array_inputs(params)
-        params_ptr = _as_numpy_f64_arrays(params)[0]
+        # Keep a reference to the numpy array to prevent garbage collection
+        params_array = _as_numpy_f64_arrays(params)[0]
         out_ptr = ct.POINTER(ct.c_double)()
-        n_params = ct.c_int(len(params))
+        n_params = ct.c_int(len(params_array))
         status = ct.c_int()
         self.ausaxs._lib.functions.iterative_fit_evaluate(
             self._object_id,
-            params_ptr.ctypes.data_as(ct.POINTER(ct.c_double)),
+            params_array.ctypes.data_as(ct.POINTER(ct.c_double)),
             n_params,
             ct.byref(out_ptr),
             ct.byref(status)
