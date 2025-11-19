@@ -361,15 +361,14 @@ class AUSAXSLIB:
             ]
             self.functions.set_general_settings.restype = None
 
-            # iterative_fit_start
+            # iterative_fit_init
             self.functions.iterative_fit_init.argtypes = [
                 ct.c_int,               # molecule id
-                ct.POINTER(ct.c_int),   # result n_points q
                 ct.POINTER(ct.c_int)    # return status (0 = success)
             ]
             self.functions.iterative_fit_init.restype = ct.c_int # return iterative fit id
 
-            # iterative_fit_start_userq
+            # iterative_fit_init_userq
             self.functions.iterative_fit_init_userq.argtypes = [
                 ct.c_int,               # molecule id
                 ct.POINTER(ct.c_double),# q vector to use for fitting
@@ -380,14 +379,26 @@ class AUSAXSLIB:
 
             # iterative_fit_evaluate
             self.functions.iterative_fit_evaluate.argtypes = [
-                ct.c_int,                           # iterative fit id
-                ct.POINTER(ct.c_double),            # parameters vector
-                ct.c_int,                           # number of parameters
-                ct.POINTER(ct.POINTER(ct.c_double)),# resulting I vector
-                ct.POINTER(ct.c_int),               # return status (0 = success)
+                ct.c_int,                               # iterative fit id
+                ct.POINTER(ct.c_double),                # parameters vector
+                ct.c_int,                               # number of parameters
+                ct.POINTER(ct.POINTER(ct.c_double)),    # resulting I vector
+                ct.POINTER(ct.c_int),                   # number of points in resulting I vector
+                ct.POINTER(ct.c_int),                   # return status (0 = success)
             ]
             self.functions.iterative_fit_evaluate.restype = None
 
+            # iterative_fit_evaluate_userq
+            self.functions.iterative_fit_evaluate_userq.argtypes = [
+                ct.c_int,                   # iterative fit id
+                ct.POINTER(ct.c_double),    # parameters vector
+                ct.c_int,                   # number of parameters
+                ct.POINTER(ct.c_double),    # q vector to evaluate
+                ct.POINTER(ct.c_double),    # resulting I vector
+                ct.c_int,                   # number of points in q vector
+                ct.POINTER(ct.c_int),       # return status (0 = success)
+            ]
+            self.functions.iterative_fit_evaluate_userq.restype = None
             self.state = self.STATE.READY
 
         except Exception as e:

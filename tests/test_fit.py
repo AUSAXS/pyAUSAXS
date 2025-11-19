@@ -60,6 +60,29 @@ def test_manual_fit_works_with_scipy():
     assert len(I_fitted) == len(data.data()[0]), "Fitted I(q) should match data length"
     assert np.sum(np.square(residuals(fitted_pars))) - afit.chi2() < 1e-3, "Chi2 from manual fit should match automatic fit"
 
+
+def test_manual_fit_userq():
+    data = ausaxs.read_data("tests/files/2epe.dat")
+    mol = ausaxs.create_molecule("tests/files/2epe.pdb")
+    q_vals, I_data, _ = data.data()
+    fit = ausaxs.manual_fit(mol)
+
+    pars = [1.0]
+    I_fitted = fit.evaluate(pars, q_vals)
+    assert len(I_fitted) == len(I_data), "Fitted I(q) should match data length"
+
+
+def test_manual_fit_default_q():
+    data = ausaxs.read_data("tests/files/2epe.dat")
+    mol = ausaxs.create_molecule("tests/files/2epe.pdb")
+    _, I_data, _ = data.data()
+    fit = ausaxs.manual_fit(mol)
+
+    pars = [1.0]
+    I_fitted = fit.evaluate(pars)
+    assert len(I_fitted) == 99, "Fitted I(q) should have default length of 99"
+
+
 def test_manual_fit_multiple_pars():
     data = ausaxs.read_data("tests/files/2epe.dat")
     mol = ausaxs.create_molecule("tests/files/2epe.pdb")
