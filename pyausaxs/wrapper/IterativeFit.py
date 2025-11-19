@@ -64,7 +64,6 @@ class IterativeFit(BackendObject):
     def evaluate(self, params: np.ndarray | list[float]) -> np.ndarray:
         """Perform one fitting iteration and return the current I(q)."""
         _check_array_inputs(params)
-        # Keep a reference to the numpy array to prevent garbage collection
         params_array = _as_numpy_f64_arrays(params)[0]
         out_ptr = ct.POINTER(ct.c_double)()
         n_params = ct.c_int(len(params_array))

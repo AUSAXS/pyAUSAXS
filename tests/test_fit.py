@@ -71,10 +71,7 @@ def test_manual_fit_multiple_pars():
 
     def evaluate(q, *pars):
         assert(q.shape[0] == I.shape[0])
-        print( f"Evaluating with params: {pars}" )
         I_model = fit.evaluate(pars)
         a, b = np.polyfit(I_model, I, 1, w=1.0/Ierr)
         return a*I_model + b
     _, _ = curve_fit(evaluate, xdata=q, ydata=I, sigma=Ierr, p0=[1, 1])
-
-test_manual_fit_multiple_pars()
