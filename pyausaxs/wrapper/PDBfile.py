@@ -17,10 +17,10 @@ class PDBfile(BackendObject):
         ausaxs = AUSAXS()
         filename_c = filename.encode('utf-8')
         status = ct.c_int()
-        self._object_id = ausaxs.lib().functions.pdb_read(
+        self._set_id(ausaxs.lib().functions.pdb_read(
             filename_c,
             ct.byref(status)
-        )
+        ))
         _check_error_code(status, "read_pdb")
 
     def _get_data(self) -> None:
@@ -44,7 +44,7 @@ class PDBfile(BackendObject):
         status = ct.c_int()
 
         data_id = ausaxs.lib().functions.pdb_get_data(
-            self._object_id,
+            self._get_id(),
             ct.byref(serial_ptr),
             ct.byref(name_ptr), 
             ct.byref(altLoc_ptr),
@@ -90,8 +90,8 @@ class PDBfile(BackendObject):
         model_ptr = ct.c_char_p(model.value.encode('utf-8'))
         status = ct.c_int()
         res_id = ausaxs.lib().functions.pdb_debye_fit(
-            self._object_id,
-            data._object_id,
+            self._get_id(),
+            data._get_id(),
             model_ptr,
             ct.byref(status)
         )

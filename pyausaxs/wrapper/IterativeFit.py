@@ -21,19 +21,19 @@ class IterativeFit(BackendObject):
         if arg is not None:
             q_vals = _as_numpy_f64_arrays(arg)[0]
             status = ct.c_int()
-            self._object_id = self.ausaxs._lib.functions.iterative_fit_init_userq(
-                mol._object_id,
+            self._set_id(self.ausaxs._lib.functions.iterative_fit_init_userq(
+                mol._get_id(),
                 q_vals.ctypes.data_as(ct.POINTER(ct.c_double)),
                 ct.c_int(len(q_vals)),
                 ct.byref(status)
-            )
+            ))
             _check_error_code(status, "iterative_fit_init_userq")
         else:
             status = ct.c_int()
-            self._object_id = self.ausaxs._lib.functions.iterative_fit_init(
-                mol._object_id,
+            self._set_id(self.ausaxs._lib.functions.iterative_fit_init(
+                mol._get_id(),
                 ct.byref(status)
-            )
+            ))
             _check_error_code(status, "iterative_fit_init")
 
     @overload
@@ -48,26 +48,26 @@ class IterativeFit(BackendObject):
         if q is not None:
             _check_array_inputs(q)
             q_array = _as_numpy_f64_arrays(q)[0]
-            out_array = np.zeros(len(q_array), dtype=np.float64)
+            out_ptr = np.zeros(len(q_array), dtype=np.float64)
             status = ct.c_int()
             self.ausaxs._lib.functions.iterative_fit_evaluate_userq(
-                self._object_id,
+                self._get_id(),
                 params_array.ctypes.data_as(ct.POINTER(ct.c_double)),
                 ct.c_int(len(params_array)),
                 q_array.ctypes.data_as(ct.POINTER(ct.c_double)),
-                out_array.ctypes.data_as(ct.POINTER(ct.c_double)),
+                out_ptr.ctypes.data_as(ct.POINTER(ct.c_double)),
                 ct.c_int(len(q_array)),
                 ct.byref(status)
             )
             _check_error_code(status, "iterative_fit_evaluate_userq")
-            return out_array
+            return out_ptr
 
         else:
             out_ptr = ct.POINTER(ct.c_double)()
             out_n = ct.c_int()
             status = ct.c_int()
             self.ausaxs._lib.functions.iterative_fit_evaluate(
-                self._object_id,
+                self._get_id(),
                 params_array.ctypes.data_as(ct.POINTER(ct.c_double)),
                 ct.c_int(len(params_array)),
                 ct.byref(out_ptr),

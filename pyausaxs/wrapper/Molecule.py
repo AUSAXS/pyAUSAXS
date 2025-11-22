@@ -20,23 +20,19 @@ class Molecule(BackendObject):
         ausaxs = AUSAXS()
         filename_c = filename.encode('utf-8')
         status = ct.c_int()
-        self._object_id = ausaxs.lib().functions.molecule_from_file(
+        self._set_id(ausaxs.lib().functions.molecule_from_file(
             filename_c,
             ct.byref(status)
-        )
+        ))
         _check_error_code(status, "_create_molecule_from_file")
 
     def _create_molecule_from_pdb(self, pdb: PDBfile) -> None:
-        if not isinstance(pdb, PDBfile):
-            raise TypeError(f"pdb must be of type PDBfile, got {type(pdb)} instead.")
-        if pdb._object_id is None:
-            raise ValueError("PDBfile object is not properly initialized.")
         ausaxs = AUSAXS()
         status = ct.c_int()
-        self._object_id = ausaxs.lib().functions.molecule_from_pdb_id(
-            pdb._object_id,
+        self._set_id(ausaxs.lib().functions.molecule_from_pdb_id(
+            pdb._get_id(),
             ct.byref(status)
-        )
+        ))
         _check_error_code(status, "_create_molecule_from_pdb")
 
     def _create_molecule_from_arrays(
@@ -52,14 +48,14 @@ class Molecule(BackendObject):
         ausaxs = AUSAXS()
         n_atoms = ct.c_int(len(x))
         status = ct.c_int()
-        self._object_id = ausaxs.lib().functions.molecule_from_arrays(
+        self._set_id(ausaxs.lib().functions.molecule_from_arrays(
             x.ctypes.data_as(ct.POINTER(ct.c_double)),
             y.ctypes.data_as(ct.POINTER(ct.c_double)),
             z.ctypes.data_as(ct.POINTER(ct.c_double)),
             w.ctypes.data_as(ct.POINTER(ct.c_double)),
             n_atoms,
             ct.byref(status)
-        )
+        ))
         _check_error_code(status, "_create_molecule_from_arrays")
 
     def _create_molecule(self, *args) -> None:
@@ -92,7 +88,7 @@ class Molecule(BackendObject):
         status = ct.c_int()
 
         data_id = ausaxs.lib().functions.molecule_get_data(
-            self._object_id,
+            self._get_id(),
             ct.byref(ax_ptr),
             ct.byref(ay_ptr),
             ct.byref(az_ptr),
@@ -127,7 +123,7 @@ class Molecule(BackendObject):
         ausaxs = AUSAXS()
         status = ct.c_int()
         ausaxs.lib().functions.molecule_hydrate(
-            self._object_id,
+            self._get_id(),
             ct.byref(status)
         )
         _check_error_code(status, "molecule_hydrate")
@@ -139,7 +135,7 @@ class Molecule(BackendObject):
         ausaxs = AUSAXS()
         status = ct.c_int()
         ausaxs.lib().functions.molecule_clear_hydration(
-            self._object_id,
+            self._get_id(),
             ct.byref(status)
         )
         _check_error_code(status, "molecule_clear_hydration")
@@ -152,7 +148,7 @@ class Molecule(BackendObject):
         rg = ct.c_double()
         status = ct.c_int()
         ausaxs.lib().functions.molecule_Rg(
-            self._object_id,
+            self._get_id(),
             ct.byref(rg),
             ct.byref(status)
         )
@@ -172,7 +168,7 @@ class Molecule(BackendObject):
         delta_r = ct.c_double()
         status = ct.c_int()
         tmp_id = ausaxs.lib().functions.molecule_distance_histogram(
-            self._object_id,
+            self._get_id(),
             ct.byref(aa_ptr),
             ct.byref(aw_ptr),
             ct.byref(ww_ptr),
@@ -207,7 +203,7 @@ class Molecule(BackendObject):
             n_q = ct.c_int(len(q_vals))
             status = ct.c_int()
             ausaxs.lib().functions.molecule_debye_userq(
-                self._object_id,
+                self._get_id(),
                 q.ctypes.data_as(ct.POINTER(ct.c_double)),
                 i.ctypes.data_as(ct.POINTER(ct.c_double)),
                 n_q,
@@ -221,7 +217,7 @@ class Molecule(BackendObject):
             n_q = ct.c_int()
             status = ct.c_int()
             tmp_id = ausaxs.lib().functions.molecule_debye(
-                self._object_id,
+                self._get_id(),
                 ct.byref(q_ptr),
                 ct.byref(i_ptr),
                 ct.byref(n_q),
@@ -247,7 +243,7 @@ class Molecule(BackendObject):
             n_q = ct.c_int(len(q_vals))
             status = ct.c_int()
             ausaxs.lib().functions.molecule_debye_raw_userq(
-                self._object_id,
+                self._get_id(),
                 q.ctypes.data_as(ct.POINTER(ct.c_double)),
                 i.ctypes.data_as(ct.POINTER(ct.c_double)),
                 n_q,
@@ -261,7 +257,7 @@ class Molecule(BackendObject):
             n_q = ct.c_int()
             status = ct.c_int()
             tmp_id = ausaxs.lib().functions.molecule_debye_raw(
-                self._object_id,
+                self._get_id(),
                 ct.byref(q_ptr),
                 ct.byref(i_ptr),
                 ct.byref(n_q),
@@ -286,8 +282,8 @@ class Molecule(BackendObject):
         ausaxs = AUSAXS()
         status = ct.c_int()
         res_id = ausaxs.lib().functions.molecule_debye_fit(
-            self._object_id,
-            data._object_id,
+            self._get_id(),
+            data._get_id(),
             ct.byref(status)
         )
         _check_error_code(status, "molecule_fit")
