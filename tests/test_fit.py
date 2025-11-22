@@ -1,8 +1,21 @@
 import numpy as np
 import pyausaxs as ausaxs
+import pytest
 
 from scipy.optimize import least_squares
 from scipy.optimize import curve_fit
+
+
+@pytest.fixture(autouse=True)
+def reset_settings():
+    """Reset settings to defaults before and after each test to avoid state pollution."""
+    # Reset before test
+    ausaxs.settings.fit(fit_hydration=True, fit_excluded_volume=False)
+    ausaxs.settings.exv(ausaxs.ExvModel.simple)
+    yield
+    # Reset after test  
+    ausaxs.settings.fit(fit_hydration=True, fit_excluded_volume=False)
+    ausaxs.settings.exv(ausaxs.ExvModel.simple)
 
 
 def test_automatic_fit():
