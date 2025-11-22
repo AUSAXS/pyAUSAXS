@@ -12,4 +12,4 @@ __all__ = [
     "read_pdb", "read_data", "create_datafile", "create_molecule", "sasview", "settings", "manual_fit",
     "ExvModel", "ExvTable", "unoptimized", "advanced"
 ]
-__version__ = "1.0.8"
+__version__ = "1.0.9"
