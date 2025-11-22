@@ -111,7 +111,7 @@ jobs:
       - name: Test wheel installation
         shell: bash
         run: |
-          pip install twine
+          pip install twine pytest
           twine check dist/*.whl
           rm -rf pyausaxs
           python -m pip install dist/*.whl
