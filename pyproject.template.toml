@@ -22,7 +22,7 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/AUSAXS/pyAUSAXS
+Homepage = "https://github.com/AUSAXS/pyAUSAXS"
 
 [tool.setuptools.packages.find]
 where = ["."]
