@@ -18,7 +18,7 @@ class unoptimized():
             n_q = ct.c_int(len(q_vals))
             status = ct.c_int()
             ausaxs.lib().functions.molecule_debye_exact_userq(
-                molecule._object_id,
+                molecule._get_id(),
                 q.ctypes.data_as(ct.POINTER(ct.c_double)),
                 i.ctypes.data_as(ct.POINTER(ct.c_double)),
                 n_q,
@@ -32,7 +32,7 @@ class unoptimized():
             n_q = ct.c_int()
             status = ct.c_int()
             tmp_id = ausaxs.lib().functions.molecule_debye_exact(
-                molecule._object_id,
+                molecule._get_id(),
                 ct.byref(q_ptr),
                 ct.byref(i_ptr),
                 ct.byref(n_q),

@@ -53,7 +53,7 @@ class Datafile(BackendObject):
         status = ct.c_int()
 
         data_id = ausaxs.lib().functions.data_get_data(
-            self._object_id,
+            self._get_id(),
             ct.byref(q_ptr),
             ct.byref(I_ptr),
             ct.byref(Ierr_ptr),

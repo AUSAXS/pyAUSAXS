@@ -111,8 +111,8 @@ jobs:
       - name: Test wheel installation
         shell: bash
         run: |
-          pip install twine
+          pip install twine pytest scipy numpy matplotlib
           twine check dist/*.whl
           rm -rf pyausaxs
           python -m pip install dist/*.whl
-          python tests/test.py
+          pytest -q

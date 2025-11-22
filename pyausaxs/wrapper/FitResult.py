@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 class FitResult(BackendObject):
     def __init__(self, id: int):
         super().__init__()
-        self._object_id = id
+        self._set_id(id)
         self._fit_info: dict[str, Any] = {}
         self._fit_curves: list[np.ndarray] = []
 
@@ -25,7 +25,7 @@ class FitResult(BackendObject):
         status       = ct.c_int()
 
         data_id = ausaxs.lib().functions.fit_get_fit_curves(
-            self._object_id,
+            self._get_id(),
             ct.byref(q_ptr),
             ct.byref(I_data_ptr),
             ct.byref(I_err_ptr),
@@ -56,7 +56,7 @@ class FitResult(BackendObject):
         dof          = ct.c_int()
         status       = ct.c_int()
         data_id = ausaxs.lib().functions.fit_get_fit_info(
-            self._object_id,
+            self._get_id(),
             ct.byref(pars_ptr),
             ct.byref(pvals_ptr),
             ct.byref(perr_min_ptr),

@@ -4,8 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyausaxs"
-version = "1.0.8"
-description = "Efficient small-angle X-ray scattering calculator."
+authors = [
+  { name="Kristian Lytje", email="kristian.lytje@uni-saarland.de" }
+]
+version = "1.0.9"
+description = "An efficient small-angle Debye scattering calculator."
 readme = "README.md"
 license = "LGPL-3.0-or-later"
 requires-python = ">=3.9"
@@ -13,6 +16,13 @@ dependencies = [
   "py-cpuinfo>=8.0.0",
   "numpy>=1.20.0",
 ]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/AUSAXS/pyAUSAXS"
 
 [tool.setuptools.packages.find]
 where = ["."]
