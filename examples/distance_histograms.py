@@ -6,15 +6,19 @@ import matplotlib.pyplot as plt
 
 mol = ausaxs.create_molecule("tests/files/2epe.pdb")
 mol.hydrate()                   # generate new hydration shell
-dist = mol.distance_histogram() # get the distance histogram
+dist = mol.distance_histogram() # get the distance histogram (triggers calculation)
 
-last_nonzero = dist.counts_total().nonzero()[0][-1] + 1  # find last non-zero bin index
+# We now have access to the full range of distance histogram data. 
+# However, since most of the bins representing larger distances are unused, we would like to trim the data
+# before visualizing it. We therefore find the last non-zero bin and only plot up to that point:
+last_nonzero = dist.counts_total().nonzero()[0][-1] + 1
 bins = dist.bins()[:last_nonzero]
-p_aa = dist.counts_aa()[:last_nonzero]
-p_aw = dist.counts_aw()[:last_nonzero]
-p_ww = dist.counts_ww()[:last_nonzero]
-p_total = dist.counts_total()[:last_nonzero]
+p_aa = dist.counts_aa()[:last_nonzero]       # atom-atom distances
+p_aw = dist.counts_aw()[:last_nonzero]       # atom-water distances
+p_ww = dist.counts_ww()[:last_nonzero]       # water-water distances
+p_total = dist.counts_total()[:last_nonzero] # total distances
 
+# Make the plot:
 plt.figure(figsize=(10, 6))
 plt.plot(bins, p_aa, label="atom-atom")
 plt.plot(bins, p_aw, label="atom-water")
