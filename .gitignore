@@ -3,3 +3,4 @@ pyausaxs/resources
 pyproject.toml
 *.egg-info
 build
+.vscode
