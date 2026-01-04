@@ -164,23 +164,23 @@ class Molecule(BackendObject):
         aa_ptr = ct.POINTER(ct.c_double)()
         aw_ptr = ct.POINTER(ct.c_double)()
         ww_ptr = ct.POINTER(ct.c_double)()
+        axis_ptr = ct.POINTER(ct.c_double)()
         n_bins = ct.c_int()
-        delta_r = ct.c_double()
         status = ct.c_int()
         tmp_id = ausaxs.lib().functions.molecule_distance_histogram(
             self._get_id(),
             ct.byref(aa_ptr),
             ct.byref(aw_ptr),
             ct.byref(ww_ptr),
+            ct.byref(axis_ptr),
             ct.byref(n_bins),
-            ct.byref(delta_r),
             ct.byref(status)
         )
         _check_error_code(status, "molecule_distance_histogram")
 
         n = n_bins.value
         hist = Histogram(
-            np.array([delta_r.value*i for i in range(n)], dtype=np.float64),
+            np.array([axis_ptr[i] for i in range(n)], dtype=np.float64),
             np.array([aa_ptr[i] for i in range(n)], dtype=np.float64),
             np.array([aw_ptr[i] for i in range(n)], dtype=np.float64),
             np.array([ww_ptr[i] for i in range(n)], dtype=np.float64),

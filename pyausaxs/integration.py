@@ -174,8 +174,8 @@ class AUSAXSLIB:
                 ct.POINTER(ct.POINTER(ct.c_double)), # aa (output)
                 ct.POINTER(ct.POINTER(ct.c_double)), # aw (output)
                 ct.POINTER(ct.POINTER(ct.c_double)), # ww (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # bin axis (output)
                 ct.POINTER(ct.c_int),                # n_bins (output)
-                ct.POINTER(ct.c_double),             # delta_r (output)
                 ct.POINTER(ct.c_int)                 # status (0 = success)
             ]
             self.functions.molecule_distance_histogram.restype = ct.c_int # return obj id
