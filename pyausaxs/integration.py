@@ -296,6 +296,21 @@ class AUSAXSLIB:
             ]
             self.functions.debye_no_ff.restype = None
 
+            # get_setting
+            self.functions.get_setting.argtypes = [
+                ct.c_char_p,            # setting name
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.get_setting.restype = int # return temp res id
+
+            # set_setting
+            self.functions.set_setting.argtypes = [
+                ct.c_char_p,            # setting name
+                ct.c_char_p,            # new value
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.set_setting.restype = None
+
             # set_exv_settings
             self.functions.set_exv_settings.argtypes = [
                 ct.c_char_p,            # exv_model

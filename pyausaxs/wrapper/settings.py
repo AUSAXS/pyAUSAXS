@@ -6,6 +6,26 @@ import ctypes as ct
 # lowercase 'settings' since it's meant to be used with dot-notation
 class settings:
     @staticmethod
+    def get(name: str):
+        """Get a setting by name."""
+        ausaxs = AUSAXS()
+        status = ct.c_int()
+        name_ptr = ct.c_char_p(name.encode('utf-8'))
+        tmp_id = ausaxs.lib().functions.get_setting(
+            name_ptr,
+            ct.byref(status)
+        )
+        _check_error_code(status, "settings_get_setting")
+        #! INSERT LOGIC FOR HANDLING RETURNED VALUE!
+        ausaxs.deallocate(tmp_id)
+
+    @staticmethod
+    def set(name: str, val: str):
+        """Set a setting by name and string value."""
+        #! IMPLEMENT!
+        pass
+
+    @staticmethod
     def exv(exv_model: ExvModel = ExvModel.simple):
         """Set the excluded volume model to use in calculations."""
         exv_model = ExvModel.validate(exv_model)
