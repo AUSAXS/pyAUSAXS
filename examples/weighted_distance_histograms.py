@@ -25,11 +25,7 @@ plt.show()
 
 # To clearly illustrate how the bin centers shifts, we recalculate the distance histogram without 
 # using weighted bins to compare with:
-#! we need persistent settings; they shouldn't reset on each invocation
-#! instead, we should define a ausaxs.settings.reset() method which delegates
-#! to a backend-call (since we need the same functionality in AUSAXS).
 ausaxs.settings.histogram(weighted_bins=False, bin_width=0.1, bin_count=10000)
-mol = ausaxs.create_molecule("tests/files/Ag_crystal.cif")  # recreate molecule to refresh the histogram calculator
 dist = mol.distance_histogram()
 dist.truncate()
 unweighted_bins = dist.bins()               # unweighted distance axis
