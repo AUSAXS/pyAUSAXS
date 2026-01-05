@@ -298,8 +298,10 @@ class AUSAXSLIB:
 
             # get_setting
             self.functions.get_setting.argtypes = [
-                ct.c_char_p,            # setting name
-                ct.POINTER(ct.c_int)    # status (0 = success)
+                ct.c_char_p,                        # setting name
+                ct.POINTER(ct.POINTER(ct.c_char)),  # type (output)
+                ct.POINTER(ct.POINTER(ct.c_char)),  # value (output)
+                ct.POINTER(ct.c_int)                # status (0 = success)
             ]
             self.functions.get_setting.restype = int # return temp res id
 

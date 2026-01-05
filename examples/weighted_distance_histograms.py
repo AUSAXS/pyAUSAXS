@@ -5,9 +5,7 @@ import pyausaxs as ausaxs
 import matplotlib.pyplot as plt
 import numpy as np
 
-#! Need a way to query this value through the Histogram interface
-bw = 0.1
-ausaxs.settings.histogram(bin_width=bw, bin_count=10000)  # Set the bin width for the distance histogram
+ausaxs.settings.histogram(bin_width=0.1, bin_count=10000)  # Set the bin width for the distance histogram
 
 # This time, we will use a crystal structure to highlight the weighted bins used in AUSAXS. 
 mol = ausaxs.create_molecule("tests/files/Ag_crystal.cif")
@@ -30,7 +28,7 @@ plt.show()
 #! we need persistent settings; they shouldn't reset on each invocation
 #! instead, we should define a ausaxs.settings.reset() method which delegates
 #! to a backend-call (since we need the same functionality in AUSAXS).
-ausaxs.settings.histogram(weighted_bins=False, bin_width=bw, bin_count=10000)
+ausaxs.settings.histogram(weighted_bins=False, bin_width=0.1, bin_count=10000)
 mol = ausaxs.create_molecule("tests/files/Ag_crystal.cif")  # recreate molecule to refresh the histogram calculator
 dist = mol.distance_histogram()
 dist.truncate()
@@ -39,6 +37,7 @@ unweighted_p_total = dist.counts_total()    # matching total distances
 
 # We then plot the bin edges, along with the actual bin centers used in both calculations. 
 # This clearly illustrates the deviations within each bin due to the weighted bin approach. 
+bw = dist.get_bin_width()
 ind = int(5/bw)
 plt.figure(figsize=(14, 4))
 bin_edges = np.arange(bw/2, len(bins)*bw, bw)[ind:ind+50]
