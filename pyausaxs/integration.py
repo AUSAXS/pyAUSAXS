@@ -5,14 +5,14 @@ from enum import Enum
 from pyausaxs.loader import find_lib_path
 from pyausaxs.architecture import CPUFeatures
 
-class AUSAXSLIB: 
+class AUSAXSLIB:
     class STATE(Enum):
         UNINITIALIZED = 0
         FAILED = 1
         READY = 2
 
     def __init__(self):
-        self.functions = None
+        self.functions: ct.CDLL = None # type: ignore[assignment]
         self.state = self.STATE.UNINITIALIZED
         self.lib_path = find_lib_path()
 

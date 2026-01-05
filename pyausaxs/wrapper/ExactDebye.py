@@ -5,7 +5,7 @@ import numpy as np
 
 class unoptimized():
     @staticmethod
-    def debye_exact(molecule: Molecule, q_vals: list[float] | np.ndarray = None) -> tuple[np.ndarray, np.ndarray]:
+    def debye_exact(molecule: Molecule, q_vals: list[float] | np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
         """
         Calculate the exact Debye scattering intensity of the molecule. No form factors will be applied. 
         Warning: This method is _not_ optimized, and may be very slow for large molecules. It is only meant for testing and validation purposes.

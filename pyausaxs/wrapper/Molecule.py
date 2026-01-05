@@ -191,7 +191,7 @@ class Molecule(BackendObject):
     def histogram(self) -> Histogram:
         return self.distance_histogram()
 
-    def debye(self, q_vals: list[float] | np.ndarray = None) -> tuple[np.ndarray, np.ndarray]:
+    def debye(self, q_vals: list[float] | np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
         """
         Calculate the Debye scattering intensity of the molecule. Form factors and excluded volume effects will be applied.
         Returns: (q, I)
@@ -231,7 +231,7 @@ class Molecule(BackendObject):
             ausaxs.deallocate(tmp_id)
             return q, i
 
-    def debye_raw(self, q_vals: list[float] | np.ndarray = None) -> tuple[np.ndarray, np.ndarray]:
+    def debye_raw(self, q_vals: list[float] | np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
         """
         Calculate the Debye scattering intensity of the molecule. No form factors or excluded volume effects will be applied.
         Returns: (q, I)
@@ -332,5 +332,5 @@ def create_molecule(
     weights: np.ndarray | list[float]
 ) -> Molecule: ...
 
-def create_molecule(*args) -> Molecule:
+def create_molecule(*args) -> Molecule: # type: ignore[reportInconsistentOverload]
     return Molecule(*args)

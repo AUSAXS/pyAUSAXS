@@ -4,7 +4,7 @@ import ctypes as ct
 import numpy as np
 import threading
 
-def _check_array_inputs(*arrays: Union[list, np.ndarray], names: list[str] = None) -> None:
+def _check_array_inputs(*arrays: Union[list, np.ndarray], names: list[str] | None = None) -> None:
     """Check that all input arrays are either lists or numpy arrays."""
     if names is None:
         names = [f"array_{i}" for i in range(len(arrays))]
@@ -46,7 +46,7 @@ def _check_error_code(status: ct.c_int, function_name: str) -> None:
         raise RuntimeError(f"AUSAXS: \"{function_name}\" failed with error code {status.value}: \n\"{error_message}\"")
 
 class AUSAXS:
-    _instance = None
+    _instance: AUSAXS = None # type: ignore[assignment]
 
     def __new__(cls):
         if cls._instance: return cls._instance

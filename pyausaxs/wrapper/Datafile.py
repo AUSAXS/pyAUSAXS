@@ -11,7 +11,7 @@ class Datafile(BackendObject):
     def __init__(self, filename: str): ...
     @overload
     def __init__(self, q: list[float] | np.ndarray, I: list[float] | np.ndarray, Ierr: list[float] | np.ndarray): ...
-    def __init__(self, *args):
+    def __init__(self, *args): # type: ignore[reportInconsistentOverload]
         super().__init__()
         self._data: dict[str, np.ndarray] = {}
 
