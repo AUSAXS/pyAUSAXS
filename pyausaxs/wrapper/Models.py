@@ -24,7 +24,7 @@ class ExvModel(enum):
         return model
 
 class ExvTable(enum):
-    traube = "traube",
+    traube = "traube"
     voronoi_implicit_H = "voronoi_implicit_h"
     voronoi_explicit_H = "voronoi_explicit_h"
     minimum_fluctutation_implicit_H = "minimum_fluctuation_implicit_h"
@@ -32,7 +32,7 @@ class ExvTable(enum):
     vdw = "vdw"
 
     @staticmethod
-    def alternate_names(self) -> list[str]:
+    def alternate_names() -> list[str]:
         return ["voronoi", "mf"]
 
     @staticmethod

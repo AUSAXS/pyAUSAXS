@@ -10,13 +10,15 @@ dist = mol.distance_histogram() # get the distance histogram (triggers calculati
 
 # We now have access to the full range of distance histogram data. 
 # However, since most of the bins representing larger distances are unused, we would like to trim the data
-# before visualizing it. We therefore find the last non-zero bin and only plot up to that point:
-last_nonzero = dist.counts_total().nonzero()[0][-1] + 1
-bins = dist.bins()[:last_nonzero]
-p_aa = dist.counts_aa()[:last_nonzero]       # atom-atom distances
-p_aw = dist.counts_aw()[:last_nonzero]       # atom-water distances
-p_ww = dist.counts_ww()[:last_nonzero]       # water-water distances
-p_total = dist.counts_total()[:last_nonzero] # total distances
+# before visualizing it. We can do this using the truncate() method, which removes all these empty bins at the end:
+dist.truncate()
+
+# We now extract all of the distance information:
+bins = dist.bins()              # (potentially weighted) distance axis
+p_aa = dist.counts_aa()         # atom-atom distances
+p_aw = dist.counts_aw()         # atom-water distances
+p_ww = dist.counts_ww()         # water-water distances
+p_total = dist.counts_total()   # total distances
 
 # Make the plot:
 plt.figure(figsize=(10, 6))

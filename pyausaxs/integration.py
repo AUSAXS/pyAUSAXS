@@ -5,14 +5,14 @@ from enum import Enum
 from pyausaxs.loader import find_lib_path
 from pyausaxs.architecture import CPUFeatures
 
-class AUSAXSLIB: 
+class AUSAXSLIB:
     class STATE(Enum):
         UNINITIALIZED = 0
         FAILED = 1
         READY = 2
 
     def __init__(self):
-        self.functions = None
+        self.functions: ct.CDLL = None # type: ignore[assignment]
         self.state = self.STATE.UNINITIALIZED
         self.lib_path = find_lib_path()
 
@@ -174,8 +174,8 @@ class AUSAXSLIB:
                 ct.POINTER(ct.POINTER(ct.c_double)), # aa (output)
                 ct.POINTER(ct.POINTER(ct.c_double)), # aw (output)
                 ct.POINTER(ct.POINTER(ct.c_double)), # ww (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # bin axis (output)
                 ct.POINTER(ct.c_int),                # n_bins (output)
-                ct.POINTER(ct.c_double),             # delta_r (output)
                 ct.POINTER(ct.c_int)                 # status (0 = success)
             ]
             self.functions.molecule_distance_histogram.restype = ct.c_int # return obj id
@@ -295,6 +295,23 @@ class AUSAXSLIB:
                 ct.POINTER(ct.c_int)     # status (0 = success)
             ]
             self.functions.debye_no_ff.restype = None
+
+            # get_setting
+            self.functions.get_setting.argtypes = [
+                ct.c_char_p,                        # setting name
+                ct.POINTER(ct.POINTER(ct.c_char)),  # type (output)
+                ct.POINTER(ct.POINTER(ct.c_char)),  # value (output)
+                ct.POINTER(ct.c_int)                # status (0 = success)
+            ]
+            self.functions.get_setting.restype = int # return temp res id
+
+            # set_setting
+            self.functions.set_setting.argtypes = [
+                ct.c_char_p,            # setting name
+                ct.c_char_p,            # new value
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.set_setting.restype = None
 
             # set_exv_settings
             self.functions.set_exv_settings.argtypes = [

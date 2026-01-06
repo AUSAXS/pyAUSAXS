@@ -2,9 +2,54 @@ from .AUSAXS import AUSAXS, _check_error_code
 from .Models import ExvModel, ExvTable, WaterModel
 import multiprocessing
 import ctypes as ct
+from typing import Any
+
+def _type_cast(value: str, type: str):
+    """Helper function to cast a string value to the specified type."""
+    match type.lower():
+        case "int": return int(value)
+        case "double": return float(value)
+        case "bool": return value.lower() in ("true", "1", "yes")
+        case "string": return value
+        case _: raise ValueError(f"Unknown setting type: {type}")
 
 # lowercase 'settings' since it's meant to be used with dot-notation
 class settings:
+    @staticmethod
+    def _get(name: str) -> Any:
+        """Get a setting by name."""
+        ausaxs = AUSAXS()
+        status = ct.c_int()
+        name_ptr = ct.c_char_p(name.encode('utf-8'))
+        value_ptr = ct.POINTER(ct.c_char)()
+        type_ptr = ct.POINTER(ct.c_char)()
+        tmp_id = ausaxs.lib().functions.get_setting(
+            name_ptr,
+            ct.byref(value_ptr),
+            ct.byref(type_ptr),
+            ct.byref(status)
+        )
+        _check_error_code(status, "settings_get_setting")
+
+        type_str = ct.cast(type_ptr, ct.c_char_p).value.decode('utf-8')
+        value_str = ct.cast(value_ptr, ct.c_char_p).value.decode('utf-8')
+        ausaxs.deallocate(tmp_id)
+        return _type_cast(value_str, type_str)
+
+    @staticmethod
+    def _set(name: str, val: str):
+        """Set a setting by name and string value."""
+        ausaxs = AUSAXS()
+        status = ct.c_int()
+        name_ptr = ct.c_char_p(name.encode('utf-8'))
+        value_ptr = ct.c_char_p(val.encode('utf-8'))
+        ausaxs.lib().functions.set_setting(
+            name_ptr,
+            value_ptr,
+            ct.byref(status)
+        )
+        _check_error_code(status, "settings_set_setting")
+
     @staticmethod
     def exv(exv_model: ExvModel = ExvModel.simple):
         """Set the excluded volume model to use in calculations."""

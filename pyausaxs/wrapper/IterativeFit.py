@@ -13,7 +13,7 @@ class IterativeFit(BackendObject):
     def __init__(self, mol: Molecule, q_vals: list[float] | np.ndarray): ...
     @overload
     def __init__(self, mol: Molecule, data: Datafile): ...
-    def __init__(self, mol: Molecule, arg: list[float] | np.ndarray | Datafile = None):
+    def __init__(self, mol: Molecule, arg: list[float] | np.ndarray | Datafile = None): # type: ignore[reportInconsistentOverload]
         super().__init__()
         self.ausaxs = AUSAXS()
         if isinstance(arg, Datafile):
@@ -41,7 +41,7 @@ class IterativeFit(BackendObject):
     @overload
     def evaluate(self, params: np.ndarray | list[float] | tuple, q: np.ndarray | list[float]) -> np.ndarray: ...
 
-    def evaluate(self, params: np.ndarray | list[float] | tuple, q: np.ndarray | list[float] = None) -> np.ndarray:
+    def evaluate(self, params: np.ndarray | list[float] | tuple, q: np.ndarray | list[float] = None) -> np.ndarray: # type: ignore[reportInconsistentOverload]
         """Perform one fitting iteration and return the current I(q)."""
         _check_array_inputs(params)
         params_array = _as_numpy_f64_arrays(params)[0]
@@ -84,6 +84,6 @@ def manual_fit(mol: Molecule, data: Datafile) -> IterativeFit: ...
 @overload
 def manual_fit(mol: Molecule) -> IterativeFit: ...
 
-def manual_fit(mol: Molecule, arg=None) -> IterativeFit:
+def manual_fit(mol: Molecule, arg=None) -> IterativeFit: # type: ignore[reportInconsistentOverload]
     """Start a fitting session with manual control over the fitting session."""
     return IterativeFit(mol, arg) if arg is not None else IterativeFit(mol)

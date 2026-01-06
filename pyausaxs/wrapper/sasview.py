@@ -3,6 +3,7 @@ import ctypes as ct
 import numpy as np
 
 class sasview:
+    @staticmethod
     def debye_no_ff(
         q_vector: list[float] | np.ndarray, 
         atom_x: list[float] | np.ndarray, atom_y: list[float] | np.ndarray, atom_z: list[float] | np.ndarray, 

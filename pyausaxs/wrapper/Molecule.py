@@ -164,23 +164,23 @@ class Molecule(BackendObject):
         aa_ptr = ct.POINTER(ct.c_double)()
         aw_ptr = ct.POINTER(ct.c_double)()
         ww_ptr = ct.POINTER(ct.c_double)()
+        axis_ptr = ct.POINTER(ct.c_double)()
         n_bins = ct.c_int()
-        delta_r = ct.c_double()
         status = ct.c_int()
         tmp_id = ausaxs.lib().functions.molecule_distance_histogram(
             self._get_id(),
             ct.byref(aa_ptr),
             ct.byref(aw_ptr),
             ct.byref(ww_ptr),
+            ct.byref(axis_ptr),
             ct.byref(n_bins),
-            ct.byref(delta_r),
             ct.byref(status)
         )
         _check_error_code(status, "molecule_distance_histogram")
 
         n = n_bins.value
         hist = Histogram(
-            np.array([delta_r.value*i for i in range(n)], dtype=np.float64),
+            np.array([axis_ptr[i] for i in range(n)], dtype=np.float64),
             np.array([aa_ptr[i] for i in range(n)], dtype=np.float64),
             np.array([aw_ptr[i] for i in range(n)], dtype=np.float64),
             np.array([ww_ptr[i] for i in range(n)], dtype=np.float64),
@@ -191,7 +191,7 @@ class Molecule(BackendObject):
     def histogram(self) -> Histogram:
         return self.distance_histogram()
 
-    def debye(self, q_vals: list[float] | np.ndarray = None) -> tuple[np.ndarray, np.ndarray]:
+    def debye(self, q_vals: list[float] | np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
         """
         Calculate the Debye scattering intensity of the molecule. Form factors and excluded volume effects will be applied.
         Returns: (q, I)
@@ -231,7 +231,7 @@ class Molecule(BackendObject):
             ausaxs.deallocate(tmp_id)
             return q, i
 
-    def debye_raw(self, q_vals: list[float] | np.ndarray = None) -> tuple[np.ndarray, np.ndarray]:
+    def debye_raw(self, q_vals: list[float] | np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
         """
         Calculate the Debye scattering intensity of the molecule. No form factors or excluded volume effects will be applied.
         Returns: (q, I)
@@ -332,5 +332,5 @@ def create_molecule(
     weights: np.ndarray | list[float]
 ) -> Molecule: ...
 
-def create_molecule(*args) -> Molecule:
+def create_molecule(*args) -> Molecule: # type: ignore[reportInconsistentOverload]
     return Molecule(*args)
