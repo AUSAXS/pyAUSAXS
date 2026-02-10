@@ -37,3 +37,6 @@ license-files = []
 
 [project.entry-points."pyinstaller40"]
 hook-dirs = "pyausaxs.__pyinstaller.pyinstaller:get_hook_dirs"
+
+[project.scripts]
+ausaxs = "ausaxs.cli:main"
