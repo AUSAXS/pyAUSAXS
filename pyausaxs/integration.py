@@ -417,13 +417,6 @@ class AUSAXSLIB:
             ]
             self.functions.iterative_fit_evaluate_userq.restype = None
 
-            # rigidbody_config_run
-            self.functions.rigidbody_config_run.argtypes = [
-                ct.c_char_p,            # path to script
-                ct.POINTER(ct.c_int)    # status (0 = success)
-            ]
-            self.functions.rigidbody_config_run.restype = None
-
             # io_is_pdb
             self.functions.io_is_pdb.argtypes = [
                 ct.c_char_p,            # filename

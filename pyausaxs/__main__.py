@@ -1,11 +1,7 @@
-import argparse
 import sys
 import ctypes as ct
 
-from .wrapper.Filetypes import _is_pdb_file, _is_saxs_data_file, _is_rigidbody_config_file
-from .wrapper.Rigidbody import run_rigidbody_script
-from .integration import AUSAXSLIB
-
+from .wrapper.AUSAXS import AUSAXS
 from .__init__ import __version__
 
 
@@ -13,33 +9,26 @@ def main(argv=None):
     # if no args provided, show help
     if argv is None:
         argv = sys.argv[1:]
-    
+
     if not argv or argv[0] in ("-h", "--help"):
         print("\nUsage: ausaxs <tool> [options]")
         print("\nAvailable tools:")
         print("  fit        - Fit SAXS data to a structure")
         print("  em         - Fit EM map to SAXS data")
         print("  rigidbody  - Rigid-body optimization")
-        print("\nOr provide a rigidbody config file:")
-        print("  ausaxs <config.conf>")
         print("\nFor tool-specific help:")
         print("  ausaxs <tool> --help")
+        return 0
+    
+    if argv[0] in ("-v", "--version"):
+        print(f"pyAUSAXS version {__version__}")
         return 0
 
     # check if first arg is a tool selector
     tool = argv[0].lower()
-    
-    # legacy support: check if it's a rigidbody config file
-    if len(argv) == 1 and _is_rigidbody_config_file(argv[0]):
-        try:
-            run_rigidbody_script(argv[0])
-            return 0
-        except Exception as e:
-            print(f"Error running rigidbody script: {e}", file=sys.stderr)
-            return 1
 
     # route to appropriate CLI tool
-    lib = AUSAXSLIB()
+    lib = AUSAXS().lib()
     if not lib.ready():
         print("Error: AUSAXS library not ready", file=sys.stderr)
         return 1
@@ -56,7 +45,7 @@ def main(argv=None):
         return _call_cli(lib.functions.cli_rigidbody, c_argv)
     else:
         print(f"Unknown tool: {tool}", file=sys.stderr)
-        print("Use 'ausaxs' without arguments to see available tools", file=sys.stderr)
+        print("Available tools: fit, em, rigidbody", file=sys.stderr)
         return 2
 
 
@@ -84,7 +73,7 @@ def _call_cli(cli_func, args):
 
 def saxs_fitter():
     """Entry point for saxs_fitter CLI tool."""
-    lib = AUSAXSLIB()
+    lib = AUSAXS().lib()
     if not lib.ready():
         print("Error: AUSAXS library not ready", file=sys.stderr)
         return 1
@@ -94,7 +83,7 @@ def saxs_fitter():
 
 def em_fitter():
     """Entry point for em_fitter CLI tool."""
-    lib = AUSAXSLIB()
+    lib = AUSAXS().lib()
     if not lib.ready():
         print("Error: AUSAXS library not ready", file=sys.stderr)
         return 1
@@ -104,7 +93,7 @@ def em_fitter():
 
 def rigidbody_optimizer():
     """Entry point for rigidbody_optimizer CLI tool."""
-    lib = AUSAXSLIB()
+    lib = AUSAXS().lib()
     if not lib.ready():
         print("Error: AUSAXS library not ready", file=sys.stderr)
         return 1
