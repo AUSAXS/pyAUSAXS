@@ -14,15 +14,14 @@ def main(argv=None):
     if argv is None:
         argv = sys.argv[1:]
     
-    if not argv:
-        print(f"PyAUSAXS {__version__}")
+    if not argv or argv[0] in ("-h", "--help"):
         print("\nUsage: ausaxs <tool> [options]")
         print("\nAvailable tools:")
-        print("  fit        - Fit SAXS data to a structure (uses saxs_fitter)")
-        print("  em         - Fit EM map to SAXS data (uses em_fitter)")
-        print("  rigidbody  - Rigid-body optimization (uses rigidbody_optimizer)")
+        print("  fit        - Fit SAXS data to a structure")
+        print("  em         - Fit EM map to SAXS data")
+        print("  rigidbody  - Rigid-body optimization")
         print("\nOr provide a rigidbody config file:")
-        print("  ausaxs <config.txt>")
+        print("  ausaxs <config.conf>")
         print("\nFor tool-specific help:")
         print("  ausaxs <tool> --help")
         return 0
