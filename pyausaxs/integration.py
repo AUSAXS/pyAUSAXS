@@ -416,6 +416,56 @@ class AUSAXSLIB:
                 ct.POINTER(ct.c_int),       # return status (0 = success)
             ]
             self.functions.iterative_fit_evaluate_userq.restype = None
+
+            # io_is_pdb
+            self.functions.io_is_pdb.argtypes = [
+                ct.c_char_p,            # filename
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.io_is_pdb.restype = bool # yes / no
+
+            # io_is_saxs_data
+            self.functions.io_is_saxs_data.argtypes = [
+                ct.c_char_p,            # filename
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.io_is_saxs_data.restype = bool # yes / no
+
+            # io_is_em_map
+            self.functions.io_is_em_map.argtypes = [
+                ct.c_char_p,            # filename
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.io_is_em_map.restype = bool # yes / no
+
+            # io_is_rigidbody_config
+            self.functions.io_is_rigidbody_config.argtypes = [
+                ct.c_char_p,            # filename
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.io_is_rigidbody_config.restype = bool # yes / no
+
+            # cli_saxs_fitter
+            self.functions.cli_saxs_fitter.argtypes = [
+                ct.c_int,                               # argc
+                ct.POINTER(ct.c_char_p)                 # argv
+            ]
+            self.functions.cli_saxs_fitter.restype = ct.c_int # return exit code
+
+            # cli_em_fitter
+            self.functions.cli_em_fitter.argtypes = [
+                ct.c_int,                               # argc
+                ct.POINTER(ct.c_char_p)                 # argv
+            ]
+            self.functions.cli_em_fitter.restype = ct.c_int # return exit code
+
+            # cli_rigidbody
+            self.functions.cli_rigidbody.argtypes = [
+                ct.c_int,                               # argc
+                ct.POINTER(ct.c_char_p)                 # argv
+            ]
+            self.functions.cli_rigidbody.restype = ct.c_int # return exit code
+
             self.state = self.STATE.READY
 
         except Exception as e:
