@@ -3,7 +3,7 @@ import ctypes as ct
 
 from .wrapper.AUSAXS import AUSAXS
 from .__init__ import __version__
-from .plot import plot_main
+from .plot.plot import main as plot_main
 
 
 def main(argv=None):
