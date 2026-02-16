@@ -3,6 +3,7 @@ import ctypes as ct
 
 from .wrapper.AUSAXS import AUSAXS
 from .__init__ import __version__
+from .plot import plot_main
 
 
 def main(argv=None):
@@ -16,6 +17,7 @@ def main(argv=None):
         print("  fit        - Fit SAXS data to a structure")
         print("  em         - Fit EM map to SAXS data")
         print("  rigidbody  - Rigid-body optimization")
+        print("  plot       - Plotting utility")
         print("\nFor tool-specific help:")
         print("  ausaxs <tool> --help")
         return 0
@@ -34,19 +36,22 @@ def main(argv=None):
         return 1
 
     # prepare argv for C function (needs program name as argv[0])
-    if tool == "fit":
-        c_argv = ["ausaxs_fit"] + argv[1:]
-        return _call_cli(lib.functions.cli_saxs_fitter, c_argv)
-    elif tool == "em":
-        c_argv = ["ausaxs_em"] + argv[1:]
-        return _call_cli(lib.functions.cli_em_fitter, c_argv)
-    elif tool == "rigidbody":
-        c_argv = ["ausaxs_rigidbody"] + argv[1:]
-        return _call_cli(lib.functions.cli_rigidbody, c_argv)
-    else:
-        print(f"Unknown tool: {tool}", file=sys.stderr)
-        print("Available tools: fit, em, rigidbody", file=sys.stderr)
-        return 2
+    match tool:
+        case "fit":
+            c_argv = ["ausaxs_fit"] + argv[1:]
+            return _call_cli(lib.functions.cli_saxs_fitter, c_argv)
+        case "em":
+            c_argv = ["ausaxs_em"] + argv[1:]
+            return _call_cli(lib.functions.cli_em_fitter, c_argv)
+        case "rigidbody":
+            c_argv = ["ausaxs_rigidbody"] + argv[1:]
+            return _call_cli(lib.functions.cli_rigidbody, c_argv)
+        case "plot":
+            return _run_plot_tool(argv[1:])
+        case _:
+            print(f"Unknown tool: {tool}", file=sys.stderr)
+            print("Available tools: fit, em, rigidbody", file=sys.stderr)
+            return 2
 
 
 def _call_cli(cli_func, args):
@@ -69,6 +74,11 @@ def _call_cli(cli_func, args):
     
     # call the C function
     return cli_func(argc, argv)
+
+
+def _run_plot_tool(args):
+    """Run the plotting tool using plot_main."""
+    return plot_main(args)
 
 
 def saxs_fitter():

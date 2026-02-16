@@ -11,10 +11,12 @@ version = "1.1.0"
 description = "An efficient small-angle Debye scattering calculator."
 readme = "README.md"
 license = "LGPL-3.0-or-later"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
   "py-cpuinfo>=8.0.0",
   "numpy>=1.20.0",
+  "scipy>=1.10",
+  "matplotlib>=3.7",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
