@@ -64,8 +64,13 @@ jobs:
       - name: Generate platform-specific pyproject.toml
         shell: bash
         run: |
-          sed 's|LIBRARY_PLACEHOLDER|resources/${{ matrix.library }}|' pyproject.template.toml > pyproject.toml
-          echo "Generated pyproject.toml for ${{ matrix.platform }}:"
+          python -u scripts/gen_pyproject.py
+          echo "Generated pyproject.toml (via scripts/gen_pyproject.py) for ${{ matrix.platform }}"
+          if ! grep -q "resources/${{ matrix.library }}" pyproject.toml; then
+            echo "Error: pyproject.toml does not contain expected library path: resources/${{ matrix.library }}"
+            echo "pyproject.toml content:" && sed -n '1,200p' pyproject.toml
+            exit 1
+          fi
 
       - name: Verify library exists
         shell: bash
