@@ -16,7 +16,7 @@ def _type_cast(value: str, type: str):
 # lowercase 'settings' since it's meant to be used with dot-notation
 class settings:
     @staticmethod
-    def _get(name: str) -> Any:
+    def get(name: str) -> Any:
         """Get a setting by name."""
         ausaxs = AUSAXS()
         status = ct.c_int()
@@ -37,7 +37,7 @@ class settings:
         return _type_cast(value_str, type_str)
 
     @staticmethod
-    def _set(name: str, val: str):
+    def set(name: str, val: str):
         """Set a setting by name and string value."""
         ausaxs = AUSAXS()
         status = ct.c_int()
