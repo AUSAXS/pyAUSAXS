@@ -49,4 +49,4 @@ class Histogram:
     @staticmethod
     def get_bin_width() -> float:
         """Get the current histogram bin width setting."""
-        return float(settings._get("bin_width")) #! remove redundant conversion once AUSAXS setting API has been refactored
+        return float(settings.get("bin_width")) #! remove redundant conversion once AUSAXS setting API has been refactored
