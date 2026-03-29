@@ -352,6 +352,32 @@ class AUSAXSLIB:
             ]
             self.functions.iterative_fit_evaluate_userq.restype = None
 
+            # ff_valid_form_factor_types
+            self.functions.ff_valid_form_factor_types.argtypes = [
+                ct.POINTER(ct.POINTER(ct.c_char_p)),    # types (output)
+                ct.POINTER(ct.c_int),                   # n_types (output)
+                ct.POINTER(ct.c_int)                    # status (0 = success)
+            ]
+            self.functions.ff_valid_form_factor_types.restype = ct.c_int # return data id
+
+            # ff_get_five_gaussian_coefficients
+            self.functions.ff_get_five_gaussian_coefficients.argtypes = [
+                ct.c_char_p,                         # form factor type
+                ct.POINTER(ct.c_double),             # a coefficients (output)
+                ct.POINTER(ct.c_double),             # b coefficients (output)
+                ct.POINTER(ct.c_double),             # c coefficient (output)
+                ct.POINTER(ct.c_int)                 # status (0 = success)
+            ]
+            self.functions.ff_get_five_gaussian_coefficients.restype = None
+
+            # ff_get_current_exv_volume
+            self.functions.ff_get_current_exv_volume.argtypes = [
+                ct.c_char_p,             # form factor type
+                ct.POINTER(ct.c_double), # volume (output)
+                ct.POINTER(ct.c_int)     # status (0 = success)
+            ]
+            self.functions.ff_get_current_exv_volume.restype = None
+
             # io_is_pdb
             self.functions.io_is_pdb.argtypes = [
                 ct.c_char_p,            # filename
