@@ -7,7 +7,6 @@ def test_valid_types():
     types = form_factor.valid_types()
     assert isinstance(types, np.ndarray), "Form factor types should be returned as a list"
     assert len(types) > 0, "There should be at least one form factor type available"
-    print("Available form factor types:", types)
 
 def test_get_five_gaussian_coefficients():
     element = form_factor.valid_types()[0]
