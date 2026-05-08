@@ -1,17 +1,19 @@
 from .AUSAXS import AUSAXS, _check_error_code
 from .Models import ExvModel, ExvTable, WaterModel
-import multiprocessing
 import ctypes as ct
 from typing import Any
 
 def _type_cast(value: str, type: str):
     """Helper function to cast a string value to the specified type."""
     match type.lower():
-        case "int": return int(value)
+        case "int" | "uint": return int(value)
         case "double": return float(value)
         case "bool": return value.lower() in ("true", "1", "yes")
         case "string": return value
         case _: raise ValueError(f"Unknown setting type: {type}")
+
+def _b(val: bool) -> str:
+    return "1" if val else "0"
 
 # lowercase 'settings' since it's meant to be used with dot-notation
 class settings:
@@ -53,82 +55,53 @@ class settings:
     @staticmethod
     def exv(exv_model: ExvModel = ExvModel.simple):
         """Set the excluded volume model to use in calculations."""
-        exv_model = ExvModel.validate(exv_model)
-        ausaxs = AUSAXS()
-        status = ct.c_int()
-        model_ptr = ct.c_char_p(exv_model.value.encode('utf-8'))
-        ausaxs.lib().functions.set_exv_settings(
-            model_ptr,
-            ct.byref(status)
-        )
-        _check_error_code(status, "settings_set_exv_model")
+        settings.set("exv_model", ExvModel.validate(exv_model).value)
 
     @staticmethod
     def fit(
-        fit_hydration: bool = True,
-        fit_excluded_volume: bool = False,
-        fit_solvent_density: bool = False,
-        # fit_atomic_debye_waller: bool = False, 
-        # fit_exv_debye_waller: bool = False,
-        # max_iterations: int = 100,
-        # sampled_points: int = 100
+        fit_hydration: bool = None,
+        fit_excluded_volume: bool = None,
+        fit_solvent_density: bool = None,
     ):
         """
         Settings related to model fitting.
         param fit_hydration: Whether to fit the hydration shell parameters.
         param fit_excluded_volume: Whether to fit the excluded volume parameters.
         param fit_solvent_density: Whether to fit the solvent density contrast.
-        param max_iterations: Maximum number of fitting iterations.
-        param sampled_points: Number of q-points to sample during fitting.
         """
-        ausaxs = AUSAXS()
-        status = ct.c_int()
-        ausaxs.lib().functions.set_fit_settings(
-            ct.c_uint(100),     # sampled_points: meaningless for most users
-            ct.c_uint(100),     # max_iterations: same
-            ct.c_bool(fit_excluded_volume),
-            ct.c_bool(fit_solvent_density),
-            ct.c_bool(fit_hydration),
-            ct.c_bool(False),   # atomic_debye_waller: removed to avoid overfitting
-            ct.c_bool(False),   # exv_debye_waller: same
-            ct.byref(status)
-        )
-        _check_error_code(status, "settings_set_fit_settings")
+        if fit_hydration is not None:
+            settings.set("hydration", _b(fit_hydration))
+        if fit_excluded_volume is not None:
+            settings.set("excluded_volume", _b(fit_excluded_volume))
+        if fit_solvent_density is not None:
+            settings.set("solvent_density", _b(fit_solvent_density))
 
     @staticmethod
     def grid(
-        # water_scaling: float = 0.01,
-        cell_width: float = 1,
-        expansion_factor: float = 0.25,
-        min_exv_radius: float = 2.15,
-        # min_bins: int = 0
+        cell_width: float = None,
+        expansion_factor: float = None,
+        min_exv_radius: float = None,
     ):
         """
         Grid settings mostly related to excluded volume calculations.
         param cell_width: The width of each grid cell in Angstroms.
-        param scaling: Additional expansion factor relative to the maximal molecular dimensions.
+        param expansion_factor: Additional expansion factor relative to the maximal molecular dimensions.
         param min_exv_radius: Minimum radius for expanding every atom in the grid. This directly affects the size of the excluded volume. 
         """
-        ausaxs = AUSAXS()
-        status = ct.c_int()
-        ausaxs.lib().functions.set_grid_settings(
-            ct.c_double(0.01),          # water_scaling: meaningless for most users
-            ct.c_double(cell_width),
-            ct.c_double(expansion_factor),
-            ct.c_double(min_exv_radius),
-            ct.c_uint(0),               # min_bins: meaningless for most users
-            ct.byref(status)
-        )
-        _check_error_code(status, "settings_set_grid_settings")
+        if cell_width is not None:
+            settings.set("width", str(cell_width))
+        if expansion_factor is not None:
+            settings.set("scaling", str(expansion_factor))
+        if min_exv_radius is not None:
+            settings.set("rvol", str(min_exv_radius))
 
     @staticmethod
     def histogram(
-        # skip_entries: int = 0,
-        qmin: float = 1e-4, 
-        qmax: float = 0.5, 
-        weighted_bins: bool = True,
-        bin_width: float = 0.25,
-        bin_count: int = 8000
+        qmin: float = None,
+        qmax: float = None,
+        weighted_bins: bool = None,
+        bin_width: float = None,
+        bin_count: int = None,
     ):
         """
         Settings related to histogramming of Debye scattering calculations.
@@ -138,27 +111,23 @@ class settings:
         param bin_width: Width of each histogram bin.
         param bin_count: Number of histogram bins.
         """
-        ausaxs = AUSAXS()
-        status = ct.c_int()
-        ausaxs.lib().functions.set_hist_settings(
-            ct.c_uint(0),           # skip_entries: users can do this themselves
-            ct.c_double(qmin),
-            ct.c_double(qmax),
-            ct.c_bool(weighted_bins),
-            ct.c_double(bin_width),
-            ct.c_uint(bin_count),
-            ct.byref(status)
-        )
-        _check_error_code(status, "settings_set_hist_settings")
+        if qmin is not None:
+            settings.set("qmin", str(qmin))
+        if qmax is not None:
+            settings.set("qmax", str(qmax))
+        if weighted_bins is not None:
+            settings.set("weighted_bins", _b(weighted_bins))
+        if bin_width is not None:
+            settings.set("bin_width", str(bin_width))
+        if bin_count is not None:
+            settings.set("bin_count", str(bin_count))
 
     @staticmethod
     def molecule(
-        # center: bool = True,
-        throw_on_unknown_atom: bool = True,
-        implicit_hydrogens: bool = True,
-        use_occupancy: bool = True,
-        exv_table: ExvTable = ExvTable.minimum_fluctutation_implicit_H,
-        # water_model: WaterModel = WaterModel.radial
+        throw_on_unknown_atom: bool = None,
+        implicit_hydrogens: bool = None,
+        use_occupancy: bool = None,
+        exv_table: ExvTable = None,
     ):
         """
         Settings related to molecule handling. 
@@ -167,30 +136,21 @@ class settings:
         param use_occupancy: Whether to consider atomic occupancy in calculations.
         param exv_table: The excluded volume table to use.
         """
-        exv_table = ExvTable.validate(exv_table)
-        # water_model = WaterModel.validate(water_model)
-        ausaxs = AUSAXS()
-        status = ct.c_int()
-        exv_model_ptr = ct.c_char_p(exv_table.value.encode('utf-8'))
-        # water_model_ptr = ct.c_char_p(water_model.value.encode('utf-8'))
-        water_model_ptr = ct.c_char_p(WaterModel.radial.value.encode('utf-8'))
-        ausaxs.lib().functions.set_molecule_settings(
-            ct.c_bool(True),                    # center: meaningless for most users
-            ct.c_bool(throw_on_unknown_atom),
-            ct.c_bool(implicit_hydrogens),
-            ct.c_bool(use_occupancy),
-            exv_model_ptr,
-            water_model_ptr,
-            ct.byref(status)
-        )
-        _check_error_code(status, "settings_set_molecule_settings")
+        if throw_on_unknown_atom is not None:
+            settings.set("allow_unknown_atoms", _b(not throw_on_unknown_atom))
+        if implicit_hydrogens is not None:
+            settings.set("implicit_hydrogens", _b(implicit_hydrogens))
+        if use_occupancy is not None:
+            settings.set("use_occupancy", _b(use_occupancy))
+        if exv_table is not None:
+            settings.set("exv_volume", ExvTable.validate(exv_table).value)
 
     @staticmethod
     def general(
-        offline: bool = False,
-        verbose: bool = False,
-        warnings: bool = True,
-        threads: int = multiprocessing.cpu_count()-1
+        offline: bool = None,
+        verbose: bool = None,
+        warnings: bool = None,
+        threads: int = None,
     ):
         """
         General settings.
@@ -199,13 +159,11 @@ class settings:
         param warnings: Whether to show warnings.
         param threads: Number of threads to use for calculations.
         """
-        ausaxs = AUSAXS()
-        status = ct.c_int()
-        ausaxs.lib().functions.set_general_settings(
-            ct.c_bool(offline),
-            ct.c_bool(verbose),
-            ct.c_bool(warnings),
-            ct.c_uint(threads),
-            ct.byref(status)
-        )
-        _check_error_code(status, "settings_set_general_settings")
+        if offline is not None:
+            settings.set("offline", _b(offline))
+        if verbose is not None:
+            settings.set("verbose", _b(verbose))
+        if warnings is not None:
+            settings.set("warnings", _b(warnings))
+        if threads is not None:
+            settings.set("threads", str(threads))
