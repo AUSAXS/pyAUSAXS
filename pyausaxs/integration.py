@@ -2,6 +2,7 @@ import multiprocessing
 import ctypes as ct
 from enum import Enum
 
+from pyausaxs.config import architecture_runtime_validation
 from pyausaxs.loader import find_lib_path
 from pyausaxs.architecture import CPUFeatures
 
@@ -22,7 +23,7 @@ class AUSAXSLIB:
 
     def _check_cpu_compatibility(self):
         """Check if the current CPU is compatible with the AUSAXS library."""
-        if not CPUFeatures.is_compatible_architecture():
+        if architecture_runtime_validation and not CPUFeatures.is_compatible_architecture():
             self.state = self.STATE.FAILED
             raise RuntimeError(f"AUSAXS: Incompatible CPU architecture: {CPUFeatures.get_architecture()}")
         return True
