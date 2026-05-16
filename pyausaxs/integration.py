@@ -428,6 +428,44 @@ class AUSAXSLIB:
             ]
             self.functions.cli_rigidbody.restype = ct.c_int # return exit code
 
+            # rigidbody_load_script
+            self.functions.rigidbody_load_script.argtypes = [
+                ct.c_char_p,            # script
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.rigidbody_load_script.restype = ct.c_int # return rigidbody id
+
+            # rigidbody_validate
+            self.functions.rigidbody_validate.argtypes = [
+                ct.c_int,               # rigidbody id
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.rigidbody_validate.restype = None
+
+            # rigidbody_run
+            self.functions.rigidbody_run.argtypes = [
+                ct.c_int,               # rigidbody id
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.rigidbody_run.restype = None
+
+            # rigidbody_get_valid_elements
+            self.functions.rigidbody_get_valid_elements.argtypes = [
+                ct.POINTER(ct.POINTER(ct.c_char_p)),    # elements (output)
+                ct.POINTER(ct.c_int),                   # size (output)
+                ct.POINTER(ct.c_int)                    # status (0 = success)
+            ]
+            self.functions.rigidbody_get_valid_elements.restype = None
+
+            # rigidbody_get_valid_arguments
+            self.functions.rigidbody_get_valid_arguments.argtypes = [
+                ct.c_char_p,                         # element name
+                ct.POINTER(ct.POINTER(ct.c_char_p)), # arguments (output)
+                ct.POINTER(ct.c_int),                # size (output)
+                ct.POINTER(ct.c_int)                 # status (0 = success)
+            ]
+            self.functions.rigidbody_get_valid_arguments.restype = None
+
             self.state = self.STATE.READY
 
         except Exception as e:
