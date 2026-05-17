@@ -6,6 +6,7 @@ from pyausaxs.config import architecture_runtime_validation
 from pyausaxs.loader import find_lib_path
 from pyausaxs.architecture import CPUFeatures
 
+OutputCallback = ct.CFUNCTYPE(None, ct.c_char_p, ct.c_int)
 class AUSAXSLIB:
     class STATE(Enum):
         UNINITIALIZED = 0
@@ -470,6 +471,14 @@ class AUSAXSLIB:
                 ct.POINTER(ct.c_int)                 # status (0 = success)
             ]
             self.functions.rigidbody_get_valid_arguments.restype = None
+
+            # set_output_callback
+            self.functions.set_output_callback.argtypes = [OutputCallback]
+            self.functions.set_output_callback.restype = None
+
+            # reset_output_callback
+            self.functions.reset_output_callback.argtypes = []
+            self.functions.reset_output_callback.restype = None
 
             self.state = self.STATE.READY
 

@@ -9,9 +9,11 @@ from .wrapper.Models import ExvModel, ExvTable
 from .wrapper.FormFactor import form_factor
 from .wrapper.settings import settings
 from .wrapper.sasview import sasview
+from .wrapper.Output import set_output_callback, reset_output_callback
 
 __all__ = [
     "read_pdb", "read_data", "create_datafile", "create_molecule", "sasview", "settings", "manual_fit",
-    "prepare_rigidbody_refinement", "ExvModel", "ExvTable", "unoptimized", "advanced", "form_factor", "Rigidbody"
+    "prepare_rigidbody_refinement", "ExvModel", "ExvTable", "unoptimized", "advanced", "form_factor", "Rigidbody",
+    "set_output_callback", "reset_output_callback"
 ]
 __version__ = "1.1.5"
