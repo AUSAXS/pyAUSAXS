@@ -444,10 +444,15 @@ class AUSAXSLIB:
 
             # rigidbody_run
             self.functions.rigidbody_run.argtypes = [
-                ct.c_int,               # rigidbody id
-                ct.POINTER(ct.c_int)    # status (0 = success)
+                ct.c_int,                            # rigidbody id
+                ct.POINTER(ct.POINTER(ct.c_double)), # q vector (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # I vector (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # Ierr vector (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # Iinterp vector (output)
+                ct.POINTER(ct.c_int),                # n_points (output)
+                ct.POINTER(ct.c_int)                 # status (0 = success)
             ]
-            self.functions.rigidbody_run.restype = None
+            self.functions.rigidbody_run.restype = ct.c_int # return data id
 
             # rigidbody_get_valid_elements
             self.functions.rigidbody_get_valid_elements.argtypes = [

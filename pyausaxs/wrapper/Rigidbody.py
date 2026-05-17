@@ -32,12 +32,28 @@ class Rigidbody(BackendObject):
     def run(self) -> np.ndarray:
         """Run the rigid-body refinement script."""
         ausaxs = AUSAXS()
+        q = ct.POINTER(ct.c_double)()
+        I = ct.POINTER(ct.c_double)()
+        I_err = ct.POINTER(ct.c_double)()
+        I_interp = ct.POINTER(ct.c_double)()
+        n_points = ct.c_int()
         status = ct.c_int()
         ausaxs.lib().functions.rigidbody_run(
             self._get_id(),
+            ct.byref(q),
+            ct.byref(I),
+            ct.byref(I_err),
+            ct.byref(I_interp),
+            ct.byref(n_points),
             ct.byref(status)
         )
         _check_error_code(status, "rigidbody_run")
+        q_array = np.ctypeslib.as_array(q, shape=(n_points.value,))
+        I_array = np.ctypeslib.as_array(I, shape=(n_points.value,))
+        I_err_array = np.ctypeslib.as_array(I_err, shape=(n_points.value,))
+        I_interp_array = np.ctypeslib.as_array(I_interp, shape=(n_points.value,))
+        result = np.column_stack((q_array, I_array, I_err_array, I_interp_array))
+        return result
 
     @staticmethod
     def get_valid_elements() -> list[str]:
@@ -74,17 +90,17 @@ class Rigidbody(BackendObject):
         return arguments
 
     @staticmethod
-    def get_valid_element_arguments() -> dict[str, list[str]]:
+    def get_valid_elements_and_arguments() -> dict[str, list[str]]:
         """Get a dictionary of valid elements and their corresponding arguments."""
-        if hasattr(Rigidbody.get_valid_element_arguments, "map"):
-            return Rigidbody.get_valid_element_arguments.map
+        if hasattr(Rigidbody.get_valid_elements_and_arguments, "map"):
+            return Rigidbody.get_valid_elements_and_arguments.map
 
         elements = Rigidbody.get_valid_elements()
         element_arguments = {}
         for element in elements:
             arguments = Rigidbody.get_valid_arguments(element)
             element_arguments[element] = arguments
-        setattr(Rigidbody.get_valid_element_arguments, "map", element_arguments)
+        setattr(Rigidbody.get_valid_elements_and_arguments, "map", element_arguments)
         return element_arguments
 
 def prepare_rigidbody_refinement(script: str) -> Rigidbody:
