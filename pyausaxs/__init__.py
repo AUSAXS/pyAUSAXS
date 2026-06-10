@@ -16,4 +16,4 @@ __all__ = [
     "prepare_rigidbody_refinement", "ExvModel", "ExvTable", "unoptimized", "advanced", "form_factor", "Rigidbody",
     "set_output_callback", "reset_output_callback"
 ]
-__version__ = "1.1.5"
+__version__ = "1.1.6"
