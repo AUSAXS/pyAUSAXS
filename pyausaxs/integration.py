@@ -6,6 +6,7 @@ from pyausaxs.config import architecture_runtime_validation
 from pyausaxs.loader import find_lib_path
 from pyausaxs.architecture import CPUFeatures
 
+OutputCallback = ct.CFUNCTYPE(None, ct.c_char_p, ct.c_int)
 class AUSAXSLIB:
     class STATE(Enum):
         UNINITIALIZED = 0
@@ -427,6 +428,57 @@ class AUSAXSLIB:
                 ct.POINTER(ct.c_char_p)                 # argv
             ]
             self.functions.cli_rigidbody.restype = ct.c_int # return exit code
+
+            # rigidbody_load_script
+            self.functions.rigidbody_load_script.argtypes = [
+                ct.c_char_p,            # script
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.rigidbody_load_script.restype = ct.c_int # return rigidbody id
+
+            # rigidbody_validate
+            self.functions.rigidbody_validate.argtypes = [
+                ct.c_int,               # rigidbody id
+                ct.POINTER(ct.c_int)    # status (0 = success)
+            ]
+            self.functions.rigidbody_validate.restype = None
+
+            # rigidbody_run
+            self.functions.rigidbody_run.argtypes = [
+                ct.c_int,                            # rigidbody id
+                ct.POINTER(ct.POINTER(ct.c_double)), # q vector (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # I vector (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # Ierr vector (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # Iinterp vector (output)
+                ct.POINTER(ct.c_int),                # n_points (output)
+                ct.POINTER(ct.c_int)                 # status (0 = success)
+            ]
+            self.functions.rigidbody_run.restype = ct.c_int # return data id
+
+            # rigidbody_get_valid_elements
+            self.functions.rigidbody_get_valid_elements.argtypes = [
+                ct.POINTER(ct.POINTER(ct.c_char_p)),    # elements (output)
+                ct.POINTER(ct.c_int),                   # size (output)
+                ct.POINTER(ct.c_int)                    # status (0 = success)
+            ]
+            self.functions.rigidbody_get_valid_elements.restype = None
+
+            # rigidbody_get_valid_arguments
+            self.functions.rigidbody_get_valid_arguments.argtypes = [
+                ct.c_char_p,                         # element name
+                ct.POINTER(ct.POINTER(ct.c_char_p)), # arguments (output)
+                ct.POINTER(ct.c_int),                # size (output)
+                ct.POINTER(ct.c_int)                 # status (0 = success)
+            ]
+            self.functions.rigidbody_get_valid_arguments.restype = None
+
+            # set_output_callback
+            self.functions.set_output_callback.argtypes = [OutputCallback]
+            self.functions.set_output_callback.restype = None
+
+            # reset_output_callback
+            self.functions.reset_output_callback.argtypes = []
+            self.functions.reset_output_callback.restype = None
 
             self.state = self.STATE.READY
 
