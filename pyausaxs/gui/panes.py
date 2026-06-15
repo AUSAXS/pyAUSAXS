@@ -9,7 +9,12 @@ from tkinter import ttk
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
-from .plotting import fit_figure, fit_figure_from_curves, plot_file_figure, pretty_plot_name
+from matplotlib.figure import Figure
+
+from .plotting import (
+    draw_backbone, fit_figure, fit_figure_from_curves, parse_ca_backbone,
+    plot_file_figure, pretty_plot_name,
+)
 from .runner import CliRunner, RigidbodyRunner
 from .theme import FONTS, PALETTE
 from .widgets import ConsolePane, FileField, RangeSlider
@@ -72,6 +77,7 @@ def add_figure_tab(notebook: ttk.Notebook, fig, title: str):
     toolbar.pack(side="bottom", fill="x")
     canvas.get_tk_widget().pack(fill="both", expand=True)
     notebook.add(frame, text=title)
+    return frame
 
 
 def add_text_tab(notebook: ttk.Notebook, content: str, title: str):
@@ -482,6 +488,10 @@ class RigidbodyPane(ttk.Frame):
         self.runner = RigidbodyRunner(self)
         self._mode = "run"
         self._expanded = False
+        self._fit_tabs: list = []        # result tabs added by a run (the structure tab persists)
+        self._preview_job = None         # pending debounced preview redraw
+        self._struct_cache_path = None
+        self._struct_cache = None
 
         # three panes: controls | script editor | results. The editor can expand over
         # the results pane (and collapses again when a refinement is launched).
@@ -517,8 +527,7 @@ class RigidbodyPane(ttk.Frame):
         ttk.Label(splits_row, text="Splits", style="Muted.TLabel").pack(anchor="w")
         self.splits_var = tk.StringVar()
         ttk.Entry(splits_row, textvariable=self.splits_var).pack(fill="x")
-        # live: every change to the field is written straight into the load block
-        self.splits_var.trace_add("write", lambda *_: self._set_load_directive("split", self.splits_var.get()))
+        # the trace is attached at the end of __init__, once the preview exists
 
         run_frame = ttk.Frame(controls)
         run_frame.pack(fill="x", pady=12)
@@ -553,15 +562,29 @@ class RigidbodyPane(ttk.Frame):
         editor_scroll.pack(side="right", fill="y")
         self.editor.pack(fill="both", expand=True, padx=2, pady=2)
         self.editor.insert("1.0", DEFAULT_RIGIDBODY_SCRIPT)
+        # manual edits to the script (e.g. the pdb/split lines) refresh the preview
+        self.editor.bind("<KeyRelease>", lambda _e: self._schedule_preview_update())
 
         # --- results pane (right), the larger pane by default ----------------
         self.results_pane = ttk.Frame(self.outer, padding=(10, 4, 4, 4))
         self.outer.add(self.results_pane, weight=3)
         self.results = ttk.Notebook(self.results_pane)
         self.results.pack(fill="both", expand=True)
-        results_placeholder(self.results, "Refinement results will appear here.")
 
+        # a persistent "structure" tab: a 3D Cα backbone with the split residues in red,
+        # kept across runs (the fit tabs are added alongside it)
+        self.structure_tab = tk.Frame(self.results, background=PALETTE["surface"])
+        self._struct_fig = Figure(facecolor=PALETTE["surface"])
+        self._struct_ax = self._struct_fig.add_subplot(111, projection="3d")
+        self._struct_canvas = FigureCanvasTkAgg(self._struct_fig, master=self.structure_tab)
+        self._struct_canvas.get_tk_widget().pack(fill="both", expand=True)
+        self.results.add(self.structure_tab, text="structure")
+        self.results.bind("<<NotebookTabChanged>>", lambda _e: self._schedule_preview_update())
+
+        # now that the preview exists, drive it live from the Splits field and draw it once
+        self.splits_var.trace_add("write", lambda *_: self._set_load_directive("split", self.splits_var.get()))
         self.after(60, self._restore_split)
+        self.after(80, self._update_structure_preview)
 
     # ----- layout -------------------------------------------------------------
     # fraction of the space (right of the controls) given to the editor when the
@@ -622,6 +645,7 @@ class RigidbodyPane(ttk.Frame):
         self.editor.delete("1.0", "end")
         self.editor.insert("1.0", new_text)
         self.editor.yview_moveto(yview[0])
+        self._schedule_preview_update()
 
     @staticmethod
     def _rewrite_directive(block: str, directive: str, value: str) -> str:
@@ -648,6 +672,63 @@ class RigidbodyPane(ttk.Frame):
 
         body = "".join(f"    {line}\n" for line in kept)
         return "load {\n" + body + "}"
+
+    # ----- structure preview --------------------------------------------------
+    def _load_value(self, directive: str):
+        """Return the argument of a directive in the script's load block, or None."""
+        match = _LOAD_BLOCK_RE.search(self.editor.get("1.0", "end-1c"))
+        if not match:
+            return None
+        inner = re.match(r"load\s*\{(.*)\}", match.group(0), re.DOTALL).group(1)
+        for line in inner.splitlines():
+            tokens = line.split(None, 1)
+            if tokens and tokens[0] == directive:
+                return tokens[1].strip() if len(tokens) == 2 else ""
+        return None
+
+    @staticmethod
+    def _parse_splits(value) -> list[int]:
+        if not value:
+            return []
+        return [int(t) for t in re.split(r"[,\s]+", value.strip()) if t.isdigit()]
+
+    def _structure_data(self, path):
+        """Parse (and cache) the Cα backbone for a structure path."""
+        if not path or not os.path.isfile(path):
+            return None
+        if self._struct_cache_path != path:
+            self._struct_cache_path = path
+            self._struct_cache = parse_ca_backbone(path)
+        return self._struct_cache
+
+    def _schedule_preview_update(self):
+        """Debounce preview redraws so rapid edits (e.g. typing splits) stay smooth."""
+        if not hasattr(self, "_struct_ax"):
+            return
+        if self._preview_job is not None:
+            self.after_cancel(self._preview_job)
+        self._preview_job = self.after(150, self._update_structure_preview)
+
+    def _update_structure_preview(self):
+        self._preview_job = None
+        ax = self._struct_ax
+        elev, azim = ax.elev, ax.azim  # preserve the user's rotation across redraws
+        ax.clear()
+        ax.set_axis_off()
+
+        path = self._load_value("pdb")
+        data = self._structure_data(path)
+        if data is None:
+            msg = ("Set a structure to preview the splits" if not path
+                   else f"Could not read Cα atoms from\n{os.path.basename(path)}")
+            ax.text2D(0.5, 0.5, msg, transform=ax.transAxes, ha="center", va="center",
+                      color=PALETTE["muted"], fontsize=10)
+        else:
+            coords, res_seqs = data
+            draw_backbone(ax, coords, res_seqs, self._parse_splits(self._load_value("split")))
+            ax.view_init(elev, azim)
+        self._struct_fig.set_layout_engine("tight")
+        self._struct_canvas.draw_idle()
 
     # ----- actions ------------------------------------------------------------
     def _set_busy(self, busy: bool, label: str = "Run refinement"):
@@ -695,11 +776,15 @@ class RigidbodyPane(ttk.Frame):
         if done.result is None or done.result.size == 0:
             self.console.append("No fit curves were returned.\n")
             return
-        clear_results(self.results)
+        # replace previous fit tabs but keep the persistent structure tab
+        for tab in self._fit_tabs:
+            self.results.forget(tab)
+        self._fit_tabs.clear()
         for logx, title in ((False, "fit (log)"), (True, "fit (log-log)")):
             try:
-                add_figure_tab(self.results, fit_figure_from_curves(done.result, logx=logx), title)
+                self._fit_tabs.append(
+                    add_figure_tab(self.results, fit_figure_from_curves(done.result, logx=logx), title))
             except (Exception, SystemExit) as e:
                 self.console.append(f"Failed to plot results: {e}\n")
-        if not self.results.tabs():
-            results_placeholder(self.results, "Refinement results will appear here.")
+        if self._fit_tabs:
+            self.results.select(self._fit_tabs[0])
