@@ -481,18 +481,21 @@ class RigidbodyPane(ttk.Frame):
         super().__init__(parent)
         self.runner = RigidbodyRunner(self)
         self._mode = "run"
+        self._expanded = False
 
-        paned = ttk.Panedwindow(self, orient="horizontal")
-        paned.pack(fill="both", expand=True, padx=6, pady=6)
+        # three panes: controls | script editor | results. The editor can expand over
+        # the results pane (and collapses again when a refinement is launched).
+        self.outer = ttk.Panedwindow(self, orient="horizontal")
+        self.outer.pack(fill="both", expand=True, padx=6, pady=6)
 
-        left = ttk.Frame(paned, padding=(4, 4, 10, 4), width=520)
-        left.pack_propagate(False)
-        paned.add(left, weight=0)
+        # --- controls pane (left) --------------------------------------------
+        controls = ttk.Frame(self.outer, padding=(4, 4, 10, 4), width=340)
+        controls.pack_propagate(False)
+        self.outer.add(controls, weight=0)
 
         # the Input fields are a shortcut for editing the script's load block: each one
-        # writes only its own directive, and only when the user directly commits it
-        # (Enter / Browse). The script itself is always the authority.
-        input_frame = ttk.Labelframe(left, text="Input", padding=12)
+        # writes only its own directive. The script itself is always the authority.
+        input_frame = ttk.Labelframe(controls, text="Input", padding=12)
         input_frame.pack(fill="x")
         self.structure_field = FileField(
             input_frame, "Structure",
@@ -513,20 +516,12 @@ class RigidbodyPane(ttk.Frame):
         splits_row.pack(fill="x", pady=(6, 0))
         ttk.Label(splits_row, text="Splits", style="Muted.TLabel").pack(anchor="w")
         self.splits_var = tk.StringVar()
-        splits_entry = ttk.Entry(splits_row, textvariable=self.splits_var)
-        splits_entry.pack(fill="x")
-        # commit on Enter only, so tabbing away never clobbers a hand-edited script
-        splits_entry.bind("<Return>", lambda _e: self._set_load_directive("split", self.splits_var.get()))
+        ttk.Entry(splits_row, textvariable=self.splits_var).pack(fill="x")
+        # live: every change to the field is written straight into the load block
+        self.splits_var.trace_add("write", lambda *_: self._set_load_directive("split", self.splits_var.get()))
 
-        # anchor the console and run controls to the bottom, then let the
-        # script editor expand to fill the remaining space between them
-        console_frame = ttk.Labelframe(left, text="Output", padding=(2, 4))
-        console_frame.pack(side="bottom", fill="x")
-        self.console = ConsolePane(console_frame, height=7)
-        self.console.pack(fill="both", expand=True, padx=2, pady=2)
-
-        run_frame = ttk.Frame(left)
-        run_frame.pack(side="bottom", fill="x", pady=12)
+        run_frame = ttk.Frame(controls)
+        run_frame.pack(fill="x", pady=12)
         self.validate_button = ttk.Button(run_frame, text="Validate", command=self._validate_clicked)
         self.validate_button.pack(side="left")
         self.run_button = ttk.Button(run_frame, text="Run refinement", style="Accent.TButton",
@@ -534,9 +529,19 @@ class RigidbodyPane(ttk.Frame):
         self.run_button.pack(side="left", padx=(8, 0))
         self.progress = ttk.Progressbar(run_frame, mode="indeterminate")  # packed only while running
 
-        # the script editor is the heart of the pane
-        editor_frame = ttk.Labelframe(left, text="Refinement script", padding=(2, 4))
-        editor_frame.pack(fill="both", expand=True, pady=(12, 0))
+        console_frame = ttk.Labelframe(controls, text="Output", padding=(2, 4))
+        console_frame.pack(fill="both", expand=True)
+        self.console = ConsolePane(console_frame, height=7)
+        self.console.pack(fill="both", expand=True, padx=2, pady=2)
+
+        # --- script editor pane (middle), with the expand toggle on its right -
+        editor_pane = ttk.Frame(self.outer)
+        self.outer.add(editor_pane, weight=2)
+        self.expand_button = ttk.Button(editor_pane, text=">", width=2, command=self._toggle_expand)
+        self.expand_button.pack(side="right", fill="y", padx=(4, 0))
+
+        editor_frame = ttk.Labelframe(editor_pane, text="Refinement script", padding=(2, 4))
+        editor_frame.pack(side="left", fill="both", expand=True)
         self.editor = tk.Text(
             editor_frame, wrap="none", undo=True, font=FONTS["mono"], height=12,
             relief="flat", borderwidth=0, padx=8, pady=6,
@@ -549,11 +554,51 @@ class RigidbodyPane(ttk.Frame):
         self.editor.pack(fill="both", expand=True, padx=2, pady=2)
         self.editor.insert("1.0", DEFAULT_RIGIDBODY_SCRIPT)
 
-        right = ttk.Frame(paned, padding=(10, 4, 4, 4))
-        paned.add(right, weight=1)
-        self.results = ttk.Notebook(right)
+        # --- results pane (right), the larger pane by default ----------------
+        self.results_pane = ttk.Frame(self.outer, padding=(10, 4, 4, 4))
+        self.outer.add(self.results_pane, weight=3)
+        self.results = ttk.Notebook(self.results_pane)
         self.results.pack(fill="both", expand=True)
         results_placeholder(self.results, "Refinement results will appear here.")
+
+        self.after(60, self._restore_split)
+
+    # ----- layout -------------------------------------------------------------
+    # fraction of the space (right of the controls) given to the editor when the
+    # results pane is visible; the results pane keeps the rest.
+    _EDITOR_FRACTION = 0.42
+
+    def _restore_split(self):
+        """Position the editor|results sash so the results pane is the larger one."""
+        if self._expanded:
+            return
+        self.update_idletasks()
+        total = self.outer.winfo_width()
+        if total <= 1:
+            self.after(50, self._restore_split)
+            return
+        left = self.outer.sashpos(0)  # controls|editor boundary
+        self.outer.sashpos(1, left + int((total - left) * self._EDITOR_FRACTION))
+
+    def _toggle_expand(self):
+        self._collapse_editor() if self._expanded else self._expand_editor()
+
+    def _expand_editor(self):
+        """Hand the results pane's space over to the script editor."""
+        if self._expanded:
+            return
+        self.outer.forget(self.results_pane)
+        self.expand_button.configure(text="<")
+        self._expanded = True
+
+    def _collapse_editor(self):
+        """Restore the results pane, shrinking the editor back to its normal size."""
+        if not self._expanded:
+            return
+        self.outer.add(self.results_pane, weight=3)
+        self.expand_button.configure(text=">")
+        self._expanded = False
+        self.after(10, self._restore_split)
 
     # ----- script helpers -----------------------------------------------------
     def _set_load_directive(self, directive: str, value: str):
@@ -630,6 +675,7 @@ class RigidbodyPane(ttk.Frame):
         if self.runner.running():
             return
         self._mode = "run"
+        self._collapse_editor()  # minimize the editor so the results have room
         self.console.clear()
         self.console.append("Running rigid-body refinement…\n\n")
         self._set_busy(True)
