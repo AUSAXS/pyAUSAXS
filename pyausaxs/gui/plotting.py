@@ -6,6 +6,7 @@
 import matplotlib as mpl
 import numpy as np
 from matplotlib.figure import Figure
+from mpl_toolkits import mplot3d  # noqa: F401  (registers the '3d' projection)
 
 from ..plot.plot_helper import (
     PlotType, Dataset, Hline, Vline,
@@ -238,3 +239,67 @@ def pretty_plot_name(stem: str) -> str:
     if stem.endswith(".png"):
         stem = stem[:-4]
     return PRETTY_NAMES.get(stem, stem)
+
+
+def parse_ca_backbone(path: str):
+    """Read the Cα backbone of a PDB file. Returns (coords (N,3), res_seqs (N,)) or None.
+
+    Deliberately a small self-contained parser: it needs no AUSAXS library call (so it is
+    free of the backend's thread-affinity constraints) and only the Cα trace, which is all
+    the split-residue preview needs. Only the first model is read."""
+    coords, res = [], []
+    try:
+        with open(path, errors="replace") as f:
+            for line in f:
+                if line.startswith("ENDMDL"):
+                    break
+                if not line.startswith("ATOM"):
+                    continue
+                if line[12:16].strip() != "CA":
+                    continue
+                if line[16] not in (" ", "A"):  # skip alternate locations past the first
+                    continue
+                try:
+                    coords.append((float(line[30:38]), float(line[38:46]), float(line[46:54])))
+                    res.append(int(line[22:26]))
+                except (ValueError, IndexError):
+                    continue
+    except OSError:
+        return None
+    if not coords:
+        return None
+    return np.array(coords, dtype=float), np.array(res, dtype=int)
+
+
+# distinct body colours, deliberately excluding red (reserved for the split residues)
+_BODY_COLORS = ["#4a7dbd", "#e89a3c", "#46a86c", "#9467bd", "#17becf", "#8c564b", "#bcbd22", "#7f7f7f"]
+
+
+def draw_backbone(ax, coords: np.ndarray, res_seqs: np.ndarray, split_residues: list[int]):
+    """Draw a Cα backbone on a 3D axis, colouring each rigid body between split points and
+    marking the split residues in red."""
+    x, y, z = coords[:, 0], coords[:, 1], coords[:, 2]
+
+    splits = sorted({int(s) for s in split_residues})
+    # body index of a residue = how many split points lie before it
+    body = np.array([sum(s < r for s in splits) for r in res_seqs]) if splits else np.zeros(len(res_seqs), int)
+
+    ax.plot(x, y, z, color=PALETTE["border"], lw=1.0, zorder=1)  # connecting trace
+    for b in range(int(body.max()) + 1 if len(body) else 1):
+        m = body == b
+        ax.scatter(x[m], y[m], z[m], s=12, color=_BODY_COLORS[b % len(_BODY_COLORS)],
+                   depthshade=True, zorder=2)
+
+    highlight = np.isin(res_seqs, splits)
+    if highlight.any():
+        ax.scatter(x[highlight], y[highlight], z[highlight], s=80, color="red",
+                   edgecolors="black", linewidths=0.6, depthshade=False, zorder=3)
+
+    # equal aspect so the molecule is not distorted
+    span = float((coords.max(0) - coords.min(0)).max()) / 2 or 1.0
+    mid = (coords.max(0) + coords.min(0)) / 2
+    ax.set_xlim(mid[0] - span, mid[0] + span)
+    ax.set_ylim(mid[1] - span, mid[1] + span)
+    ax.set_zlim(mid[2] - span, mid[2] + span)
+    ax.set_box_aspect([1, 1, 1])
+    ax.set_axis_off()
