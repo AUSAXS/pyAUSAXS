@@ -9,7 +9,7 @@ from tkinter import ttk
 import matplotlib
 matplotlib.use("TkAgg")
 
-from .panes import EmFitterPane, SaxsFitterPane
+from .panes import EmFitterPane, RigidbodyPane, SaxsFitterPane
 from .theme import PALETTE, apply_theme
 
 
@@ -31,7 +31,7 @@ class App(tk.Tk):
 
         notebook = ttk.Notebook(self)
         notebook.pack(side="top", fill="both", expand=True, padx=14, pady=(0, 4))
-        for pane_cls in (SaxsFitterPane, EmFitterPane):
+        for pane_cls in (SaxsFitterPane, EmFitterPane, RigidbodyPane):
             pane = pane_cls(notebook)
             notebook.add(pane, text=pane_cls.title)
 

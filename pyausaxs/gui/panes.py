@@ -3,14 +3,15 @@
 
 import glob
 import os
+import re
 import tkinter as tk
 from tkinter import ttk
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
-from .plotting import fit_figure, plot_file_figure, pretty_plot_name
-from .runner import CliRunner
-from .theme import PALETTE
+from .plotting import fit_figure, fit_figure_from_curves, plot_file_figure, pretty_plot_name
+from .runner import CliRunner, RigidbodyRunner
+from .theme import FONTS, PALETTE
 from .widgets import ConsolePane, FileField, RangeSlider
 
 QMIN, QMAX = 1e-4, 1.0
@@ -41,6 +42,51 @@ def _output_arg(path: str) -> str:
     # the backend appends file stems to this with plain string concatenation,
     # so a trailing separator is required
     return path if path.endswith("/") else path + "/"
+
+
+# ----- shared results-notebook helpers ---------------------------------------
+def results_placeholder(notebook: ttk.Notebook, text: str = "Results will appear here after a fit."):
+    frame = ttk.Frame(notebook)
+    ttk.Label(frame, text=text, style="Muted.TLabel").place(relx=0.5, rely=0.5, anchor="center")
+    notebook.add(frame, text="Results")
+
+
+def clear_results(notebook: ttk.Notebook):
+    for tab in notebook.tabs():
+        notebook.forget(tab)
+
+
+def add_figure_tab(notebook: ttk.Notebook, fig, title: str):
+    fig.patch.set_facecolor(PALETTE["surface"])
+    frame = tk.Frame(notebook, background=PALETTE["surface"])
+    canvas = FigureCanvasTkAgg(fig, master=frame)
+    canvas.draw()
+    toolbar = NavigationToolbar2Tk(canvas, frame, pack_toolbar=False)
+    toolbar.configure(background=PALETTE["surface"])
+    for child in toolbar.winfo_children():
+        try:
+            child.configure(background=PALETTE["surface"])
+        except tk.TclError:
+            pass
+    toolbar.update()
+    toolbar.pack(side="bottom", fill="x")
+    canvas.get_tk_widget().pack(fill="both", expand=True)
+    notebook.add(frame, text=title)
+
+
+def add_text_tab(notebook: ttk.Notebook, content: str, title: str):
+    from .theme import FONTS
+    frame = ttk.Frame(notebook)
+    text = tk.Text(frame, wrap="none", font=FONTS["mono"], relief="flat",
+                   background=PALETTE["surface"], foreground=PALETTE["text"],
+                   padx=12, pady=10, borderwidth=0)
+    text.insert("1.0", content)
+    text.configure(state="disabled")
+    scroll = ttk.Scrollbar(frame, command=text.yview)
+    text.configure(yscrollcommand=scroll.set)
+    scroll.pack(side="right", fill="y")
+    text.pack(fill="both", expand=True)
+    notebook.add(frame, text=title)
 
 
 def _saxs_data_span(path: str) -> tuple[float, float] | None:
@@ -184,54 +230,16 @@ class FitterPane(ttk.Frame):
 
     # ----- results ------------------------------------------------------------
     def _results_placeholder(self):
-        frame = ttk.Frame(self.results)
-        ttk.Label(frame, text="Results will appear here after a fit.",
-                  style="Muted.TLabel").place(relx=0.5, rely=0.5, anchor="center")
-        self.results.add(frame, text="Results")
-
-    def _clear_results(self):
-        for tab in self.results.tabs():
-            self.results.forget(tab)
-
-    def _add_figure_tab(self, fig, title: str):
-        fig.patch.set_facecolor(PALETTE["surface"])
-        frame = tk.Frame(self.results, background=PALETTE["surface"])
-        canvas = FigureCanvasTkAgg(fig, master=frame)
-        canvas.draw()
-        toolbar = NavigationToolbar2Tk(canvas, frame, pack_toolbar=False)
-        toolbar.configure(background=PALETTE["surface"])
-        for child in toolbar.winfo_children():
-            try:
-                child.configure(background=PALETTE["surface"])
-            except tk.TclError:
-                pass
-        toolbar.update()
-        toolbar.pack(side="bottom", fill="x")
-        canvas.get_tk_widget().pack(fill="both", expand=True)
-        self.results.add(frame, text=title)
-
-    def _add_text_tab(self, content: str, title: str):
-        from .theme import FONTS
-        frame = ttk.Frame(self.results)
-        text = tk.Text(frame, wrap="none", font=FONTS["mono"], relief="flat",
-                       background=PALETTE["surface"], foreground=PALETTE["text"],
-                       padx=12, pady=10, borderwidth=0)
-        text.insert("1.0", content)
-        text.configure(state="disabled")
-        scroll = ttk.Scrollbar(frame, command=text.yview)
-        text.configure(yscrollcommand=scroll.set)
-        scroll.pack(side="right", fill="y")
-        text.pack(fill="both", expand=True)
-        self.results.add(frame, text=title)
+        results_placeholder(self.results)
 
     def _load_results(self, result_dir: str):
-        self._clear_results()
+        clear_results(self.results)
 
         fit_file = os.path.join(result_dir, "ausaxs.fit")
         if os.path.isfile(fit_file):
             for logx, title in ((False, "fit (log)"), (True, "fit (log-log)")):
                 try:
-                    self._add_figure_tab(fit_figure(fit_file, logx=logx), title)
+                    add_figure_tab(self.results, fit_figure(fit_file, logx=logx), title)
                 except (Exception, SystemExit) as e:
                     self.console.append(f"Failed to plot \"{fit_file}\": {e}\n")
 
@@ -241,15 +249,15 @@ class FitterPane(ttk.Frame):
             except (Exception, SystemExit) as e:
                 self.console.append(f"Failed to plot \"{plot_file}\": {e}\n")
                 continue
-            self._add_figure_tab(fig, pretty_plot_name(_file_stem(plot_file)))
+            add_figure_tab(self.results, fig, pretty_plot_name(_file_stem(plot_file)))
 
         report_file = os.path.join(result_dir, "report.txt")
         if os.path.isfile(report_file):
             with open(report_file, errors="replace") as f:
-                self._add_text_tab(f.read(), "report")
+                add_text_tab(self.results, f.read(), "report")
 
         if not self.results.tabs():
-            self._results_placeholder()
+            results_placeholder(self.results)
             self.console.append(f"No results found in \"{result_dir}\".\n")
 
 
@@ -425,3 +433,227 @@ class EmFitterPane(FitterPane):
             _file_stem(self.saxs_field.get()),
             _file_stem(self.map_field.get()),
         )
+
+
+DEFAULT_RIGIDBODY_SCRIPT = """\
+output output/rigidbody/
+load {
+    pdb
+    saxs
+    split
+}
+save initial_state.pdb
+save trajectory.xyz
+parameter_generator {
+    iterations 100
+    translate 1
+    rotate 1
+}
+
+print "Initial chi2: {chi2_no_penalty}"
+loop
+    optimize_once
+        on_improvement
+            print {
+                msg "{iteration}/{iterations_total}: Accepted with new chi2 {chi2_no_penalty}"
+                colour green
+            }
+            save trajectory.xyz
+        end
+    end
+end
+save final_state.pdb
+"""
+
+_LOAD_BLOCK_RE = re.compile(r"load\s*\{.*?\}", re.DOTALL)
+
+
+class RigidbodyPane(ttk.Frame):
+    """[Experimental] Rigid-body refinement driven by an AUSAXS sequencer script.
+
+    Mirrors the SasView rigid-body refinement workflow: a script editor with helpers
+    to fill in the load block from chosen files, plus Validate and Run actions that
+    stream the backend's output into a log and plot the resulting fit."""
+
+    title = "Rigidbody"
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.runner = RigidbodyRunner(self)
+        self._mode = "run"
+
+        paned = ttk.Panedwindow(self, orient="horizontal")
+        paned.pack(fill="both", expand=True, padx=6, pady=6)
+
+        left = ttk.Frame(paned, padding=(4, 4, 10, 4), width=520)
+        left.pack_propagate(False)
+        paned.add(left, weight=0)
+
+        # the Input fields are a shortcut for editing the script's load block: each one
+        # writes only its own directive, and only when the user directly commits it
+        # (Enter / Browse). The script itself is always the authority.
+        input_frame = ttk.Labelframe(left, text="Input", padding=12)
+        input_frame.pack(fill="x")
+        self.structure_field = FileField(
+            input_frame, "Structure",
+            validator=_make_validator(STRUCTURE_EXTENSIONS, "_is_pdb_file"),
+            on_commit=lambda p: self._set_load_directive("pdb", p),
+            filetypes=[("Structure", "*.pdb *.ent *.cif *.xyz")],
+        )
+        self.saxs_field = FileField(
+            input_frame, "SAXS data",
+            validator=_make_validator(SAXS_EXTENSIONS, "_is_saxs_data_file"),
+            on_commit=lambda p: self._set_load_directive("saxs", p),
+            filetypes=[("SAXS data", "*.dat *.rsr *.xvg")],
+        )
+        self.structure_field.pack(fill="x")
+        self.saxs_field.pack(fill="x", pady=(6, 0))
+
+        splits_row = ttk.Frame(input_frame)
+        splits_row.pack(fill="x", pady=(6, 0))
+        ttk.Label(splits_row, text="Splits", style="Muted.TLabel").pack(anchor="w")
+        self.splits_var = tk.StringVar()
+        splits_entry = ttk.Entry(splits_row, textvariable=self.splits_var)
+        splits_entry.pack(fill="x")
+        # commit on Enter only, so tabbing away never clobbers a hand-edited script
+        splits_entry.bind("<Return>", lambda _e: self._set_load_directive("split", self.splits_var.get()))
+
+        # anchor the console and run controls to the bottom, then let the
+        # script editor expand to fill the remaining space between them
+        console_frame = ttk.Labelframe(left, text="Output", padding=(2, 4))
+        console_frame.pack(side="bottom", fill="x")
+        self.console = ConsolePane(console_frame, height=7)
+        self.console.pack(fill="both", expand=True, padx=2, pady=2)
+
+        run_frame = ttk.Frame(left)
+        run_frame.pack(side="bottom", fill="x", pady=12)
+        self.validate_button = ttk.Button(run_frame, text="Validate", command=self._validate_clicked)
+        self.validate_button.pack(side="left")
+        self.run_button = ttk.Button(run_frame, text="Run refinement", style="Accent.TButton",
+                                     command=self._run_clicked)
+        self.run_button.pack(side="left", padx=(8, 0))
+        self.progress = ttk.Progressbar(run_frame, mode="indeterminate")  # packed only while running
+
+        # the script editor is the heart of the pane
+        editor_frame = ttk.Labelframe(left, text="Refinement script", padding=(2, 4))
+        editor_frame.pack(fill="both", expand=True, pady=(12, 0))
+        self.editor = tk.Text(
+            editor_frame, wrap="none", undo=True, font=FONTS["mono"], height=12,
+            relief="flat", borderwidth=0, padx=8, pady=6,
+            background=PALETTE["surface"], foreground=PALETTE["text"],
+            insertbackground=PALETTE["text"], selectbackground=PALETTE["accent"],
+        )
+        editor_scroll = ttk.Scrollbar(editor_frame, command=self.editor.yview)
+        self.editor.configure(yscrollcommand=editor_scroll.set)
+        editor_scroll.pack(side="right", fill="y")
+        self.editor.pack(fill="both", expand=True, padx=2, pady=2)
+        self.editor.insert("1.0", DEFAULT_RIGIDBODY_SCRIPT)
+
+        right = ttk.Frame(paned, padding=(10, 4, 4, 4))
+        paned.add(right, weight=1)
+        self.results = ttk.Notebook(right)
+        self.results.pack(fill="both", expand=True)
+        results_placeholder(self.results, "Refinement results will appear here.")
+
+    # ----- script helpers -----------------------------------------------------
+    def _set_load_directive(self, directive: str, value: str):
+        """Write a single load directive (pdb/saxs/split) into the script's load block,
+        replacing any existing line for that directive and leaving the rest of the script
+        untouched. An empty value removes the directive. If no load block exists, one is
+        created. This only ever fires when the user directly commits an Input field, so a
+        hand-edited script is never silently overwritten."""
+        value = value.strip()
+        text = self.editor.get("1.0", "end-1c")
+        match = _LOAD_BLOCK_RE.search(text)
+        if match:
+            new_block = self._rewrite_directive(match.group(0), directive, value)
+            new_text = text[:match.start()] + new_block + text[match.end():]
+        elif value:
+            new_text = f"load {{\n    {directive} {value}\n}}\n" + text
+        else:
+            return  # nothing to add and no block to edit
+
+        yview = self.editor.yview()
+        self.editor.delete("1.0", "end")
+        self.editor.insert("1.0", new_text)
+        self.editor.yview_moveto(yview[0])
+
+    @staticmethod
+    def _rewrite_directive(block: str, directive: str, value: str) -> str:
+        """Return the load block with `directive` set to `value` (or removed if empty),
+        preserving every other directive line and their order."""
+        inner = re.match(r"load\s*\{(.*)\}", block, re.DOTALL).group(1)
+        keyword = re.compile(rf"^\s*{re.escape(directive)}\b")
+        new_line = f"{directive} {value}" if value else None
+
+        kept: list[str] = []
+        replaced = False
+        for line in inner.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if keyword.match(line):
+                if new_line is not None and not replaced:  # replace in place; drop duplicates
+                    kept.append(new_line)
+                    replaced = True
+            else:
+                kept.append(stripped)
+        if new_line is not None and not replaced:  # directive was absent: append it
+            kept.append(new_line)
+
+        body = "".join(f"    {line}\n" for line in kept)
+        return "load {\n" + body + "}"
+
+    # ----- actions ------------------------------------------------------------
+    def _set_busy(self, busy: bool, label: str = "Run refinement"):
+        state = "disabled" if busy else "normal"
+        self.run_button.configure(state=state, text="Running…" if busy else "Run refinement")
+        self.validate_button.configure(state=state)
+        if busy:
+            self.progress.pack(side="left", fill="x", expand=True, padx=(12, 0))
+            self.progress.start(15)
+        else:
+            self.progress.stop()
+            self.progress.pack_forget()
+
+    def _validate_clicked(self):
+        if self.runner.running():
+            return
+        self._mode = "validate"
+        self.console.clear()
+        self.console.append("Validating script…\n\n")
+        self._set_busy(True)
+        self.runner.start(self.editor.get("1.0", "end-1c"), validate_only=True,
+                          on_line=self.console.append, on_done=self._on_done)
+
+    def _run_clicked(self):
+        if self.runner.running():
+            return
+        self._mode = "run"
+        self.console.clear()
+        self.console.append("Running rigid-body refinement…\n\n")
+        self._set_busy(True)
+        self.runner.start(self.editor.get("1.0", "end-1c"), validate_only=False,
+                          on_line=self.console.append, on_done=self._on_done)
+
+    def _on_done(self, done):
+        self._set_busy(False)
+        if done.error is not None:
+            self.console.append(f"\n{done.error}\n")
+            return
+        if self._mode == "validate":
+            self.console.append("\nValidation successful.\n")
+            return
+
+        self.console.append("\nRefinement completed.\n")
+        if done.result is None or done.result.size == 0:
+            self.console.append("No fit curves were returned.\n")
+            return
+        clear_results(self.results)
+        for logx, title in ((False, "fit (log)"), (True, "fit (log-log)")):
+            try:
+                add_figure_tab(self.results, fit_figure_from_curves(done.result, logx=logx), title)
+            except (Exception, SystemExit) as e:
+                self.console.append(f"Failed to plot results: {e}\n")
+        if not self.results.tabs():
+            results_placeholder(self.results, "Refinement results will appear here.")

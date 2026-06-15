@@ -75,18 +75,8 @@ def parse_fit_file(path: str) -> tuple[np.ndarray, dict[str, str]]:
     return data, info
 
 
-def fit_figure(path: str, logx: bool = False) -> Figure:
-    """Build the data + model + residuals figure from an ausaxs.fit file."""
-    data, info = parse_fit_file(path)
-    q, I, Ierr, Imodel = data[:, 0], data[:, 1], data[:, 2], data[:, 3]
-
-    label = "AUSAXS fit"
-    if "chi2" in info:
-        try:
-            label = f"$\\chi^2_r = {float(info['chi2']):.3f}$"
-        except ValueError:
-            pass
-
+def _fit_figure(q, I, Ierr, Imodel, label: str, logx: bool) -> Figure:
+    """Build a data + model + residuals figure from arrays."""
     with mpl.rc_context(PLOT_RC):
         fig = _new_figure()
         ax, ax_res = fig.subplots(2, 1, sharex=True, height_ratios=[3, 1])
@@ -106,6 +96,27 @@ def fit_figure(path: str, logx: bool = False) -> Figure:
 
         fig.set_layout_engine("tight")
     return fig
+
+
+def fit_figure(path: str, logx: bool = False) -> Figure:
+    """Build the data + model + residuals figure from an ausaxs.fit file."""
+    data, info = parse_fit_file(path)
+    label = "AUSAXS fit"
+    if "chi2" in info:
+        try:
+            label = f"$\\chi^2_r = {float(info['chi2']):.3f}$"
+        except ValueError:
+            pass
+    return _fit_figure(data[:, 0], data[:, 1], data[:, 2], data[:, 3], label, logx)
+
+
+def fit_figure_from_curves(data: np.ndarray, logx: bool = False) -> Figure:
+    """Build a fit figure from an (n, 4) array of [q, I, Ierr, I_model] curves."""
+    q, I, Ierr, Imodel = data[:, 0], data[:, 1], data[:, 2], data[:, 3]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        chi2 = np.nansum(((I - Imodel)/Ierr)**2)
+    label = f"$\\chi^2_r = {chi2/max(len(q), 1):.3f}$"
+    return _fit_figure(q, I, Ierr, Imodel, label, logx)
 
 
 def _render_dataset(ax, d: Dataset, first: bool):
