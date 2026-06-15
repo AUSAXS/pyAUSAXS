@@ -102,3 +102,95 @@ class CliRunner:
             if self._on_line:
                 self._on_line(item)
         self._widget.after(self.POLL_MS, self._poll)
+
+
+class _Done:
+    """Sentinel carrying the outcome of a rigid-body refinement."""
+    def __init__(self, result, error):
+        self.result = result    # np.ndarray of [q, I, Ierr, I_model], or None on failure/validation
+        self.error = error      # Exception, or None on success
+
+
+class RigidbodyRunner:
+    """Runs a rigid-body refinement script through the Rigidbody API on a worker thread.
+
+    Backend console output is streamed via the library's output callback (invoked from
+    the worker thread) into a thread-safe queue, then drained on the GUI thread.
+    on_line(str) receives each output line; on_done(_Done) is called once on completion.
+    For validation, result is None and error indicates success/failure.
+    """
+
+    POLL_MS = 100
+
+    def __init__(self, tk_widget):
+        self._widget = tk_widget
+        self._busy = False
+        self._queue: queue.Queue = queue.Queue()
+        self._on_line: Optional[Callable[[str], None]] = None
+        self._on_done: Optional[Callable[["_Done"], None]] = None
+
+    def running(self) -> bool:
+        return self._busy
+
+    def start(self, script: str, validate_only: bool,
+              on_line: Callable[[str], None], on_done: Callable[["_Done"], None]):
+        if self._busy:
+            raise RuntimeError("a refinement is already running")
+
+        try:
+            from ..wrapper.AUSAXS import AUSAXS
+            from ..wrapper.Rigidbody import prepare_rigidbody_refinement
+            from ..wrapper.Output import set_output_callback, reset_output_callback
+            # instantiate the singleton up front: the output-callback and rigidbody
+            # wrappers reach the library via AUSAXS.lib() classmethods, which require
+            # the instance to already exist.
+            if not AUSAXS().ready():
+                raise RuntimeError(f"library failed to initialize: {AUSAXS().init_error()}")
+        except Exception as e:
+            on_line(f"AUSAXS library unavailable: {e}\n")
+            on_done(_Done(None, e))
+            return
+
+        self._busy = True
+        self._on_line = on_line
+        self._on_done = on_done
+        self._queue = queue.Queue()
+
+        threading.Thread(
+            target=self._work,
+            args=(script, validate_only, prepare_rigidbody_refinement,
+                  set_output_callback, reset_output_callback),
+            daemon=True,
+        ).start()
+        self._widget.after(self.POLL_MS, self._poll)
+
+    def _work(self, script, validate_only, prepare, set_cb, reset_cb):
+        result, error = None, None
+        # the callback fires on this worker thread; just enqueue for the GUI thread
+        set_cb(lambda line: self._queue.put(line))
+        try:
+            rb = prepare(script)
+            if validate_only:
+                rb.validate()
+            else:
+                result = rb.run()
+        except Exception as e:
+            error = e
+        finally:
+            reset_cb()
+        self._queue.put(_Done(result, error))
+
+    def _poll(self):
+        while True:
+            try:
+                item = self._queue.get_nowait()
+            except queue.Empty:
+                break
+            if isinstance(item, _Done):
+                self._busy = False
+                if self._on_done:
+                    self._on_done(item)
+                return
+            if self._on_line:
+                self._on_line(item)
+        self._widget.after(self.POLL_MS, self._poll)

@@ -14,7 +14,10 @@ class FileField(ttk.Frame):
     """A labelled file path entry with a browse button and background validation coloring.
 
     The validator is called with the entered path and must return True/False.
-    on_valid is called with the path whenever it passes validation.
+    on_valid fires with the path whenever it passes validation (including on focus-out,
+    so it is suited to passive reactions like coloring or autodetection). on_commit fires
+    only on explicit user commits — pressing Enter or picking a file via Browse — and is
+    suited to actions that should not be re-triggered by merely tabbing away.
     """
 
     def __init__(
@@ -22,12 +25,14 @@ class FileField(ttk.Frame):
         label: str,
         validator: Callable[[str], bool],
         on_valid: Optional[Callable[[str], None]] = None,
+        on_commit: Optional[Callable[[str], None]] = None,
         filetypes: Optional[list[tuple[str, str]]] = None,
         directory: bool = False,
     ):
         super().__init__(parent)
         self._validator = validator
         self._on_valid = on_valid
+        self._on_commit = on_commit
         self._filetypes = filetypes or []
         self._directory = directory
         self.valid = False
@@ -48,7 +53,7 @@ class FileField(ttk.Frame):
             row=1, column=1, padx=(6, 0))
         self.columnconfigure(0, weight=1)
 
-        self.entry.bind("<Return>", lambda _e: self.validate())
+        self.entry.bind("<Return>", lambda _e: self._commit())
         self.entry.bind("<FocusOut>", lambda _e: self.validate())
         self.entry.bind("<Key>", self._on_keypress)
 
@@ -70,6 +75,12 @@ class FileField(ttk.Frame):
             path = filedialog.askopenfilename(filetypes=self._filetypes + [("All files", "*")])
         if path:
             self.set(path, touched=True)
+            self._commit()
+
+    def _commit(self):
+        """Validate and, if valid, fire on_commit. Triggered by Enter and Browse only."""
+        if self.validate() and self._on_commit:
+            self._on_commit(self.get())
 
     def get(self) -> str:
         return self.var.get().strip()
