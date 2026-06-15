@@ -242,33 +242,25 @@ def pretty_plot_name(stem: str) -> str:
 
 
 def parse_ca_backbone(path: str):
-    """Read the Cα backbone of a PDB file. Returns (coords (N,3), res_seqs (N,)) or None.
+    """Read the Cα backbone of a structure file. Returns (coords (N,3), res_seqs (N,)) or None.
 
-    Deliberately a small self-contained parser: it needs no AUSAXS library call (so it is
-    free of the backend's thread-affinity constraints) and only the Cα trace, which is all
-    the split-residue preview needs. Only the first model is read."""
-    coords, res = [], []
+    Uses the AUSAXS reader, so it transparently supports both PDB and CIF inputs."""
     try:
-        with open(path, errors="replace") as f:
-            for line in f:
-                if line.startswith("ENDMDL"):
-                    break
-                if not line.startswith("ATOM"):
-                    continue
-                if line[12:16].strip() != "CA":
-                    continue
-                if line[16] not in (" ", "A"):  # skip alternate locations past the first
-                    continue
-                try:
-                    coords.append((float(line[30:38]), float(line[38:46]), float(line[46:54])))
-                    res.append(int(line[22:26]))
-                except (ValueError, IndexError):
-                    continue
-    except OSError:
+        from ..wrapper.PDBfile import read_pdb
+        pdb = read_pdb(path)
+        names = np.char.strip(pdb.names().astype(str))
+        elements = np.char.strip(pdb.elements().astype(str))
+        res_seqs = np.asarray(pdb.res_seqs(), dtype=int)
+        x, y, z = pdb.coordinates()
+    except Exception:
         return None
-    if not coords:
+
+    # alpha carbons only, excluding calcium ions (also named "CA", but element "CA")
+    mask = (names == "CA") & (elements != "CA")
+    if not mask.any():
         return None
-    return np.array(coords, dtype=float), np.array(res, dtype=int)
+    coords = np.column_stack([np.asarray(x)[mask], np.asarray(y)[mask], np.asarray(z)[mask]]).astype(float)
+    return coords, res_seqs[mask]
 
 
 # distinct body colours, deliberately excluding red (reserved for the split residues)
