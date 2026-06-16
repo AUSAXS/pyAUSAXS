@@ -23,6 +23,7 @@ class PlotType(Enum):
     Histogram = "PlotHistogram"
     Image = "PlotImage"
     ImageAtoms = "PlotImageAtoms"
+    Residuals = "PlotResiduals"
     Hline = "PlotHline"
     Vline = "PlotVline"
     Invalid = ""
@@ -425,6 +426,59 @@ def plot_image(x, y, z):
     plt.colorbar()
     return
 
+def plot_residuals(d: Dataset):
+    """Plots a measurement against a model with a residuals subpanel.
+
+    Recreates the dual-panel layout of the .fit plots from a single dataset with
+    columns [q, I, Ierr, Imodel]. The top panel shows the data (markers + errors)
+    and the model (line); the bottom panel shows the normalized residuals
+    (I - Imodel)/Ierr. Axis scales, labels, title and legend follow the options,
+    so e.g. a log-log plot is selected by setting `logx 1` and `logy 1`.
+
+    Args:
+        d: The dataset to plot.
+    """
+
+    o = d.options
+    if d.data.ndim != 2 or d.data.shape[1] < 4:
+        print("plot_residuals: expected 4 columns [q, I, Ierr, Imodel].")
+        exit(1)
+    q, I, Ierr, Imodel = d.data[:, 0], d.data[:, 1], d.data[:, 2], d.data[:, 3]
+    # keep the data markers black like the .fit plots; colour the model (default red)
+    model_color = o.color if o.color != "k" else "tab:red"
+
+    fig = plt.gcf()
+    fig.clf()
+    ax = fig.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [3, 1]})
+
+    # top panel: data + model
+    plt.sca(ax[0])
+    plt.errorbar(q, I, yerr=Ierr, fmt='k.', markersize=2*marker_scaling, capsize=marker_scaling, zorder=0)
+    plt.plot(q, Imodel, color=model_color, linewidth=o.linewidth*marker_scaling,
+        label=o.legend if o.legend else None, zorder=5)
+    plt.title(o.title)
+    plt.ylabel(r"{}".format(o.ylabel if o.ylabel != "y" else "I(q)"))
+    if o.xrange != []:
+        plt.xlim(o.xrange)
+    if o.yrange != []:
+        plt.ylim(o.yrange)
+    if o.xlog:
+        plt.xscale("log")
+    if o.ylog:
+        plt.yscale("log")
+    if o.legend:
+        plt.legend()
+
+    # bottom panel: normalized residuals
+    plt.sca(ax[1])
+    plt.axhline(0, color='k', lw=0.5)
+    plt.plot(q, (I - Imodel)/Ierr, '.', color=model_color, markersize=2*marker_scaling)
+    plt.xlabel(r"{}".format(o.xlabel if o.xlabel != "x" else "q [$\\AA^{-1}$]"))
+    plt.ylabel("Residuals")
+    if o.xlog:
+        plt.xscale("log")
+    return
+
 def determine_type(line: str) -> PlotType:
     for t in PlotType:
         if line == t.value:
@@ -477,6 +531,10 @@ def render_plot(file: str) -> None:
                 case PlotType.Image:
                     x, y, z, _ = read_2dhist(f)
                     plot_image(x, y, z)
+
+                case PlotType.Residuals:
+                    dataset: Dataset = read_dataset(f)
+                    plot_residuals(dataset)
 
                 case PlotType.ImageAtoms:
                     print("ImageAtoms not implemented yet.")
@@ -540,22 +598,22 @@ def plot_fits(ausaxs_file, fit_files, title=""):
         stem = os.path.splitext(os.path.basename(f))[0]
         print("\tParsing file: " + stem)
 
-        if "foxs".lower() in stem.lower():
+        if "foxs" in stem.lower():
             fitdata = np.loadtxt(f, skiprows=3, usecols=[0, 3])
             load_fit(fitdata, "FoXS")
             colors.append("tab:orange")
 
-        elif "crysol".lower() in stem.lower():
+        elif "crysol" in stem.lower():
             fitdata = np.loadtxt(f, skiprows=1, usecols=[0, 3])
             load_fit(fitdata, "CRYSOL")
             colors.append("tab:cyan")
 
-        elif "pepsi".lower() in stem.lower():
+        elif "pepsi" in stem.lower():
             fitdata = np.loadtxt(f, skiprows=0, comments="#", usecols=[0, 3])
             load_fit(fitdata, "Pepsi-SAXS")
             colors.append("tab:blue")
 
-        elif "waxsis".lower() in stem.lower():
+        elif "waxsis" in stem.lower():
             fitdata = np.loadtxt(f, skiprows=0, comments="#", usecols=[0, 1])
             x = fitdata[:, 0]
             y = np.interp(data[:, 0], x, fitdata[:, 1])
@@ -563,7 +621,7 @@ def plot_fits(ausaxs_file, fit_files, title=""):
             load_fit(fitdata, "WAXSiS")
             colors.append("tab:purple")
 
-        elif "waxs_final".lower() in stem.lower():
+        elif "waxs_final" in stem.lower():
             fitdata = np.loadtxt(f, skiprows=0, comments=["@", "#", "&"], usecols=[0, 1])
             # interpolate the data to match the dataset
             x = fitdata[:, 0]/10
