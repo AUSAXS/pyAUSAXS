@@ -493,6 +493,8 @@ class RigidbodyPane(ttk.Frame):
         self._preview_job = None         # pending debounced preview redraw
         self._struct_cache_path = None
         self._struct_cache = None
+        self._preview_pdb = None         # structure path / splits the preview currently shows
+        self._preview_splits = None
 
         # three panes: controls | script editor | results. The editor can expand over
         # the results pane (and collapses again when a refinement is launched).
@@ -761,12 +763,19 @@ class RigidbodyPane(ttk.Frame):
 
     def _update_structure_preview(self):
         self._preview_job = None
+        path = self._load_value("pdb")
+        splits = self._parse_splits(self._load_value("split"))
+
+        # only the structure path and the splits affect the preview, so unrelated
+        # edits to the script (iterations, save targets, ...) are simply ignored
+        if path == self._preview_pdb and splits == self._preview_splits:
+            return
+        self._preview_pdb = path
+        self._preview_splits = splits
+
         ax = self._struct_ax
-        elev, azim = ax.elev, ax.azim  # preserve the user's rotation across redraws
         ax.clear()
         ax.set_axis_off()
-
-        path = self._load_value("pdb")
         data = self._structure_data(path)
         if data is None:
             msg = ("Set a structure to preview the splits" if not path
@@ -774,9 +783,7 @@ class RigidbodyPane(ttk.Frame):
             ax.text2D(0.5, 0.5, msg, transform=ax.transAxes, ha="center", va="center",
                       color=PALETTE["muted"], fontsize=10)
         else:
-            coords, res_seqs = data
-            draw_backbone(ax, coords, res_seqs, self._parse_splits(self._load_value("split")))
-            ax.view_init(elev, azim)
+            draw_backbone(ax, data[0], data[1], splits)
         self._struct_fig.set_layout_engine("tight")
         self._struct_canvas.draw_idle()
 
