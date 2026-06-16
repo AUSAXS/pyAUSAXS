@@ -1,7 +1,5 @@
 __pycache__/
 pyausaxs/resources
-pyausaxs/plot/plot.py
-pyausaxs/plot/plot_helper.py
 pyproject.toml
 *.egg-info
 build
