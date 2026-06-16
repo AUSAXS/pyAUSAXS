@@ -9,8 +9,10 @@ import os
 
 try:
     from .plot_helper import plot_file, plot_fits
+    from .plot_animator import animation_groups, frame_duration_ms, assemble_gif
 except ImportError:
     from plot_helper import plot_file, plot_fits
+    from plot_animator import animation_groups, frame_duration_ms, assemble_gif
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(prog="plot", description="AUSAXS plotting utility.")
@@ -20,7 +22,10 @@ def parse_args(argv=None):
     parser.add_argument("--big", action="store_true", help="Use big font size.")
     parser.add_argument("--medium", action="store_true", help="Use medium font size.")
     parser.add_argument("--title", type=str, help="Title for the plot.")
-    parser.format_help
+    parser.add_argument("--loop", type=int, default=0, help="Loop count for generated GIFs (0 = loop forever).")
+    timing = parser.add_mutually_exclusive_group()
+    timing.add_argument("--fps", type=float, help="Frames per second for generated GIF animations.")
+    timing.add_argument("--duration", type=float, help="Total length in seconds of generated GIF animations.")
     return parser.parse_args(argv)
 
 def main(argv=None):
@@ -72,13 +77,26 @@ def main(argv=None):
 
     with concurrent.futures.ProcessPoolExecutor(8) as executor:
         futures = []
+        gif_jobs = []  # (output gif path, [ordered frame png paths]) assembled after rendering
         invoke_depth = get_depth(folder)
         for currentpath, _, files in os.walk(folder):
             if max_depth < get_depth(currentpath) - invoke_depth:
                 continue
-            if max_files < len(files):
+
+            # enumerated frame sequences are detected from the .png.plot data files
+            groups = animation_groups([f for f in files if f.endswith(".png.plot")])
+            grouped_frames = {name for frames in groups.values() for name in frames}
+
+            # a long animation sequence should not trip the too-many-files guard
+            if max_files < len([f for f in files if f not in grouped_frames]):
                 print(f"Skipping {currentpath} because it has too many files.")
                 continue
+
+            # the frames are rendered like any other .plot below; queue the gif for after
+            for stem, frames in groups.items():
+                gif_path = os.path.join(currentpath, stem + ".gif")
+                frame_pngs = [os.path.join(currentpath, f.rsplit('.', 1)[0]) for f in frames]
+                gif_jobs.append((gif_path, frame_pngs))
 
             fit_files = []
             ausaxs_file = ""
@@ -97,6 +115,15 @@ def main(argv=None):
                 futures.append(executor.submit(plot_fits, ausaxs_file, fit_files, title))
 
         concurrent.futures.wait(futures)
+
+        # all frames are now rendered to .png; stitch each detected sequence into a gif
+        for gif_path, frame_pngs in gif_jobs:
+            try:
+                duration = frame_duration_ms(len(frame_pngs), args.fps, args.duration)
+                assemble_gif(frame_pngs, gif_path, duration, args.loop)
+                print(f"Wrote animation {gif_path} ({len(frame_pngs)} frames, {duration} ms/frame)")
+            except Exception as e:
+                print(f"Failed to write {gif_path}: {e}")
 
 if __name__ == "__main__":
     freeze_support()

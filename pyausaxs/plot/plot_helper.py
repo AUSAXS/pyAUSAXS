@@ -309,7 +309,7 @@ def plot_dataset(d: Dataset):
             markersize=d.options.markersize*marker_scaling,
             label=d.options.legend,
             capsize=2*marker_scaling,
-            zorder=5
+            zorder=d.options.zorder
         )
 
     if d.options.drawmarker and d.options.drawline:
@@ -425,23 +425,21 @@ def plot_image(x, y, z):
     plt.colorbar()
     return
 
-def plot_file(file: str):
-    """Plots a .plot file.
+def determine_type(line: str) -> PlotType:
+    for t in PlotType:
+        if line == t.value:
+            return t
+    return PlotType.Invalid
+
+def render_plot(file: str) -> None:
+    """Parse a .plot file and draw its contents into the current matplotlib figure.
 
     Args:
         file: The input file.
     """
 
-    print("Plotting file: " + file)
-    def determine_type(line: str) -> PlotType:
-        for t in PlotType:
-            if line == t.value:
-                return t
-        return PlotType.Invalid
-
     global first_plot
     first_plot = True
-    plt.figure()
     with open(file) as f:
         # keep reading until eof
         while line := f.readline():
@@ -487,6 +485,17 @@ def plot_file(file: str):
                 case _:
                     print("plot_file: Invalid plot type: " + line)
                     exit(1)
+
+def plot_file(file: str):
+    """Plots a .plot file.
+
+    Args:
+        file: The input file.
+    """
+
+    print("Plotting file: " + file)
+    plt.figure()
+    render_plot(file)
 
     path = file.rsplit('.', 1)[0]
     plt.tight_layout()
