@@ -449,6 +449,7 @@ load {
     saxs
     split
 }
+autoconstrain linear
 save initial_state.pdb
 save trajectory.xyz
 parameter_generator {
