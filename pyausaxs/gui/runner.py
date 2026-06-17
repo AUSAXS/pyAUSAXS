@@ -106,9 +106,12 @@ class CliRunner:
 
 class _Done:
     """Sentinel carrying the outcome of a rigid-body refinement."""
-    def __init__(self, result, error):
+    def __init__(self, result, error, error_streamed=False):
         self.result = result    # np.ndarray of [q, I, Ierr, I_model], or None on failure/validation
         self.error = error      # Exception, or None on success
+        # True if the error was already streamed to the console by the backend (run-time
+        # errors), so the GUI can avoid printing a duplicate
+        self.error_streamed = error_streamed
 
 
 class RigidbodyRunner:
@@ -165,7 +168,7 @@ class RigidbodyRunner:
         self._widget.after(self.POLL_MS, self._poll)
 
     def _work(self, script, validate_only, prepare, set_cb, reset_cb):
-        result, error = None, None
+        result, error, error_streamed = None, None, False
         # the callback fires on this worker thread; just enqueue for the GUI thread
         set_cb(lambda line: self._queue.put(line))
         try:
@@ -173,12 +176,18 @@ class RigidbodyRunner:
             if validate_only:
                 rb.validate()
             else:
-                result = rb.run()
+                try:
+                    result = rb.run()
+                except Exception:
+                    # the backend prints run-time errors to its output (already streamed
+                    # here via the callback); flag so the GUI doesn't print a duplicate
+                    error_streamed = True
+                    raise
         except Exception as e:
             error = e
         finally:
             reset_cb()
-        self._queue.put(_Done(result, error))
+        self._queue.put(_Done(result, error, error_streamed))
 
     def _poll(self):
         while True:

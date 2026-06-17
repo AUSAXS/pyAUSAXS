@@ -303,6 +303,11 @@ class ConsolePane(ttk.Frame):
         )
         for code, color in ANSI_COLORS.items():
             self.text.tag_configure(f"ansi{code}", foreground=color)
+        # tags for GUI-side status lines (Python errors / success notes), which carry
+        # no ANSI codes of their own; reuse the ANSI red/green so they match backend output
+        mono = FONTS["mono"]
+        self.text.tag_configure("error", foreground=ANSI_COLORS[31], font=(mono[0], mono[1], "bold"))
+        self.text.tag_configure("success", foreground=ANSI_COLORS[32])
         scroll = ttk.Scrollbar(self, command=self.text.yview)
         self.text.configure(yscrollcommand=scroll.set)
         self.text.grid(row=0, column=0, sticky="nsew")
@@ -310,18 +315,20 @@ class ConsolePane(ttk.Frame):
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
 
-    def append(self, line: str):
+    def append(self, line: str, tag: str | None = None):
+        """Append text, rendering any ANSI colour codes. `tag` colours text that no ANSI
+        code applies to (e.g. "error" for a Python-side message); ANSI codes still win."""
         self.text.configure(state="normal")
         pos = 0
-        tag = None
+        active = None
         for match in _ANSI_RE.finditer(line):
             if match.start() > pos:
-                self.text.insert("end", line[pos:match.start()], () if tag is None else tag)
+                self.text.insert("end", line[pos:match.start()], active or tag or ())
             if match.group(2) == "m":  # SGR colour/reset; other sequences are dropped
-                tag = self._apply_sgr(tag, match.group(1))
+                active = self._apply_sgr(active, match.group(1))
             pos = match.end()
         if pos < len(line):
-            self.text.insert("end", line[pos:], () if tag is None else tag)
+            self.text.insert("end", line[pos:], active or tag or ())
         self.text.see("end")
         self.text.configure(state="disabled")
 

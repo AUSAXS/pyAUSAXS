@@ -949,16 +949,29 @@ class RigidbodyPane(ttk.Frame):
         self.runner.start(self.editor.get("1.0", "end-1c"), validate_only=False,
                           on_line=self.console.append, on_done=self._on_done)
 
+    @staticmethod
+    def _backend_message(err) -> str:
+        """Strip the wrapper that _check_error_code adds (`AUSAXS: "fn" failed with error
+        code N: "..."`), leaving just the backend's own message. Non-matching exceptions
+        (e.g. library-unavailable) are returned unchanged."""
+        match = re.match(r'^AUSAXS: ".*?" failed with error code \d+:\s*"(.*)"\s*$',
+                         str(err), re.DOTALL)
+        return match.group(1) if match else str(err)
+
     def _on_done(self, done):
         self._set_busy(False)
         if done.error is not None:
-            self.console.append(f"\n{done.error}\n")
+            if done.error_streamed:
+                # the backend already streamed the error; just note the failure
+                self.console.append("\nRefinement failed.\n", tag="error")
+            else:
+                self.console.append(f"\n{self._backend_message(done.error)}\n", tag="error")
             return
         if self._mode == "validate":
-            self.console.append("\nValidation successful.\n")
+            self.console.append("\nValidation successful.\n", tag="success")
             return
 
-        self.console.append("\nRefinement completed.\n")
+        self.console.append("\nRefinement completed.\n", tag="success")
         if done.result is None or done.result.size == 0:
             self.console.append("No fit curves were returned.\n")
             return
