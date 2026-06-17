@@ -515,11 +515,11 @@ class RigidbodyPane(ttk.Frame):
             self._set_load_directive("pdb", p)
             if p and not self.saxs_field.valid:
                 # first try direct filename match
-                stem = Path(p).stem
                 for ext in SAXS_EXTENSIONS:
                     candidate = str(Path(p).with_suffix(ext))
                     if os.path.isfile(candidate):
                         self.saxs_field.set(candidate)
+                        self._set_load_directive("saxs", candidate)
                         break
                 
                 # then check if only a single data file is present, and if so, use it
@@ -534,16 +534,17 @@ class RigidbodyPane(ttk.Frame):
                     saxs_candidates = [e for e in entries if os.path.splitext(e)[1].lower() in SAXS_EXTENSIONS]
                     if len(saxs_candidates) == 1:
                         self.saxs_field.set(os.path.join(directory, saxs_candidates[0]))
+                        self._set_load_directive("saxs", saxs_candidates[0])
 
         def _on_load_saxs(p):
             self._set_load_directive("saxs", p)
             if p and not self.structure_field.valid:
                 # first try direct filename match
-                stem = Path(p).stem
                 for ext in STRUCTURE_EXTENSIONS:
                     candidate = str(Path(p).with_suffix(ext))
                     if os.path.isfile(candidate):
                         self.structure_field.set(candidate)
+                        self._set_load_directive("pdb", candidate)
                         break
                 
                 # then check if only a single structure file is present, and if so, use it
@@ -558,6 +559,7 @@ class RigidbodyPane(ttk.Frame):
                     struct_candidates = [e for e in entries if os.path.splitext(e)[1].lower() in STRUCTURE_EXTENSIONS]
                     if len(struct_candidates) == 1:
                         self.structure_field.set(os.path.join(directory, struct_candidates[0]))
+                        self._set_load_directive("pdb", struct_candidates[0])
 
         self.structure_field = FileField(
             input_frame, "Structure",
@@ -761,6 +763,7 @@ class RigidbodyPane(ttk.Frame):
             self.after_cancel(self._preview_job)
         self._preview_job = self.after(150, self._update_structure_preview)
 
+    _update_structure_preview_first_draw = True
     def _update_structure_preview(self):
         self._preview_job = None
         path = self._load_value("pdb")
@@ -774,6 +777,7 @@ class RigidbodyPane(ttk.Frame):
         self._preview_splits = splits
 
         ax = self._struct_ax
+        lims = [ax.get_xlim(), ax.get_ylim(), ax.get_zlim()]
         ax.clear()
         ax.set_axis_off()
         data = self._structure_data(path)
@@ -784,6 +788,12 @@ class RigidbodyPane(ttk.Frame):
                       color=PALETTE["muted"], fontsize=10)
         else:
             draw_backbone(ax, data[0], data[1], splits)
+            if self._update_structure_preview_first_draw:
+                self._update_structure_preview_first_draw = False
+            else:
+                ax.set_xlim(lims[0])
+                ax.set_ylim(lims[1])
+                ax.set_zlim(lims[2])
         self._struct_fig.set_layout_engine("tight")
         self._struct_canvas.draw_idle()
 
