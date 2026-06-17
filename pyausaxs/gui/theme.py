@@ -26,6 +26,8 @@ PALETTE = {
     "ok_border":    "#7fbf95",
     "bad":          "#fdeceb",  # invalid input tint
     "bad_border":   "#e0a4a0",
+    "danger":       "#cc3b3b",  # destructive-action icon (the reset cross)
+    "danger_hover": "#e53935",
     "track":        "#cdd5df",  # slider track
     "console_bg":   "#1b1f27",  # log pane
     "console_fg":   "#d7dde5",

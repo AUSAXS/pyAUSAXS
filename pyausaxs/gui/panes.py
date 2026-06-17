@@ -5,7 +5,7 @@ import glob
 import os
 import re
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 from pathlib import Path
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
@@ -495,9 +495,12 @@ class RigidbodyPane(ttk.Frame):
         self._struct_cache = None
         self._preview_pdb = None         # structure path / splits the preview currently shows
         self._preview_splits = None
+        self._script_cache_path = None   # where the script is autosaved/restored
+        self._last_saved_script = None   # last text written, to skip unchanged autosaves
+        self._autosave_job = None        # pending periodic autosave
 
-        # three panes: controls | script editor | results. The editor can expand over
-        # the results pane (and collapses again when a refinement is launched).
+        # three panes: controls | script editor | results. The editor can expand over the results pane (and collapses again
+        # when a refinement is launched).
         self.outer = ttk.Panedwindow(self, orient="horizontal")
         self.outer.pack(fill="both", expand=True, padx=6, pady=6)
 
@@ -506,8 +509,8 @@ class RigidbodyPane(ttk.Frame):
         controls.pack_propagate(False)
         self.outer.add(controls, weight=0)
 
-        # the Input fields are a shortcut for editing the script's load block: each one
-        # writes only its own directive. The script itself is always the authority.
+        # the Input fields are a shortcut for editing the script's load block: each one writes only its own directive. The 
+        # script itself is always the authority.
         input_frame = ttk.Labelframe(controls, text="Input", padding=12)
         input_frame.pack(fill="x")
 
@@ -603,8 +606,27 @@ class RigidbodyPane(ttk.Frame):
         self.expand_button = ttk.Button(editor_pane, text=">", width=2, command=self._toggle_expand)
         self.expand_button.pack(side="right", fill="y", padx=(4, 0))
 
-        editor_frame = ttk.Labelframe(editor_pane, text="Refinement script", padding=(2, 4))
+        editor_frame = ttk.Labelframe(editor_pane, padding=(2, 4))
         editor_frame.pack(side="left", fill="both", expand=True)
+        # Replace the labelframe's plain text title with a custom row so a reset cross can sit at its right end, on the same line 
+        # as the "Refinement script" text.
+        title_row = ttk.Frame(editor_frame)
+        ttk.Label(title_row, text="Refinement script", style="Heading.TLabel").pack(side="left")
+        self.reset_button = ttk.Label(
+            title_row, text="✕", cursor="hand2",
+            foreground=PALETTE["danger"], font=(FONTS["base"][0], 11, "bold"))
+        self.reset_button.pack(side="right", padx=(0, 2))
+        self.reset_button.bind("<Button-1>", lambda _e: self._reset_clicked())
+        self.reset_button.bind("<Enter>", lambda _e: self.reset_button.configure(foreground=PALETTE["danger_hover"]))
+        self.reset_button.bind("<Leave>", lambda _e: self.reset_button.configure(foreground=PALETTE["danger"]))
+        editor_frame.configure(labelwidget=title_row)
+        # Stretch the title row to the frame width (the labelframe won't do it) so the reset cross sits flush right.
+        def _stretch_title_row():
+            row_w, row_h = title_row.winfo_reqwidth(), title_row.winfo_reqheight()
+            title_row.pack_propagate(False)
+            title_row.configure(width=row_w, height=row_h)
+            editor_frame.bind("<Configure>", lambda e: title_row.configure(width=max(e.width - 16, row_w)))
+        self.after_idle(_stretch_title_row)
         self.editor = tk.Text(
             editor_frame, wrap="none", undo=True, font=FONTS["mono"], height=12,
             relief="flat", borderwidth=0, padx=8, pady=6,
@@ -617,13 +639,19 @@ class RigidbodyPane(ttk.Frame):
         self.editor.pack(fill="both", expand=True, padx=2, pady=2)
         operations, keywords = self._fetch_vocabulary()
         self.highlighter = RigidbodyHighlighter(self.editor, operations, keywords)
-        self.editor.insert("1.0", DEFAULT_RIGIDBODY_SCRIPT)
+        # restore the last session's script from the cache, falling back to the default
+        self._script_cache_path = self._resolve_script_cache_path()
+        initial_script = self._load_cached_script() or DEFAULT_RIGIDBODY_SCRIPT
+        self.editor.insert("1.0", initial_script)
+        self._last_saved_script = initial_script
         self.highlighter.highlight()
-        # manual edits to the script (e.g. the pdb/split lines) refresh both the
-        # syntax highlighting and the structure preview; clicking moves the cursor,
-        # which can change the highlighted scope pair
+        # manual edits to the script (e.g. the pdb/split lines) refresh both the syntax highlighting and the structure preview; clicking 
+        # moves the cursor, which can change the highlighted scope pair
         self.editor.bind("<KeyRelease>", self._on_editor_changed)
         self.editor.bind("<ButtonRelease-1>", lambda _e: self.highlighter.highlight_brackets())
+        # Ctrl-A selects all (Tk's default binds it to "start of line")
+        self.editor.bind("<Control-a>", self._select_all)
+        self.editor.bind("<Control-A>", self._select_all)
 
         # --- results pane (right), the larger pane by default ----------------
         self.results_pane = ttk.Frame(self.outer, padding=(10, 4, 4, 4))
@@ -645,10 +673,10 @@ class RigidbodyPane(ttk.Frame):
         self.splits_var.trace_add("write", lambda *_: self._set_load_directive("split", self.splits_var.get()))
         self.after(60, self._restore_split)
         self.after(80, self._update_structure_preview)
+        self._autosave_job = self.after(self._AUTOSAVE_INTERVAL_MS, self._autosave_script)
 
     # ----- layout -------------------------------------------------------------
-    # fraction of the space (right of the controls) given to the editor when the
-    # results pane is visible; the results pane keeps the rest.
+    # fraction of the space (right of the controls) given to the editor when the results pane is visible; the results pane keeps the rest.
     _EDITOR_FRACTION = 0.42
 
     def _restore_split(self):
@@ -703,6 +731,69 @@ class RigidbodyPane(ttk.Frame):
         self.highlighter.highlight()
         self.highlighter.highlight_brackets()
         self._schedule_preview_update()
+
+    def _select_all(self, _event=None):
+        """Ctrl-A: select the whole script (Tk otherwise jumps to line start)."""
+        self.editor.tag_add("sel", "1.0", "end-1c")
+        self.editor.mark_set("insert", "1.0")
+        self.editor.see("insert")
+        return "break"
+
+    def _reset_clicked(self):
+        """Restore the default script after a confirmation, so an accidental click
+        can't silently wipe a hand-written script."""
+        if not messagebox.askyesno(
+                "Reset script",
+                "Discard the current script and restore the default?",
+                parent=self):
+            return
+        self.editor.delete("1.0", "end")
+        self.editor.insert("1.0", DEFAULT_RIGIDBODY_SCRIPT)
+        self.highlighter.highlight()
+        self._schedule_preview_update()
+        self._save_script()  # persist immediately so the default survives a restart
+
+    # ----- script persistence -------------------------------------------------
+    _AUTOSAVE_INTERVAL_MS = 10_000
+
+    @staticmethod
+    def _resolve_script_cache_path() -> str:
+        """Path the script is autosaved to: <AUSAXS cache>/gui_rigidbody_script.txt."""
+        from ..wrapper.settings import settings
+        return os.path.join(settings.get("cache"), "gui_rigidbody_script.txt")
+
+    def _load_cached_script(self):
+        """Return the autosaved script if one exists and is non-empty, else None."""
+        path = self._script_cache_path
+        if not path or not os.path.isfile(path):
+            return None
+        try:
+            with open(path, errors="replace") as f:
+                text = f.read()
+        except OSError:
+            return None
+        return text if text.strip() else None
+
+    def _save_script(self):
+        """Write the current script to the cache, skipping unchanged content."""
+        path = self._script_cache_path
+        if not path:
+            return
+        text = self.editor.get("1.0", "end-1c")
+        if text == self._last_saved_script:
+            return
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as f:
+                f.write(text)
+            self._last_saved_script = text
+        except OSError:
+            pass
+
+    def _autosave_script(self):
+        """Periodically persist the script (every ~10 s) and reschedule."""
+        self._save_script()
+        self._autosave_job = self.after(self._AUTOSAVE_INTERVAL_MS, self._autosave_script)
 
     # ----- script helpers -----------------------------------------------------
     def _set_load_directive(self, directive: str, value: str):
@@ -797,8 +888,8 @@ class RigidbodyPane(ttk.Frame):
         path = self._load_value("pdb")
         splits = self._parse_splits(self._load_value("split"))
 
-        # only the structure path and the splits affect the preview, so unrelated
-        # edits to the script (iterations, save targets, ...) are simply ignored
+        # only the structure path and the splits affect the preview, so unrelated edits to the script (iterations, save 
+        # targets, ...) are simply ignored
         if path == self._preview_pdb and splits == self._preview_splits:
             return
         self._preview_pdb = path
