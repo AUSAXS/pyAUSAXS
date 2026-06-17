@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 from typing import Callable, Optional
 
-from .theme import FONTS, PALETTE
+from .theme import ANSI_COLORS, FONTS, PALETTE, SYNTAX
 
 
 class FileField(ttk.Frame):
@@ -280,11 +280,17 @@ class RangeSlider(ttk.Frame):
         self.set_values(lo, hi)
 
 
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+# one ANSI escape sequence: group 1 = parameters, group 2 = final byte (e.g. 'm' for SGR)
+_ANSI_RE = re.compile(r"\x1b\[([0-9;]*)([A-Za-z])")
 
 
 class ConsolePane(ttk.Frame):
-    """A read-only scrolling text pane for subprocess output."""
+    """A read-only scrolling text pane for subprocess output.
+
+    Renders the backend's ANSI SGR colour codes by mapping them to per-colour text
+    tags; non-colour escape sequences are dropped. Colour state does not carry across
+    append() calls, matching the line-buffered output the backend emits.
+    """
 
     def __init__(self, parent, height: int = 8):
         super().__init__(parent)
@@ -295,6 +301,8 @@ class ConsolePane(ttk.Frame):
             font=FONTS["mono"], relief="flat", borderwidth=0,
             padx=10, pady=8,
         )
+        for code, color in ANSI_COLORS.items():
+            self.text.tag_configure(f"ansi{code}", foreground=color)
         scroll = ttk.Scrollbar(self, command=self.text.yview)
         self.text.configure(yscrollcommand=scroll.set)
         self.text.grid(row=0, column=0, sticky="nsew")
@@ -303,13 +311,160 @@ class ConsolePane(ttk.Frame):
         self.columnconfigure(0, weight=1)
 
     def append(self, line: str):
-        line = _ANSI_RE.sub("", line)
         self.text.configure(state="normal")
-        self.text.insert("end", line)
+        pos = 0
+        tag = None
+        for match in _ANSI_RE.finditer(line):
+            if match.start() > pos:
+                self.text.insert("end", line[pos:match.start()], () if tag is None else tag)
+            if match.group(2) == "m":  # SGR colour/reset; other sequences are dropped
+                tag = self._apply_sgr(tag, match.group(1))
+            pos = match.end()
+        if pos < len(line):
+            self.text.insert("end", line[pos:], () if tag is None else tag)
         self.text.see("end")
         self.text.configure(state="disabled")
+
+    @staticmethod
+    def _apply_sgr(tag, params: str):
+        """Fold an SGR parameter list into the active colour tag (None = default)."""
+        for code in params.split(";"):
+            if code in ("", "0"):
+                tag = None
+            elif code.isdigit() and int(code) in ANSI_COLORS:
+                tag = f"ansi{code}"
+        return tag
 
     def clear(self):
         self.text.configure(state="normal")
         self.text.delete("1.0", "end")
         self.text.configure(state="disabled")
+
+
+class RigidbodyHighlighter:
+    """Syntax highlighting for the rigid-body sequencer script in a tk.Text editor.
+
+    Colours the first token of each line — scope keywords by nesting depth, line
+    operations, argument keywords, and unrecognised tokens flagged as errors — plus
+    trailing # comments, and highlights the matching scope opener / `end` pair around
+    the cursor. A tkinter port of the Qt RigidBodyHighlighter; since tkinter has no
+    per-line parser state, depth is recomputed by scanning the whole (short) script.
+    """
+
+    SCOPE_KEYWORDS = ("loop", "optimize_once", "on_improvement")
+    _FIRST_TOKEN_RE = re.compile(r"\S+")
+
+    def __init__(self, editor: tk.Text, operations=None, keywords=None):
+        self.editor = editor
+        self.operations = set(operations or ())
+        self.keywords = set(keywords or ())
+        self._scope_tags = [f"scope{i}" for i in range(len(SYNTAX["scope"]))]
+        self._token_tags = ("op", "keyword", "comment", "error", "error_line", *self._scope_tags)
+
+        mono = FONTS["mono"]
+        mono_bold = (mono[0], mono[1], "bold")
+        editor.tag_configure("op", foreground=SYNTAX["operation"], font=mono_bold)
+        editor.tag_configure("keyword", foreground=SYNTAX["keyword"])
+        editor.tag_configure("comment", foreground=SYNTAX["comment"])
+        # unrecognised tokens stand out with bold red text on a soft red line tint
+        editor.tag_configure("error", foreground=SYNTAX["error"], font=mono_bold)
+        editor.tag_configure("error_line", background=SYNTAX["error_bg"])
+        for tag, color in zip(self._scope_tags, SYNTAX["scope"]):
+            editor.tag_configure(tag, foreground=color, font=mono_bold)
+        editor.tag_configure("bracket", background=SYNTAX["bracket_bg"])
+        # keep the full-line background tints beneath the foreground token tags
+        editor.tag_lower("bracket")
+        editor.tag_lower("error_line")
+
+    def set_vocabulary(self, operations, keywords):
+        """Replace the known operations/keywords (e.g. once the backend reports them)."""
+        self.operations = set(operations or ())
+        self.keywords = set(keywords or ())
+        self.highlight()
+
+    def _scope_tag(self, depth: int) -> str:
+        return self._scope_tags[depth % len(self._scope_tags)]
+
+    def highlight(self):
+        ed = self.editor
+        for tag in self._token_tags:
+            ed.tag_remove(tag, "1.0", "end")
+
+        depth = 0
+        lines = ed.get("1.0", "end-1c").split("\n")
+        for i, line in enumerate(lines):
+            lineno = i + 1
+            hash_col = line.find("#")
+            if hash_col != -1:  # green comment wins over any keyword inside it
+                ed.tag_add("comment", f"{lineno}.{hash_col}", f"{lineno}.end")
+                scannable = line[:hash_col]
+            else:
+                scannable = line
+
+            match = self._FIRST_TOKEN_RE.search(scannable)
+            if not match:
+                continue
+            token = match.group()
+            start, end = f"{lineno}.{match.start()}", f"{lineno}.{match.end()}"
+            if token == "end":  # decrease first so `end` shares its opener's colour
+                depth = max(0, depth - 1)
+                ed.tag_add(self._scope_tag(depth), start, end)
+            elif token in self.SCOPE_KEYWORDS:
+                ed.tag_add(self._scope_tag(depth), start, end)
+                depth += 1
+            elif token in self.operations:
+                ed.tag_add("op", start, end)
+            elif token in self.keywords:
+                ed.tag_add("keyword", start, end)
+            elif token != "}" and (self.operations or self.keywords):
+                # only flag unknown tokens when we actually know the valid vocabulary;
+                # tint the whole line so the error is visible while scanning the script
+                ed.tag_add("error", start, end)
+                ed.tag_add("error_line", f"{lineno}.0", f"{lineno + 1}.0")
+
+    def highlight_brackets(self):
+        """Tint the scope opener/`end` line pair around the cursor's line."""
+        ed = self.editor
+        ed.tag_remove("bracket", "1.0", "end")
+        lines = ed.get("1.0", "end-1c").split("\n")
+        lineno = int(ed.index("insert").split(".")[0])
+        token = self._first_token(lines, lineno)
+        if token in self.SCOPE_KEYWORDS:
+            pair = self._match_forward(lines, lineno)
+        elif token == "end":
+            pair = self._match_backward(lines, lineno)
+        else:
+            return
+        if pair is None:
+            return
+        for n in (lineno, pair):
+            ed.tag_add("bracket", f"{n}.0", f"{n + 1}.0")
+
+    @staticmethod
+    def _first_token(lines, n: int) -> str:
+        tokens = lines[n - 1].split() if 1 <= n <= len(lines) else []
+        return tokens[0] if tokens else ""
+
+    def _match_forward(self, lines, lineno: int):
+        stack = 0
+        for n in range(lineno + 1, len(lines) + 1):
+            token = self._first_token(lines, n)
+            if token in self.SCOPE_KEYWORDS:
+                stack += 1
+            elif token == "end":
+                if stack == 0:
+                    return n
+                stack -= 1
+        return None
+
+    def _match_backward(self, lines, lineno: int):
+        stack = 0
+        for n in range(lineno - 1, 0, -1):
+            token = self._first_token(lines, n)
+            if token == "end":
+                stack += 1
+            elif token in self.SCOPE_KEYWORDS:
+                if stack == 0:
+                    return n
+                stack -= 1
+        return None

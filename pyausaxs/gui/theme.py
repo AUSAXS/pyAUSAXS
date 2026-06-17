@@ -31,6 +31,38 @@ PALETTE = {
     "console_fg":   "#d7dde5",
 }
 
+# ANSI SGR colour code → hex, for the backend's coloured output. Tuned to read
+# clearly on the dark console background; codes not listed (0 = reset, bold, ...)
+# fall back to the default console foreground. Bright variants (90-96) included.
+ANSI_COLORS: dict[int, str] = {
+    31: "#ff6b6b",  # red          – warnings
+    32: "#7ee787",  # green        – accepted steps
+    33: "#e3b341",  # yellow/amber – cautions
+    34: "#79c0ff",  # blue
+    35: "#d2a8ff",  # magenta
+    36: "#56d4dd",  # cyan
+    37: "#b1bac4",  # light grey
+    90: "#8b949e",  # dark grey
+    91: "#ffa198",  # bright red
+    92: "#56d364",  # bright green
+    93: "#e3b341",  # bright yellow/amber
+    94: "#a5d6ff",  # bright blue
+    95: "#e2c5ff",  # bright magenta
+    96: "#b3f0ff",  # bright cyan
+}
+
+# Sequencer-script syntax colours, tuned for the light editor surface. The scope
+# list assigns a colour to each nesting depth, cycling once deeper than its length.
+SYNTAX = {
+    "operation":  "#1565c0",  # blue   – line operations (first token)
+    "keyword":    "#8e24aa",  # purple – argument keywords
+    "comment":    "#2e7d32",  # green  – # comments
+    "error":      "#c62828",  # red    – unrecognised tokens (bold)
+    "error_bg":   "#fbe0df",  # soft red tint behind a line with an error
+    "scope":      ["#1565c0", "#cc6600", "#990099", "#cc0000"],
+    "bracket_bg": "#e4eefb",  # accent tint behind a matched scope pair
+}
+
 # Filled in by apply_theme() once a Tk root exists. Each value is a font tuple.
 FONTS: dict[str, tuple] = {
     "base":    ("TkDefaultFont", 10),

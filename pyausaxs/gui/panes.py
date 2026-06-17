@@ -18,7 +18,7 @@ from .plotting import (
 )
 from .runner import CliRunner, RigidbodyRunner
 from .theme import FONTS, PALETTE
-from .widgets import ConsolePane, FileField, RangeSlider
+from .widgets import ConsolePane, FileField, RangeSlider, RigidbodyHighlighter
 
 QMIN, QMAX = 1e-4, 1.0
 
@@ -615,9 +615,15 @@ class RigidbodyPane(ttk.Frame):
         self.editor.configure(yscrollcommand=editor_scroll.set)
         editor_scroll.pack(side="right", fill="y")
         self.editor.pack(fill="both", expand=True, padx=2, pady=2)
+        operations, keywords = self._fetch_vocabulary()
+        self.highlighter = RigidbodyHighlighter(self.editor, operations, keywords)
         self.editor.insert("1.0", DEFAULT_RIGIDBODY_SCRIPT)
-        # manual edits to the script (e.g. the pdb/split lines) refresh the preview
-        self.editor.bind("<KeyRelease>", lambda _e: self._schedule_preview_update())
+        self.highlighter.highlight()
+        # manual edits to the script (e.g. the pdb/split lines) refresh both the
+        # syntax highlighting and the structure preview; clicking moves the cursor,
+        # which can change the highlighted scope pair
+        self.editor.bind("<KeyRelease>", self._on_editor_changed)
+        self.editor.bind("<ButtonRelease-1>", lambda _e: self.highlighter.highlight_brackets())
 
         # --- results pane (right), the larger pane by default ----------------
         self.results_pane = ttk.Frame(self.outer, padding=(10, 4, 4, 4))
@@ -677,6 +683,27 @@ class RigidbodyPane(ttk.Frame):
         self._expanded = False
         self.after(10, self._restore_split)
 
+    # ----- syntax highlighting ------------------------------------------------
+    @staticmethod
+    def _fetch_vocabulary() -> tuple[set, set]:
+        """Ask the backend for the valid script elements, split into line operations
+        (the dict keys) and argument keywords (values not themselves keys), mirroring
+        the Qt setValidElements logic. Returns empty sets if the backend is unavailable,
+        in which case the highlighter still colours scopes/comments but flags nothing."""
+        try:
+            from ..wrapper.Rigidbody import Rigidbody
+            mapping = Rigidbody.get_valid_elements_and_arguments()
+        except Exception:
+            return set(), set()
+        operations = set(mapping)
+        keywords = {arg for args in mapping.values() for arg in args} - operations
+        return operations, keywords
+
+    def _on_editor_changed(self, _event=None):
+        self.highlighter.highlight()
+        self.highlighter.highlight_brackets()
+        self._schedule_preview_update()
+
     # ----- script helpers -----------------------------------------------------
     def _set_load_directive(self, directive: str, value: str):
         """Write a single load directive (pdb/saxs/split) into the script's load block,
@@ -699,6 +726,7 @@ class RigidbodyPane(ttk.Frame):
         self.editor.delete("1.0", "end")
         self.editor.insert("1.0", new_text)
         self.editor.yview_moveto(yview[0])
+        self.highlighter.highlight()
         self._schedule_preview_update()
 
     @staticmethod
