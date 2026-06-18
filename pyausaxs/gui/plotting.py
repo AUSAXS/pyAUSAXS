@@ -81,8 +81,7 @@ def _fit_figure(q, I, Ierr, Imodel, label: str, logx: bool) -> Figure:
     with mpl.rc_context(PLOT_RC):
         fig = _new_figure()
         ax, ax_res = fig.subplots(2, 1, sharex=True, height_ratios=[3, 1])
-        ax.errorbar(q, I, yerr=Ierr, fmt=".", color=PALETTE["muted"],
-                    markersize=4, capsize=2, elinewidth=0.8, zorder=0)
+        ax.errorbar(q, I, yerr=Ierr, fmt=".", color=PALETTE["muted"], markersize=4, capsize=2, elinewidth=0.8, zorder=0)
         ax.plot(q, Imodel, color=PALETTE["accent"], lw=1.8, zorder=5, label=label)
         ax.set_yscale("log")
         ax.set_ylabel("I(q)")
@@ -241,53 +240,41 @@ def pretty_plot_name(stem: str) -> str:
     return PRETTY_NAMES.get(stem, stem)
 
 
-def parse_ca_backbone(path: str):
-    """Read the Cα backbone of a structure file. Returns (coords (N,3), res_seqs (N,)) or None.
-
-    Uses the AUSAXS reader, so it transparently supports both PDB and CIF inputs."""
-    try:
-        from ..wrapper.PDBfile import read_pdb
-        pdb = read_pdb(path)
-        names = np.char.strip(pdb.names().astype(str))
-        elements = np.char.strip(pdb.elements().astype(str))
-        res_seqs = np.asarray(pdb.res_seqs(), dtype=int)
-        x, y, z = pdb.coordinates()
-    except Exception:
-        return None
-
-    # alpha carbons only, excluding calcium ions (also named "CA", but element "CA")
-    mask = (names == "CA") & (elements != "CA")
-    if not mask.any():
-        return None
-    coords = np.column_stack([np.asarray(x)[mask], np.asarray(y)[mask], np.asarray(z)[mask]]).astype(float)
-    return coords, res_seqs[mask]
-
-
 # distinct body colours, deliberately excluding red (reserved for the split residues)
 _BODY_COLORS = ["#4a7dbd", "#e89a3c", "#46a86c", "#9467bd", "#17becf", "#8c564b", "#bcbd22", "#7f7f7f"]
 
 
-def draw_backbone(ax, coords: np.ndarray, res_seqs: np.ndarray, split_residues: list[int]):
-    """Draw a Cα backbone on a 3D axis, colouring each rigid body between split points and
-    marking the split residues in red."""
-    x, y, z = coords[:, 0], coords[:, 1], coords[:, 2]
-
+def draw_structure(ax, data: dict, split_residues: list[int]):
+    """Draw a rigid-body structure preview on a 3D axis from a backend preview-structure dict (see Rigidbody.preview_structure). 
+    All atoms are shown as a faint cloud; the Cα backbone is drawn per body (one colour each) with symmetry copies faded, and 
+    the split residues marked in red. Authoritative body/Cα/residue metadata comes from the backend, so it works for wildcards, 
+    multi-file loads and symmetry alike."""
+    coords = data["coords"]
+    body, copy, res, is_ca = data["body"], data["copy"], data["residue_seq"], data["is_ca"]
     splits = sorted({int(s) for s in split_residues})
-    # body index of a residue = how many split points lie before it
-    body = np.array([sum(s < r for s in splits) for r in res_seqs]) if splits else np.zeros(len(res_seqs), int)
 
-    ax.plot(x, y, z, color=PALETTE["border"], lw=1.0, zorder=1)  # connecting trace
-    for b in range(int(body.max()) + 1 if len(body) else 1):
-        m = body == b
-        ax.scatter(x[m], y[m], z[m], s=12, color=_BODY_COLORS[b % len(_BODY_COLORS)],
-                   depthshade=True, zorder=2)
+    # Cα backbone, drawn separately per (body, copy) so traces never bridge bodies or copies
+    for b in sorted(set(body[is_ca].tolist())):
+        color = _BODY_COLORS[b % len(_BODY_COLORS)]
+        for c in sorted(set(copy[is_ca & (body == b)].tolist())):
+            pts = coords[is_ca & (body == b) & (copy == c)]
+            if len(pts) == 0:
+                continue
+            original = (c == 0)
+            ax.plot(
+                pts[:, 0], pts[:, 1], pts[:, 2], color=color, 
+                lw=1.0 if original else 0.8, alpha=1.0 if original else 0.65, zorder=2 if original else 1
+            )
 
-    highlight = np.isin(res_seqs, splits)
+    # split-residue markers on the originals, in red
+    highlight = is_ca & (copy == 0) & np.isin(res, splits)
     if highlight.any():
-        ax.scatter(x[highlight], y[highlight], z[highlight], s=80, color="red",
-                   edgecolors="black", linewidths=0.6, depthshade=False, zorder=3)
+        ax.scatter(
+            coords[highlight, 0], coords[highlight, 1], coords[highlight, 2], s=80, 
+            color="red", edgecolors="black", linewidths=0.6, depthshade=False, zorder=3
+        )
 
-    # equal aspect so the molecule is not distorted
+    # equal aspect over every atom so symmetry copies are never clipped out of view
     span = float((coords.max(0) - coords.min(0)).max()) / 2 or 1.0
     mid = (coords.max(0) + coords.min(0)) / 2
     ax.set_xlim(mid[0] - span, mid[0] + span)

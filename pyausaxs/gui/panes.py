@@ -13,7 +13,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.figure import Figure
 
 from .plotting import (
-    draw_backbone, fit_figure, fit_figure_from_curves, parse_ca_backbone,
+    draw_structure, fit_figure, fit_figure_from_curves,
     plot_file_figure, pretty_plot_name,
 )
 from .runner import CliRunner, RigidbodyRunner
@@ -45,8 +45,7 @@ def _file_stem(path: str) -> str:
 
 
 def _output_arg(path: str) -> str:
-    # the backend appends file stems to this with plain string concatenation,
-    # so a trailing separator is required
+    # the backend appends file stems to this with plain string concatenation, so a trailing separator is required
     return path if path.endswith("/") else path + "/"
 
 
@@ -84,9 +83,10 @@ def add_figure_tab(notebook: ttk.Notebook, fig, title: str):
 def add_text_tab(notebook: ttk.Notebook, content: str, title: str):
     from .theme import FONTS
     frame = ttk.Frame(notebook)
-    text = tk.Text(frame, wrap="none", font=FONTS["mono"], relief="flat",
-                   background=PALETTE["surface"], foreground=PALETTE["text"],
-                   padx=12, pady=10, borderwidth=0)
+    text = tk.Text(
+        frame, wrap="none", font=FONTS["mono"], relief="flat", 
+        background=PALETTE["surface"], foreground=PALETTE["text"], padx=12, pady=10, borderwidth=0
+    )
     text.insert("1.0", content)
     text.configure(state="disabled")
     scroll = ttk.Scrollbar(frame, command=text.yview)
@@ -140,8 +140,7 @@ class FitterPane(ttk.Frame):
 
         run_frame = ttk.Frame(left)
         run_frame.pack(fill="x", pady=12)
-        self.run_button = ttk.Button(run_frame, text="Run fit", style="Accent.TButton",
-                                     command=self._run_clicked)
+        self.run_button = ttk.Button(run_frame, text="Run fit", style="Accent.TButton", command=self._run_clicked)
         self.run_button.pack(side="left")
         self.progress = ttk.Progressbar(run_frame, mode="indeterminate")  # packed only while running
 
@@ -300,18 +299,20 @@ class SaxsFitterPane(FitterPane):
 
         ttk.Label(grid, text="q unit").grid(row=0, column=0, sticky="w")
         self.unit_var = tk.StringVar(value="1/Å")
-        ttk.Combobox(grid, textvariable=self.unit_var, values=["1/Å", "1/nm"],
-                     state="readonly", width=12).grid(row=0, column=1, sticky="ew", pady=2)
+        ttk.Combobox(
+            grid, textvariable=self.unit_var, values=["1/Å", "1/nm"],
+            state="readonly", width=12).grid(row=0, column=1, sticky="ew", pady=2
+        )
 
         ttk.Label(grid, text="Hydration model").grid(row=1, column=0, sticky="w", padx=(0, 8))
         self.hydration_var = tk.StringVar(value="radial")
-        ttk.Combobox(grid, textvariable=self.hydration_var, values=["radial", "none"],
-                     state="readonly", width=12).grid(row=1, column=1, sticky="ew", pady=2)
+        ttk.Combobox(grid, textvariable=self.hydration_var, values=["radial", "none"], state="readonly", width=12).grid(
+            row=1, column=1, sticky="ew", pady=2
+        )
 
         ttk.Label(grid, text="Excluded volume model").grid(row=2, column=0, sticky="w", padx=(0, 8))
         self.exv_var = tk.StringVar(value="simple")
-        exv_box = ttk.Combobox(grid, textvariable=self.exv_var, values=["simple", "fraser", "grid"],
-                               state="readonly", width=12)
+        exv_box = ttk.Combobox(grid, textvariable=self.exv_var, values=["simple", "fraser", "grid"], state="readonly", width=12)
         exv_box.grid(row=2, column=1, sticky="ew", pady=2)
         exv_box.bind("<<ComboboxSelected>>", lambda _e: self._exv_changed())
 
@@ -474,14 +475,16 @@ save final_state.pdb
 """
 
 _LOAD_BLOCK_RE = re.compile(r"load\s*\{.*?\}", re.DOTALL)
+# a 'symmetry' element: either a brace block (symmetry { ... }) or a single inline line
+# (symmetry c6 / symmetry b1 c6), anchored to the first token on a line
+_SYMMETRY_RE = re.compile(r"(?m)^[ \t]*symmetry\b\s*(?:\{.*?\}|[^\n]*)", re.DOTALL)
 
 
 class RigidbodyPane(ttk.Frame):
     """[Experimental] Rigid-body refinement driven by an AUSAXS sequencer script.
 
-    Mirrors the SasView rigid-body refinement workflow: a script editor with helpers
-    to fill in the load block from chosen files, plus Validate and Run actions that
-    stream the backend's output into a log and plot the resulting fit."""
+    Mirrors the SasView rigid-body refinement workflow: a script editor with helpers to fill in the load block from 
+    chosen files, plus Validate and Run actions that stream the backend's output into a log and plot the resulting fit."""
 
     title = "Rigidbody"
 
@@ -492,10 +495,9 @@ class RigidbodyPane(ttk.Frame):
         self._expanded = False
         self._fit_tabs: list = []        # result tabs added by a run (the structure tab persists)
         self._preview_job = None         # pending debounced preview redraw
-        self._struct_cache_path = None
-        self._struct_cache = None
-        self._preview_pdb = None         # structure path / splits the preview currently shows
-        self._preview_splits = None
+        self._preview_key = None         # signature of what the preview currently shows
+        self._preview_cache_key = None   # signature the preview structure was last built from
+        self._preview_cache = None       # cached backend preview-structure dict, or None
         self._script_cache_path = None   # where the script is autosaved/restored
         self._last_saved_script = None   # last text written, to skip unchanged autosaves
         self._autosave_job = None        # pending periodic autosave
@@ -715,10 +717,9 @@ class RigidbodyPane(ttk.Frame):
     # ----- syntax highlighting ------------------------------------------------
     @staticmethod
     def _fetch_vocabulary() -> tuple[set, set]:
-        """Ask the backend for the valid script elements, split into line operations
-        (the dict keys) and argument keywords (values not themselves keys), mirroring
-        the Qt setValidElements logic. Returns empty sets if the backend is unavailable,
-        in which case the highlighter still colours scopes/comments but flags nothing."""
+        """Ask the backend for the valid script elements, split into line operations (the dict keys) and argument 
+        keywords (values not themselves keys), mirroring the Qt setValidElements logic. Returns empty sets if the 
+        backend is unavailable, in which case the highlighter still colours scopes/comments but flags nothing."""
         try:
             from ..wrapper.Rigidbody import Rigidbody
             mapping = Rigidbody.get_valid_elements_and_arguments()
@@ -798,10 +799,9 @@ class RigidbodyPane(ttk.Frame):
 
     # ----- script helpers -----------------------------------------------------
     def _set_load_directive(self, directive: str, value: str):
-        """Write a single load directive (pdb/saxs/split) into the script's load block,
-        replacing any existing line for that directive and leaving the rest of the script
-        untouched. An empty value removes the directive. If no load block exists, one is
-        created. This only ever fires when the user directly commits an Input field, so a
+        """Write a single load directive (pdb/saxs/split) into the script's load block, replacing any existing line for 
+        that directive and leaving the rest of the script untouched. An empty value removes the directive. If no load 
+        block exists, one is created. This only ever fires when the user directly commits an Input field, so a
         hand-edited script is never silently overwritten."""
         value = value.strip()
         text = self.editor.get("1.0", "end-1c")
@@ -866,15 +866,6 @@ class RigidbodyPane(ttk.Frame):
             return []
         return [int(t) for t in re.split(r"[,\s]+", value.strip()) if t.isdigit()]
 
-    def _structure_data(self, path):
-        """Parse (and cache) the Cα backbone for a structure path."""
-        if not path or not os.path.isfile(path):
-            return None
-        if self._struct_cache_path != path:
-            self._struct_cache_path = path
-            self._struct_cache = parse_ca_backbone(path)
-        return self._struct_cache
-
     def _schedule_preview_update(self):
         """Debounce preview redraws so rapid edits (e.g. typing splits) stay smooth."""
         if not hasattr(self, "_struct_ax"):
@@ -883,31 +874,55 @@ class RigidbodyPane(ttk.Frame):
             self.after_cancel(self._preview_job)
         self._preview_job = self.after(150, self._update_structure_preview)
 
+    @staticmethod
+    def _structural_signature(script: str) -> tuple:
+        """Distil the parts of the script that affect the preview — the load block and any symmetry elements — so 
+        edits to unrelated lines (iterations, print, save, ...) don't trigger a redraw or a backend rebuild."""
+        load = _LOAD_BLOCK_RE.search(script)
+        return (load.group(0) if load else "",
+                tuple(m.group(0) for m in _SYMMETRY_RE.finditer(script)))
+
+    def _preview_data(self, script: str, sig: tuple):
+        """Build the rigid body from the current script and return its preview structure 
+        (coords + per-atom body/copy/residue/Cα metadata), or None if it can't be built. Cached on 
+        the structural signature; skipped while a refinement runs to avoid a concurrent backend call."""
+        if self.runner.running():
+            return None
+        if sig != self._preview_cache_key:
+            self._preview_cache_key = sig
+            try:
+                from ..wrapper.Rigidbody import Rigidbody
+                data = Rigidbody(script).preview_structure()
+                self._preview_cache = data if len(data["coords"]) else None
+            except Exception:
+                self._preview_cache = None  # script mid-edit / invalid: show the placeholder
+        return self._preview_cache
+
     _update_structure_preview_first_draw = True
     def _update_structure_preview(self):
         self._preview_job = None
-        path = self._load_value("pdb")
+        script = self.editor.get("1.0", "end-1c")
         splits = self._parse_splits(self._load_value("split"))
 
-        # only the structure path and the splits affect the preview, so unrelated edits to the script (iterations, save 
-        # targets, ...) are simply ignored
-        if path == self._preview_pdb and splits == self._preview_splits:
+        # redraw only when the load or symmetry elements change; everything else is ignored
+        sig = self._structural_signature(script)
+        if sig == self._preview_key:
             return
-        self._preview_pdb = path
-        self._preview_splits = splits
+        self._preview_key = sig
+
+        data = self._preview_data(script, sig)
 
         ax = self._struct_ax
         lims = [ax.get_xlim(), ax.get_ylim(), ax.get_zlim()]
         ax.clear()
         ax.set_axis_off()
-        data = self._structure_data(path)
         if data is None:
-            msg = ("Set a structure to preview the splits" if not path
-                   else f"Could not read Cα atoms from\n{os.path.basename(path)}")
-            ax.text2D(0.5, 0.5, msg, transform=ax.transAxes, ha="center", va="center",
-                      color=PALETTE["muted"], fontsize=10)
+            ax.text2D(
+                0.5, 0.5, "Set a structure to preview the splits", transform=ax.transAxes, 
+                ha="center", va="center", color=PALETTE["muted"], fontsize=10
+            )
         else:
-            draw_backbone(ax, data[0], data[1], splits)
+            draw_structure(ax, data, splits)
             if self._update_structure_preview_first_draw:
                 self._update_structure_preview_first_draw = False
             else:
@@ -947,16 +962,13 @@ class RigidbodyPane(ttk.Frame):
         self.console.clear()
         self.console.append("Running rigid-body refinement…\n\n")
         self._set_busy(True)
-        self.runner.start(self.editor.get("1.0", "end-1c"), validate_only=False,
-                          on_line=self.console.append, on_done=self._on_done)
+        self.runner.start(self.editor.get("1.0", "end-1c"), validate_only=False, on_line=self.console.append, on_done=self._on_done)
 
     @staticmethod
     def _backend_message(err) -> str:
-        """Strip the wrapper that _check_error_code adds (`AUSAXS: "fn" failed with error
-        code N: "..."`), leaving just the backend's own message. Non-matching exceptions
-        (e.g. library-unavailable) are returned unchanged."""
-        match = re.match(r'^AUSAXS: ".*?" failed with error code \d+:\s*"(.*)"\s*$',
-                         str(err), re.DOTALL)
+        """Strip the wrapper that _check_error_code adds (`AUSAXS: "fn" failed with error code N: "..."`), leaving 
+        just the backend's own message. Non-matching exceptions (e.g. library-unavailable) are returned unchanged."""
+        match = re.match(r'^AUSAXS: ".*?" failed with error code \d+:\s*"(.*)"\s*$', str(err), re.DOTALL)
         return match.group(1) if match else str(err)
 
     def _on_done(self, done):
@@ -982,8 +994,7 @@ class RigidbodyPane(ttk.Frame):
         self._fit_tabs.clear()
         for logx, title in ((False, "fit (log)"), (True, "fit (log-log)")):
             try:
-                self._fit_tabs.append(
-                    add_figure_tab(self.results, fit_figure_from_curves(done.result, logx=logx), title))
+                self._fit_tabs.append(add_figure_tab(self.results, fit_figure_from_curves(done.result, logx=logx), title))
             except (Exception, SystemExit) as e:
                 self.console.append(f"Failed to plot results: {e}\n")
         if self._fit_tabs:

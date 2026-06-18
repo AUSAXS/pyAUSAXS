@@ -443,6 +443,21 @@ class AUSAXSLIB:
             ]
             self.functions.rigidbody_validate.restype = None
 
+            # rigidbody_get_preview_structure
+            self.functions.rigidbody_get_preview_structure.argtypes = [
+                ct.c_int,                            # rigidbody id
+                ct.POINTER(ct.POINTER(ct.c_double)), # x vector (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # y vector (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # z vector (output)
+                ct.POINTER(ct.POINTER(ct.c_int)),    # body_index vector (output)
+                ct.POINTER(ct.POINTER(ct.c_int)),    # copy_index vector (output)
+                ct.POINTER(ct.POINTER(ct.c_int)),    # residue_seq vector (output)
+                ct.POINTER(ct.POINTER(ct.c_int)),    # is_ca vector (output)
+                ct.POINTER(ct.c_int),                # n_atoms (output)
+                ct.POINTER(ct.c_int)                 # status (0 = success)
+            ]
+            self.functions.rigidbody_get_preview_structure.restype = ct.c_int # return data id
+
             # rigidbody_run
             self.functions.rigidbody_run.argtypes = [
                 ct.c_int,                            # rigidbody id

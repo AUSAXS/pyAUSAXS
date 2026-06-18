@@ -19,6 +19,48 @@ class Rigidbody(BackendObject):
         ))
         _check_error_code(status, "rigidbody_load_script")
 
+    def preview_structure(self) -> dict:
+        """Get the explicit structure (symmetries realized) annotated with the per-atom metadata needed to draw a preview. 
+        Returns a dict with:
+            coords      : (N, 3) float array of atom positions
+            body        : (N,) int   — index of the body each atom belongs to
+            copy        : (N,) int   — symmetry copy index (0 = original)
+            residue_seq : (N,) int   — residue number (-1 if unknown)
+            is_ca       : (N,) bool  — whether the atom is a Cα"""
+        ausaxs = AUSAXS()
+        x = ct.POINTER(ct.c_double)()
+        y = ct.POINTER(ct.c_double)()
+        z = ct.POINTER(ct.c_double)()
+        body = ct.POINTER(ct.c_int)()
+        copy = ct.POINTER(ct.c_int)()
+        residue = ct.POINTER(ct.c_int)()
+        is_ca = ct.POINTER(ct.c_int)()
+        n_atoms = ct.c_int()
+        status = ct.c_int()
+        temp_id = ausaxs.lib().functions.rigidbody_get_preview_structure(
+            self._get_id(),
+            ct.byref(x), ct.byref(y), ct.byref(z),
+            ct.byref(body), ct.byref(copy), ct.byref(residue), ct.byref(is_ca),
+            ct.byref(n_atoms), ct.byref(status)
+        )
+        _check_error_code(status, "rigidbody_get_preview_structure")
+        n = n_atoms.value
+        shape = (n,)
+        # copy out before deallocating the backend-owned buffers
+        result = {
+            "coords": np.column_stack((
+                np.ctypeslib.as_array(x, shape=shape),
+                np.ctypeslib.as_array(y, shape=shape),
+                np.ctypeslib.as_array(z, shape=shape),
+            )).astype(float),
+            "body": np.ctypeslib.as_array(body, shape=shape).astype(int).copy(),
+            "copy": np.ctypeslib.as_array(copy, shape=shape).astype(int).copy(),
+            "residue_seq": np.ctypeslib.as_array(residue, shape=shape).astype(int).copy(),
+            "is_ca": np.ctypeslib.as_array(is_ca, shape=shape).astype(bool).copy(),
+        }
+        ausaxs.deallocate(temp_id)
+        return result
+
     def validate(self) -> None:
         """Validate the script and raise an error if it is invalid."""
         ausaxs = AUSAXS()
