@@ -497,6 +497,9 @@ class RigidbodyPane(ttk.Frame):
     def __init__(self, parent):
         super().__init__(parent)
         self.runner = RigidbodyRunner(self)
+        # tell the backend a live-structure consumer exists, so `update` elements actually publish
+        from ..wrapper.Rigidbody import Rigidbody
+        Rigidbody.set_live_consumer(True)
         self._mode = "run"
         self._expanded = False
         self._fit_tabs: list = []        # result tabs added by a run (the structure tab persists)

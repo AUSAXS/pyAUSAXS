@@ -62,12 +62,20 @@ class Rigidbody(BackendObject):
         return result
 
     @staticmethod
+    def set_live_consumer(connected: bool) -> None:
+        """Register (or unregister) as a consumer of the live structure. While no consumer is registered, an `update` element does 
+        nothing and warns once at parse time, so it wastes no resources. A GUI that polls live_structure() should register on startup."""
+        ausaxs = AUSAXS()
+        status = ct.c_int()
+        ausaxs.lib().functions.rigidbody_set_live_consumer(ct.c_bool(connected), ct.byref(status))
+        _check_error_code(status, "rigidbody_set_live_consumer")
+
+    @staticmethod
     def live_structure() -> tuple:
-        """Poll the structure most recently published by an `update structure` element during a
-        run. Returns (coords, version), where coords is an (N, 3) float array (or None if nothing
-        has been published yet) and version is an int that increments on each publish — the GUI
-        compares it against the previous value to detect new frames. The atom order matches
-        preview_structure(), so a backbone mask computed there can be reused here. Thread-safe."""
+        """Poll the structure most recently published by an `update structure` element during a run. Returns (coords, version), where
+        coords is an (N, 3) float array (or None if nothing has been published yet) and version is an int that increments on each 
+        publish — the GUI compares it against the previous value to detect new frames. The atom order matches preview_structure(), 
+        so a backbone mask computed there can be reused here. Thread-safe."""
         ausaxs = AUSAXS()
         x = ct.POINTER(ct.c_double)()
         y = ct.POINTER(ct.c_double)()
