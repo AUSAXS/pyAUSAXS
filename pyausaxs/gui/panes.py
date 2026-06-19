@@ -1118,11 +1118,8 @@ class RigidbodyPane(ttk.Frame):
         self._live_version = 0
         if not _UPDATE_RE.search(script):
             return
-        try:
-            from ..wrapper.Rigidbody import Rigidbody
-            meta = Rigidbody(script).preview_structure()
-        except Exception:
-            return
+        from ..wrapper.Rigidbody import Rigidbody
+        meta = Rigidbody(script).preview_structure()
         if len(meta["coords"]):
             self._live_meta = meta
             self.results.select(self.structure_tab)
@@ -1131,11 +1128,8 @@ class RigidbodyPane(ttk.Frame):
         self._live_job = None
         if self._live_meta is None:
             return
-        try:
-            from ..wrapper.Rigidbody import Rigidbody
-            coords, version = Rigidbody.live_structure()
-        except Exception:
-            coords, version = None, self._live_version
+        from ..wrapper.Rigidbody import Rigidbody
+        coords, version = Rigidbody.live_structure()
         if (coords is not None and version != self._live_version
                 and len(coords) == len(self._live_meta["coords"])):
             self._live_version = version
@@ -1146,11 +1140,15 @@ class RigidbodyPane(ttk.Frame):
     def _draw_live_frame(self, coords):
         data = dict(self._live_meta, coords=coords)  # reuse the mask, swap in the live coordinates
         ax = self._struct_ax
+        lims = [ax.get_xlim(), ax.get_ylim(), ax.get_zlim()]
         ax.clear()
         ax.set_axis_off()
         draw_structure(ax, data, self._parse_splits(self._load_value("split")))
         self._struct_fig.set_layout_engine("tight")
         self._struct_canvas.draw_idle()
+        ax.set_xlim(lims[0])
+        ax.set_ylim(lims[1])
+        ax.set_zlim(lims[2])
 
     def _stop_live_preview(self):
         if self._live_job is not None:
