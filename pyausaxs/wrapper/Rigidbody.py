@@ -67,8 +67,8 @@ class Rigidbody(BackendObject):
         nothing and warns once at parse time, so it wastes no resources. A GUI that polls live_structure() should register on startup."""
         ausaxs = AUSAXS()
         status = ct.c_int()
-        ausaxs.lib().functions.rigidbody_set_live_consumer(ct.c_bool(connected), ct.byref(status))
-        _check_error_code(status, "rigidbody_set_live_consumer")
+        ausaxs.lib().functions.rigidbody_register_live_consumer(ct.c_bool(connected), ct.byref(status))
+        _check_error_code(status, "rigidbody_register_live_consumer")
 
     @staticmethod
     def live_structure() -> tuple:

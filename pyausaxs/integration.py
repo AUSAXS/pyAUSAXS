@@ -469,12 +469,12 @@ class AUSAXSLIB:
             ]
             self.functions.rigidbody_get_live_structure.restype = ct.c_int # return data id
 
-            # rigidbody_set_live_consumer
-            self.functions.rigidbody_set_live_consumer.argtypes = [
+            # rigidbody_register_live_consumer
+            self.functions.rigidbody_register_live_consumer.argtypes = [
                 ct.c_bool,              # connected
                 ct.POINTER(ct.c_int)    # status (0 = success)
             ]
-            self.functions.rigidbody_set_live_consumer.restype = None
+            self.functions.rigidbody_register_live_consumer.restype = None
 
             # rigidbody_run
             self.functions.rigidbody_run.argtypes = [
