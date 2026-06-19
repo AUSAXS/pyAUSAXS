@@ -5,7 +5,7 @@ import glob
 import os
 import re
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from pathlib import Path
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
@@ -18,7 +18,7 @@ from .plotting import (
 )
 from .runner import CliRunner, RigidbodyRunner
 from .theme import FONTS, PALETTE
-from .widgets import ConsolePane, FileField, RangeSlider, RigidbodyHighlighter
+from .widgets import ConsolePane, FileField, RangeSlider, RigidbodyHighlighter, Tooltip
 
 QMIN, QMAX = 1e-4, 1.0
 
@@ -481,6 +481,9 @@ _SYMMETRY_RE = re.compile(r"(?m)^[ \t]*symmetry\b\s*(?:\{.*?\}|[^\n]*)", re.DOTA
 # an 'update' element (e.g. `update structure`) as the first token on a line; its presence makes
 # the GUI poll the backend for the live structure during a run
 _UPDATE_RE = re.compile(r"(?m)^[ \t]*update\b")
+# the top-level 'output' directive (output <dir>), captured as (prefix, path) so the path can be
+# rewritten to an absolute one at boot
+_OUTPUT_RE = re.compile(r"(?m)^([ \t]*output[ \t]+)(\S+)")
 
 
 class RigidbodyPane(ttk.Frame):
@@ -506,6 +509,7 @@ class RigidbodyPane(ttk.Frame):
         self._live_version = 0           # last live-structure version drawn
         self._script_cache_path = None   # where the script is autosaved/restored
         self._last_saved_script = None   # last text written, to skip unchanged autosaves
+        self._script_file_path = None    # last file the user manually saved to / loaded from
         self._autosave_job = None        # pending periodic autosave
 
         # three panes: controls | script editor | results. The editor can expand over the results pane (and collapses again
@@ -621,13 +625,18 @@ class RigidbodyPane(ttk.Frame):
         # as the "Refinement script" text.
         title_row = ttk.Frame(editor_frame)
         ttk.Label(title_row, text="Refinement script", style="Heading.TLabel").pack(side="left")
-        self.reset_button = ttk.Label(
-            title_row, text="✕", cursor="hand2",
-            foreground=PALETTE["danger"], font=(FONTS["base"][0], 11, "bold"))
+        # right-aligned icon actions. Packed right-to-left, so the visual order is load, save, clear,
+        # with the destructive reset cross furthest right.
+        self.reset_button = self._make_icon_button(
+            title_row, "✕", self._reset_clicked, "Reset to the default script",
+            color=PALETTE["danger"], hover=PALETTE["danger_hover"], bold=True)
         self.reset_button.pack(side="right", padx=(0, 2))
-        self.reset_button.bind("<Button-1>", lambda _e: self._reset_clicked())
-        self.reset_button.bind("<Enter>", lambda _e: self.reset_button.configure(foreground=PALETTE["danger_hover"]))
-        self.reset_button.bind("<Leave>", lambda _e: self.reset_button.configure(foreground=PALETTE["danger"]))
+        self._make_icon_button(
+            title_row, "↧", self._save_to_file_clicked, "Save script to a file…"
+        ).pack(side="right", padx=(0, 8))
+        self._make_icon_button(
+            title_row, "↥", self._load_from_file_clicked, "Load script from a file…"
+        ).pack(side="right", padx=(0, 8))
         editor_frame.configure(labelwidget=title_row)
         # Stretch the title row to the frame width (the labelframe won't do it) so the reset cross sits flush right.
         def _stretch_title_row():
@@ -650,9 +659,15 @@ class RigidbodyPane(ttk.Frame):
         self.highlighter = RigidbodyHighlighter(self.editor, operations, keywords)
         # restore the last session's script from the cache, falling back to the default
         self._script_cache_path = self._resolve_script_cache_path()
-        initial_script = self._load_cached_script() or DEFAULT_RIGIDBODY_SCRIPT
-        self.editor.insert("1.0", initial_script)
-        self._last_saved_script = initial_script
+        cached_script = self._load_cached_script()
+        self.editor.insert("1.0", cached_script or DEFAULT_RIGIDBODY_SCRIPT)
+        if cached_script is not None:
+            # the cached script may have been written from a different working directory; resolve
+            # its relative file paths against that directory so they still point at the right files,
+            # then mirror the load block into the Input fields once (later edits don't propagate back)
+            self._absolutize_script_paths(self._last_launch_directory())
+            self._populate_inputs_from_script()
+        self._last_saved_script = self.editor.get("1.0", "end-1c")
         self.highlighter.highlight()
         # manual edits to the script (e.g. the pdb/split lines) refresh both the syntax highlighting and the structure preview; clicking 
         # moves the cursor, which can change the highlighted scope pair
@@ -761,6 +776,65 @@ class RigidbodyPane(ttk.Frame):
         self._schedule_preview_update()
         self._save_script()  # persist immediately so the default survives a restart
 
+    def _make_icon_button(self, parent, glyph, command, tooltip, color=None, hover=None, bold=False):
+        """A clickable glyph styled like the reset cross: muted by default, brightening on hover,
+        with a tooltip (icon-only buttons need a label somewhere)."""
+        color = color or PALETTE["muted"]
+        hover = hover or PALETTE["text"]
+        font = (FONTS["base"][0], 12, "bold") if bold else (FONTS["base"][0], 12)
+        button = ttk.Label(parent, text=glyph, cursor="hand2", foreground=color, font=font)
+        button.bind("<Button-1>", lambda _e: command())
+        button.bind("<Enter>", lambda _e: button.configure(foreground=hover))
+        button.bind("<Leave>", lambda _e: button.configure(foreground=color))
+        Tooltip(button, tooltip)
+        return button
+
+    # ----- load / save the script to a file (independent of the cache) --------
+    def _save_to_file_clicked(self):
+        """Save the current script to a user-chosen file. This is separate from the cache: the
+        periodic cache autosave continues untouched, and the file we write here is never overwritten
+        by it."""
+        path = filedialog.asksaveasfilename(
+            parent=self, title="Save refinement script", defaultextension=".txt",
+            initialdir=os.path.dirname(self._script_file_path) if self._script_file_path else None,
+            initialfile=os.path.basename(self._script_file_path) if self._script_file_path else "refinement.txt",
+            filetypes=[("Script", "*.txt"), ("All files", "*")],
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w") as f:
+                f.write(self.editor.get("1.0", "end-1c"))
+        except OSError as e:
+            messagebox.showerror("Save failed", f"Could not save the script:\n{e}", parent=self)
+            return
+        self._script_file_path = path
+
+    def _load_from_file_clicked(self):
+        """Load a script from a user-chosen file into the editor (not from the cache), then mirror
+        its load block into the Input fields so they aren't left stale-empty beside a working script.
+        As elsewhere, this is a one-shot fill: later edits don't propagate back, and the script
+        remains the authority."""
+        path = filedialog.askopenfilename(
+            parent=self, title="Load refinement script",
+            initialdir=os.path.dirname(self._script_file_path) if self._script_file_path else None,
+            filetypes=[("Script", "*.txt"), ("All files", "*")],
+        )
+        if not path:
+            return
+        try:
+            with open(path, errors="replace") as f:
+                text = f.read()
+        except OSError as e:
+            messagebox.showerror("Load failed", f"Could not load the script:\n{e}", parent=self)
+            return
+        self._script_file_path = path
+        self.editor.delete("1.0", "end")
+        self.editor.insert("1.0", text)
+        self.highlighter.highlight()
+        self._populate_inputs_from_script()
+        self._schedule_preview_update()
+
     # ----- script persistence -------------------------------------------------
     _AUTOSAVE_INTERVAL_MS = 10_000
 
@@ -802,6 +876,59 @@ class RigidbodyPane(ttk.Frame):
         """Periodically persist the script (every ~10 s) and reschedule."""
         self._save_script()
         self._autosave_job = self.after(self._AUTOSAVE_INTERVAL_MS, self._autosave_script)
+
+    # ----- boot: restore paths and Input fields -------------------------------
+    @staticmethod
+    def _last_launch_directory() -> str:
+        """The directory the GUI was last launched from, used to resolve relative paths in the
+        cached script. Falls back to the current directory when no config has been written yet."""
+        from .session import load_config
+        return load_config().get("last_launch_directory") or os.getcwd()
+
+    def _absolutize_script_paths(self, base_dir: str):
+        """Rewrite the script's relative file paths (the load block's pdb/saxs and the top-level
+        output directive) into absolute paths anchored at `base_dir`. Absolute paths are left as-is."""
+        def absolutize(path: str) -> str:
+            path = path.strip()
+            if not path or os.path.isabs(path):
+                return path
+            # preserve a trailing separator: the backend appends file stems to the output dir
+            absolute = os.path.normpath(os.path.join(base_dir, path))
+            return absolute + os.sep if path.endswith(("/", os.sep)) else absolute
+
+        text = self.editor.get("1.0", "end-1c")
+        new_text = _OUTPUT_RE.sub(lambda m: m.group(1) + absolutize(m.group(2)), text, count=1)
+
+        match = _LOAD_BLOCK_RE.search(new_text)
+        if match:
+            for directive in ("pdb", "saxs"):
+                value = self._load_value(directive)  # reads from the editor, still the original text
+                if value:
+                    block = _LOAD_BLOCK_RE.search(new_text)
+                    new_block = self._rewrite_directive(block.group(0), directive, absolutize(value))
+                    new_text = new_text[:block.start()] + new_block + new_text[block.end():]
+
+        if new_text != text:
+            self.editor.delete("1.0", "end")
+            self.editor.insert("1.0", new_text)
+            self.highlighter.highlight()
+
+    def _populate_inputs_from_script(self):
+        """Mirror the script's load block into the Input fields as a one-shot fill — run when a script
+        is restored from the cache at boot or loaded from a file. The fields are passive afterwards:
+        the file fields set here fire no commit callback, and later script edits don't propagate back,
+        so the script stays the single source of truth."""
+        pdb = self._load_value("pdb")
+        if pdb:
+            self.structure_field.set(pdb)
+        saxs = self._load_value("saxs")
+        if saxs:
+            self.saxs_field.set(saxs)
+        split = self._load_value("split")
+        if split:
+            # at boot the splits trace isn't attached yet; on a later load it is, but it only writes
+            # the identical value straight back, so the script's substance is unchanged
+            self.splits_var.set(split)
 
     # ----- script helpers -----------------------------------------------------
     def _set_load_directive(self, directive: str, value: str):
