@@ -61,6 +61,36 @@ class Rigidbody(BackendObject):
         ausaxs.deallocate(temp_id)
         return result
 
+    @staticmethod
+    def live_structure() -> tuple:
+        """Poll the structure most recently published by an `update structure` element during a
+        run. Returns (coords, version), where coords is an (N, 3) float array (or None if nothing
+        has been published yet) and version is an int that increments on each publish — the GUI
+        compares it against the previous value to detect new frames. The atom order matches
+        preview_structure(), so a backbone mask computed there can be reused here. Thread-safe."""
+        ausaxs = AUSAXS()
+        x = ct.POINTER(ct.c_double)()
+        y = ct.POINTER(ct.c_double)()
+        z = ct.POINTER(ct.c_double)()
+        n_atoms = ct.c_int()
+        version = ct.c_int()
+        status = ct.c_int()
+        temp_id = ausaxs.lib().functions.rigidbody_get_live_structure(
+            ct.byref(x), ct.byref(y), ct.byref(z),
+            ct.byref(n_atoms), ct.byref(version), ct.byref(status)
+        )
+        _check_error_code(status, "rigidbody_get_live_structure")
+        n = n_atoms.value
+        coords = None
+        if n:
+            coords = np.column_stack((
+                np.ctypeslib.as_array(x, shape=(n,)),
+                np.ctypeslib.as_array(y, shape=(n,)),
+                np.ctypeslib.as_array(z, shape=(n,)),
+            )).astype(float)
+        ausaxs.deallocate(temp_id)
+        return coords, version.value
+
     def validate(self) -> None:
         """Validate the script and raise an error if it is invalid."""
         ausaxs = AUSAXS()

@@ -458,6 +458,17 @@ class AUSAXSLIB:
             ]
             self.functions.rigidbody_get_preview_structure.restype = ct.c_int # return data id
 
+            # rigidbody_get_live_structure
+            self.functions.rigidbody_get_live_structure.argtypes = [
+                ct.POINTER(ct.POINTER(ct.c_double)), # x vector (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # y vector (output)
+                ct.POINTER(ct.POINTER(ct.c_double)), # z vector (output)
+                ct.POINTER(ct.c_int),                # n_atoms (output)
+                ct.POINTER(ct.c_int),                # version (output)
+                ct.POINTER(ct.c_int)                 # status (0 = success)
+            ]
+            self.functions.rigidbody_get_live_structure.restype = ct.c_int # return data id
+
             # rigidbody_run
             self.functions.rigidbody_run.argtypes = [
                 ct.c_int,                            # rigidbody id

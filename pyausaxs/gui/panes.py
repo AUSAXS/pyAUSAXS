@@ -478,6 +478,9 @@ _LOAD_BLOCK_RE = re.compile(r"load\s*\{.*?\}", re.DOTALL)
 # a 'symmetry' element: either a brace block (symmetry { ... }) or a single inline line
 # (symmetry c6 / symmetry b1 c6), anchored to the first token on a line
 _SYMMETRY_RE = re.compile(r"(?m)^[ \t]*symmetry\b\s*(?:\{.*?\}|[^\n]*)", re.DOTALL)
+# an 'update' element (e.g. `update structure`) as the first token on a line; its presence makes
+# the GUI poll the backend for the live structure during a run
+_UPDATE_RE = re.compile(r"(?m)^[ \t]*update\b")
 
 
 class RigidbodyPane(ttk.Frame):
@@ -498,6 +501,9 @@ class RigidbodyPane(ttk.Frame):
         self._preview_key = None         # signature of what the preview currently shows
         self._preview_cache_key = None   # signature the preview structure was last built from
         self._preview_cache = None       # cached backend preview-structure dict, or None
+        self._live_job = None            # pending live-structure poll during a run
+        self._live_meta = None           # backbone mask (preview dict) for the active run, or None
+        self._live_version = 0           # last live-structure version drawn
         self._script_cache_path = None   # where the script is autosaved/restored
         self._last_saved_script = None   # last text written, to skip unchanged autosaves
         self._autosave_job = None        # pending periodic autosave
@@ -901,6 +907,8 @@ class RigidbodyPane(ttk.Frame):
     _update_structure_preview_first_draw = True
     def _update_structure_preview(self):
         self._preview_job = None
+        if self._live_meta is not None:
+            return  # a live run owns the preview axis; don't draw the static preview over it
         script = self.editor.get("1.0", "end-1c")
         splits = self._parse_splits(self._load_value("split"))
 
@@ -961,8 +969,72 @@ class RigidbodyPane(ttk.Frame):
         self._collapse_editor()  # minimize the editor so the results have room
         self.console.clear()
         self.console.append("Running rigid-body refinement…\n\n")
+        script = self.editor.get("1.0", "end-1c")
+        # if the script publishes its structure (`update structure`), prepare to watch it live.
+        # Done before starting the run so the run's parse is the last to reset the live buffer.
+        self._begin_live_preview(script)
         self._set_busy(True)
-        self.runner.start(self.editor.get("1.0", "end-1c"), validate_only=False, on_line=self.console.append, on_done=self._on_done)
+        self.runner.start(script, validate_only=False, on_line=self.console.append, on_done=self._on_done)
+        if self._live_meta is not None:
+            self._live_job = self.after(self._LIVE_POLL_MS, self._poll_live)
+
+    # ----- live structure preview during a run --------------------------------
+    _LIVE_POLL_MS = 200
+
+    def _begin_live_preview(self, script: str):
+        """If the script contains an `update` element, build the backbone mask once (atom order is
+        fixed after setup) so live frames can reuse it, and surface the structure tab."""
+        self._live_meta = None
+        self._live_version = 0
+        if not _UPDATE_RE.search(script):
+            return
+        try:
+            from ..wrapper.Rigidbody import Rigidbody
+            meta = Rigidbody(script).preview_structure()
+        except Exception:
+            return
+        if len(meta["coords"]):
+            self._live_meta = meta
+            self.results.select(self.structure_tab)
+
+    def _poll_live(self):
+        self._live_job = None
+        if self._live_meta is None:
+            return
+        try:
+            from ..wrapper.Rigidbody import Rigidbody
+            coords, version = Rigidbody.live_structure()
+        except Exception:
+            coords, version = None, self._live_version
+        if (coords is not None and version != self._live_version
+                and len(coords) == len(self._live_meta["coords"])):
+            self._live_version = version
+            self._draw_live_frame(coords)
+        if self.runner.running():
+            self._live_job = self.after(self._LIVE_POLL_MS, self._poll_live)
+
+    def _draw_live_frame(self, coords):
+        data = dict(self._live_meta, coords=coords)  # reuse the mask, swap in the live coordinates
+        ax = self._struct_ax
+        ax.clear()
+        ax.set_axis_off()
+        draw_structure(ax, data, self._parse_splits(self._load_value("split")))
+        self._struct_fig.set_layout_engine("tight")
+        self._struct_canvas.draw_idle()
+
+    def _stop_live_preview(self):
+        if self._live_job is not None:
+            self.after_cancel(self._live_job)
+            self._live_job = None
+        if self._live_meta is not None:
+            try:  # draw the final published frame, then release the preview axis
+                from ..wrapper.Rigidbody import Rigidbody
+                coords, _ = Rigidbody.live_structure()
+                if coords is not None and len(coords) == len(self._live_meta["coords"]):
+                    self._draw_live_frame(coords)
+            except Exception:
+                pass
+        self._live_meta = None
 
     @staticmethod
     def _backend_message(err) -> str:
@@ -973,6 +1045,7 @@ class RigidbodyPane(ttk.Frame):
 
     def _on_done(self, done):
         self._set_busy(False)
+        self._stop_live_preview()
         if done.error is not None:
             if done.error_streamed:
                 # the backend already streamed the error; just note the failure
