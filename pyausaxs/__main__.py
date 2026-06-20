@@ -32,6 +32,7 @@ def main(argv=None):
 
     # the gui handles library initialization itself
     if tool == "gui":
+        print("Warning: The Python GUI is highly experimental. Use at your own risk.", file=sys.stderr)
         from .gui import main as gui_main
         return gui_main(argv[1:])
 
