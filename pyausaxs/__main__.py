@@ -91,7 +91,15 @@ def main(argv=None):
             from .gui import main as gui_main
             return gui_main(remaining)
         case "plot":
-            from .plot.plot import main as plot_main
+            try:
+                from .plot.plot import main as plot_main
+            except ImportError as e:
+                print(
+                    f"Error: the 'plot' tool requires extra dependencies ({e.name}).\n"
+                    "Install them with: pip install pyausaxs[plots]",
+                    file=sys.stderr,
+                )
+                return 1
             return plot_main(remaining)
         case t if t in _CLI_TOOLS:
             return _run_cli_tool(t, remaining)
