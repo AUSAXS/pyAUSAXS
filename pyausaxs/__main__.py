@@ -1,3 +1,4 @@
+import os
 import sys
 import ctypes as ct
 
@@ -29,6 +30,11 @@ def main(argv=None):
 
     # check if first arg is a tool selector
     tool = argv[0].lower()
+
+    # backend configuration; handled before the library is loaded, since its
+    # purpose is to point at a (possibly missing or custom) backend.
+    if tool == "setup":
+        return _run_setup(argv[1:])
 
     # the gui handles library initialization itself
     if tool == "gui":
@@ -86,6 +92,66 @@ def _call_cli(cli_func, args):
 def _run_plot_tool(args):
     """Run the plotting tool using plot_main."""
     return plot_main(args)
+
+
+def _run_setup(args):
+    """Configure which backend shared library AUSAXS uses."""
+    import argparse
+    from . import loader
+
+    parser = argparse.ArgumentParser(
+        prog="ausaxs setup",
+        description="Configure the AUSAXS backend shared library.",
+    )
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--relink", metavar="PATH",
+        help="use the backend library at PATH instead of the bundled one",
+    )
+    group.add_argument(
+        "--reset", action="store_true",
+        help="forget any relinked path and use the bundled library",
+    )
+    group.add_argument(
+        "--show", action="store_true",
+        help="show which backend library is currently in use (default)",
+    )
+    ns = parser.parse_args(args)
+
+    if ns.relink:
+        try:
+            cache = loader.set_relink_path(ns.relink)
+        except (FileNotFoundError, ValueError) as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        linked = loader.get_relink_path()
+        from pathlib import Path
+        if "ausaxs" not in Path(linked).stem.lower():
+            print(
+                f"Warning: '{Path(linked).name}' does not look like an AUSAXS "
+                "library (its name should contain 'ausaxs').",
+                file=sys.stderr,
+            )
+        print(f"Relinked AUSAXS backend to: {linked}")
+        print(f"(stored in {cache})")
+        return 0
+
+    if ns.reset:
+        if loader.clear_relink_path():
+            print("Reset: now using the bundled AUSAXS backend.")
+        else:
+            print("No relink configured; already using the bundled backend.")
+        return 0
+
+    # default action: --show
+    print(f"AUSAXS backend in use: {loader.find_lib_path()}")
+    if os.environ.get(loader.ENV_VAR):
+        print(f"  (overridden by ${loader.ENV_VAR})")
+    elif loader.get_relink_path():
+        print("  (relinked; reset with: ausaxs setup --reset)")
+    else:
+        print("  (bundled)")
+    return 0
 
 
 def saxs_fitter():
