@@ -18,7 +18,7 @@ def main(argv=None):
         print("  em         - Fit EM map to SAXS data")
         print("  rigidbody  - Rigid-body optimization")
         print("  plot       - Plotting utility")
-        print("  gui        - Graphical interface")
+        print("  gui        - Graphical interface") 
         print("\nFor tool-specific help:")
         print("  ausaxs <tool> --help")
         return 0
