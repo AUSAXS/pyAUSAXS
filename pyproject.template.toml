@@ -27,8 +27,6 @@ plots = [
   "scipy>=1.10",
 ]
 gui = [
-  # the GUI reuses the plotting stack (matplotlib + scipy); it additionally needs tkinter,
-  # which ships with CPython — install your OS's python3-tk package if it is missing.
   "pyausaxs[plots]",
 ]
 
