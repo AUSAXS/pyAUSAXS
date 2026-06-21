@@ -63,7 +63,7 @@ class AUSAXS:
         self._lib = None
         self._ready = False
         self._init_error = None
-        try: 
+        try:
             self._lib = AUSAXSLIB()
             self._ready = self._lib.ready()
         except Exception as e:

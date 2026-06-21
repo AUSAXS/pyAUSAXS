@@ -1,12 +1,10 @@
 import importlib.resources as pkg_resources
 from pathlib import Path
 
-from pyausaxs.architecture import get_shared_lib_extension
+from pyausaxs.architecture import get_shared_lib_extension, get_cache_dir
 
 def _cache_file() -> Path:
-    """File holding the relinked backend path, if any."""
-    from .wrapper.settings import settings
-    return Path(settings.get("cache")) / "libpath"
+    return get_cache_dir() / "libpath"
 
 
 def get_relink_path() -> str | None:
