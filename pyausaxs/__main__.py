@@ -1,4 +1,5 @@
 import argparse
+import importlib.util
 import sys
 
 from .__init__ import __version__
@@ -9,6 +10,35 @@ _CLI_TOOLS = {
     "em":        ("cli_em_fitter",   "ausaxs_em"),
     "rigidbody": ("cli_rigidbody",   "ausaxs_rigidbody"),
 }
+
+# Optional CLI tools backed by pip extras: tool -> (extra name, modules that must be importable).
+# We check _tkinter (the C extension), not tkinter (whose pure-Python package ships even on no-Tk builds).
+_OPTIONAL_TOOLS = {
+    "plot": ("plots", ("matplotlib", "scipy")),
+    "gui":  ("gui",   ("matplotlib", "scipy", "_tkinter")),
+}
+
+
+def _extra_available(tool: str) -> bool:
+    """Check if the optional dependencies for a tool are available by trying to find their modules."""
+    _, modules = _OPTIONAL_TOOLS[tool]
+    for module in modules:
+        try:
+            if importlib.util.find_spec(module) is None:
+                return False
+        except ModuleNotFoundError:
+            return False
+    return True
+
+
+def _extra_missing_error(tool: str) -> int:
+    extra = _OPTIONAL_TOOLS[tool][0]
+    print(
+        f"Error: the '{extra}' extension is not installed."
+        f"\nPlease install it by running the command \"pip install pyausaxs[{extra}]\".",
+        file=sys.stderr,
+    )
+    return 1
 
 
 class _Formatter(argparse.HelpFormatter):
@@ -40,6 +70,8 @@ def _build_parser() -> argparse.ArgumentParser:
         ("plot",      "plot results from other tools"),
         ("gui",       "start the graphical interface"),
     ]:
+        if name in _OPTIONAL_TOOLS and not _extra_available(name):
+            desc += " (disabled)"
         sub.add_parser(name, help=desc, add_help=False)
 
     # 'setup' is unlisted and has its own structured flags.
@@ -87,10 +119,14 @@ def main(argv=None):
         case "setup":
             return _run_setup(ns)
         case "gui":
+            if not _extra_available("gui"):
+                return _extra_missing_error("gui")
             print("Warning: The Python GUI is highly experimental. Use at your own risk.", file=sys.stderr)
             from .gui import main as gui_main
             return gui_main(remaining)
         case "plot":
+            if not _extra_available("plot"):
+                return _extra_missing_error("plot")
             from .plot.plot import main as plot_main
             return plot_main(remaining)
         case t if t in _CLI_TOOLS:
