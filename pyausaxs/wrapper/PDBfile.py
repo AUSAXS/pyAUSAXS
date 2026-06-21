@@ -1,4 +1,4 @@
-from .AUSAXS import AUSAXS, _check_error_code
+from .AUSAXS import AUSAXS, _check_error_code, _ptr_to_array, _ptr_to_str_array
 from .BackendObject import BackendObject
 from .Models import ExvModel
 from .Datafile import Datafile
@@ -106,20 +106,20 @@ class PDBfile(BackendObject):
         _check_error_code(status, "pdb_get_data")
 
         n = n_atoms.value
-        self._data["serial"]     = np.array([serial_ptr[i] for i in range(n)],                  dtype=np.int32  )
-        self._data["name"]       = np.array([name_ptr[i].decode('utf-8') for i in range(n)],    dtype=np.str_   )
-        self._data["altLoc"]     = np.array([altLoc_ptr[i].decode('utf-8') for i in range(n)],  dtype=np.str_   )
-        self._data["resName"]    = np.array([resName_ptr[i].decode('utf-8') for i in range(n)], dtype=np.str_   )
-        self._data["chainID"]    = np.array([chainID_ptr[i].decode('utf-8') for i in range(n)], dtype=np.str_   )
-        self._data["resSeq"]     = np.array([resSeq_ptr[i] for i in range(n)],                  dtype=np.int32  )
-        self._data["iCode"]      = np.array([iCode_ptr[i].decode('utf-8') for i in range(n)],   dtype=np.str_   )
-        self._data["x"]          = np.array([x_ptr[i] for i in range(n)],                       dtype=np.float64)
-        self._data["y"]          = np.array([y_ptr[i] for i in range(n)],                       dtype=np.float64)
-        self._data["z"]          = np.array([z_ptr[i] for i in range(n)],                       dtype=np.float64)
-        self._data["occupancy"]  = np.array([occupancy_ptr[i] for i in range(n)],               dtype=np.float64)
-        self._data["tempFactor"] = np.array([tempFactor_ptr[i] for i in range(n)],              dtype=np.float64)
-        self._data["element"]    = np.array([element_ptr[i].decode('utf-8') for i in range(n)], dtype=np.str_   )
-        self._data["charge"]     = np.array([charge_ptr[i].decode('utf-8') for i in range(n)],  dtype=np.str_   )
+        self._data["serial"]     = _ptr_to_array(serial_ptr, n, dtype=np.int32)
+        self._data["name"]       = _ptr_to_str_array(name_ptr, n)
+        self._data["altLoc"]     = _ptr_to_str_array(altLoc_ptr, n)
+        self._data["resName"]    = _ptr_to_str_array(resName_ptr, n)
+        self._data["chainID"]    = _ptr_to_str_array(chainID_ptr, n)
+        self._data["resSeq"]     = _ptr_to_array(resSeq_ptr, n, dtype=np.int32)
+        self._data["iCode"]      = _ptr_to_str_array(iCode_ptr, n)
+        self._data["x"]          = _ptr_to_array(x_ptr, n)
+        self._data["y"]          = _ptr_to_array(y_ptr, n)
+        self._data["z"]          = _ptr_to_array(z_ptr, n)
+        self._data["occupancy"]  = _ptr_to_array(occupancy_ptr, n)
+        self._data["tempFactor"] = _ptr_to_array(tempFactor_ptr, n)
+        self._data["element"]    = _ptr_to_str_array(element_ptr, n)
+        self._data["charge"]     = _ptr_to_str_array(charge_ptr, n)
         ausaxs.deallocate(data_id)
 
     def fit(self, data: Datafile, model: ExvModel | str = ExvModel.simple) -> FitResult:

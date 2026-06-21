@@ -1,4 +1,4 @@
-from .AUSAXS import AUSAXS, _check_error_code
+from .AUSAXS import AUSAXS, _check_error_code, _ptr_to_array, _ptr_to_str_list
 from .BackendObject import BackendObject
 from pyausaxs.signatures import register
 
@@ -125,18 +125,17 @@ class Rigidbody(BackendObject):
         )
         _check_error_code(status, "rigidbody_get_preview_structure")
         n = n_atoms.value
-        shape = (n,)
         # copy out before deallocating the backend-owned buffers
         result = {
             "coords": np.column_stack((
-                np.ctypeslib.as_array(x, shape=shape),
-                np.ctypeslib.as_array(y, shape=shape),
-                np.ctypeslib.as_array(z, shape=shape),
-            )).astype(float),
-            "body": np.ctypeslib.as_array(body, shape=shape).astype(int).copy(),
-            "copy": np.ctypeslib.as_array(copy, shape=shape).astype(int).copy(),
-            "residue_seq": np.ctypeslib.as_array(residue, shape=shape).astype(int).copy(),
-            "is_ca": np.ctypeslib.as_array(is_ca, shape=shape).astype(bool).copy(),
+                _ptr_to_array(x, n),
+                _ptr_to_array(y, n),
+                _ptr_to_array(z, n),
+            )),
+            "body": _ptr_to_array(body, n, dtype=int),
+            "copy": _ptr_to_array(copy, n, dtype=int),
+            "residue_seq": _ptr_to_array(residue, n, dtype=int),
+            "is_ca": _ptr_to_array(is_ca, n, dtype=bool),
         }
         ausaxs.deallocate(temp_id)
         return result
@@ -172,10 +171,10 @@ class Rigidbody(BackendObject):
         coords = None
         if n:
             coords = np.column_stack((
-                np.ctypeslib.as_array(x, shape=(n,)),
-                np.ctypeslib.as_array(y, shape=(n,)),
-                np.ctypeslib.as_array(z, shape=(n,)),
-            )).astype(float)
+                _ptr_to_array(x, n),
+                _ptr_to_array(y, n),
+                _ptr_to_array(z, n),
+            ))
         ausaxs.deallocate(temp_id)
         return coords, version.value
 
@@ -208,11 +207,13 @@ class Rigidbody(BackendObject):
             ct.byref(status)
         )
         _check_error_code(status, "rigidbody_run")
-        q_array = np.ctypeslib.as_array(q, shape=(n_points.value,))
-        I_array = np.ctypeslib.as_array(I, shape=(n_points.value,))
-        I_err_array = np.ctypeslib.as_array(I_err, shape=(n_points.value,))
-        I_interp_array = np.ctypeslib.as_array(I_interp, shape=(n_points.value,))
-        result = np.column_stack((q_array, I_array, I_err_array, I_interp_array))
+        n = n_points.value
+        result = np.column_stack((
+            _ptr_to_array(q, n),
+            _ptr_to_array(I, n),
+            _ptr_to_array(I_err, n),
+            _ptr_to_array(I_interp, n),
+        ))
         return result
 
     @staticmethod
@@ -228,7 +229,7 @@ class Rigidbody(BackendObject):
             ct.byref(status)
         )
         _check_error_code(status, "rigidbody_get_valid_elements")
-        elements = [elements_ptr[i].decode('utf-8') for i in range(size.value)]
+        elements = _ptr_to_str_list(elements_ptr, size.value)
         return elements
 
     @staticmethod
@@ -246,7 +247,7 @@ class Rigidbody(BackendObject):
             ct.byref(status)
         )
         _check_error_code(status, "rigidbody_get_valid_arguments")
-        arguments = [arguments_ptr[i].decode('utf-8') for i in range(size.value)]
+        arguments = _ptr_to_str_list(arguments_ptr, size.value)
         return arguments
 
     @staticmethod

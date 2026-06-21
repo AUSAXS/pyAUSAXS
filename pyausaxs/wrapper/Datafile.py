@@ -1,4 +1,4 @@
-from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _as_numpy_f64_arrays, _check_similar_length
+from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _as_numpy_f64_arrays, _check_similar_length, _ptr_to_array
 from .BackendObject import BackendObject
 from pyausaxs.signatures import register
 from typing import overload
@@ -85,9 +85,9 @@ class Datafile(BackendObject):
         _check_error_code(status, "data_get_data")
 
         n = n_points.value
-        self._data["q"]    = np.array([q_ptr[i] for i in range(n)],    dtype=np.float64)
-        self._data["I"]    = np.array([I_ptr[i] for i in range(n)],    dtype=np.float64)
-        self._data["Ierr"] = np.array([Ierr_ptr[i] for i in range(n)], dtype=np.float64)
+        self._data["q"]    = _ptr_to_array(q_ptr, n)
+        self._data["I"]    = _ptr_to_array(I_ptr, n)
+        self._data["Ierr"] = _ptr_to_array(Ierr_ptr, n)
         ausaxs.deallocate(data_id)
 
     def q(self) -> np.ndarray:

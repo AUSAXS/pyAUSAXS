@@ -1,4 +1,4 @@
-from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _check_similar_length, _as_numpy_f64_arrays
+from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _check_similar_length, _as_numpy_f64_arrays, _ptr_to_str_array
 from pyausaxs.signatures import register
 import ctypes as ct
 import numpy as np
@@ -48,7 +48,7 @@ class form_factor():
             ct.byref(status)
         )
         _check_error_code(status, "ff_valid_form_factor_types")
-        types = np.array([types_ptr[i].decode('utf-8') for i in range(n_types.value)], dtype=np.str_)
+        types = _ptr_to_str_array(types_ptr, n_types.value)
         ausaxs.deallocate(obj_id)
         return types
 

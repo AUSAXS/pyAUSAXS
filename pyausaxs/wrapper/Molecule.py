@@ -1,4 +1,4 @@
-from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _check_similar_length, _as_numpy_f64_arrays
+from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _check_similar_length, _as_numpy_f64_arrays, _ptr_to_array, _ptr_to_str_array
 from .BackendObject import BackendObject
 from .PDBfile import PDBfile
 from .Histogram import Histogram
@@ -234,16 +234,16 @@ class Molecule(BackendObject):
         _check_error_code(status, "molecule_get_data")
 
         n = n_atoms.value
-        self._atom_data["x"]       = np.array([ax_ptr[i] for i in range(n)],                    dtype=np.float64)
-        self._atom_data["y"]       = np.array([ay_ptr[i] for i in range(n)],                    dtype=np.float64)
-        self._atom_data["z"]       = np.array([az_ptr[i] for i in range(n)],                    dtype=np.float64)
-        self._atom_data["weights"] = np.array([aw_ptr[i] for i in range(n)],                    dtype=np.float64)
-        self._atom_data["ff_type"] = np.array([aff_ptr[i].decode('utf-8') for i in range(n)],    dtype=np.str_   )
+        self._atom_data["x"]       = _ptr_to_array(ax_ptr, n)
+        self._atom_data["y"]       = _ptr_to_array(ay_ptr, n)
+        self._atom_data["z"]       = _ptr_to_array(az_ptr, n)
+        self._atom_data["weights"] = _ptr_to_array(aw_ptr, n)
+        self._atom_data["ff_type"] = _ptr_to_str_array(aff_ptr, n)
         m = n_weights.value
-        self._water_data["x"]       = np.array([wx_ptr[i] for i in range(m)],                    dtype=np.float64)
-        self._water_data["y"]       = np.array([wy_ptr[i] for i in range(m)],                    dtype=np.float64)
-        self._water_data["z"]       = np.array([wz_ptr[i] for i in range(m)],                    dtype=np.float64)
-        self._water_data["weights"] = np.array([ww_ptr[i] for i in range(m)],                    dtype=np.float64)
+        self._water_data["x"]       = _ptr_to_array(wx_ptr, m)
+        self._water_data["y"]       = _ptr_to_array(wy_ptr, m)
+        self._water_data["z"]       = _ptr_to_array(wz_ptr, m)
+        self._water_data["weights"] = _ptr_to_array(ww_ptr, m)
         self._water_data["ff_type"] = "OH"
         ausaxs.deallocate(data_id)
 
@@ -309,10 +309,10 @@ class Molecule(BackendObject):
 
         n = n_bins.value
         hist = Histogram(
-            np.array([axis_ptr[i] for i in range(n)], dtype=np.float64),
-            np.array([aa_ptr[i] for i in range(n)], dtype=np.float64),
-            np.array([aw_ptr[i] for i in range(n)], dtype=np.float64),
-            np.array([ww_ptr[i] for i in range(n)], dtype=np.float64),
+            _ptr_to_array(axis_ptr, n),
+            _ptr_to_array(aa_ptr, n),
+            _ptr_to_array(aw_ptr, n),
+            _ptr_to_array(ww_ptr, n),
         )
         ausaxs.deallocate(tmp_id)
         return hist
@@ -355,8 +355,8 @@ class Molecule(BackendObject):
             _check_error_code(status, "molecule_debye")
 
             n = n_q.value
-            q = np.array([q_ptr[i] for i in range(n)], dtype=np.float64)
-            i = np.array([i_ptr[i] for i in range(n)], dtype=np.float64)
+            q = _ptr_to_array(q_ptr, n)
+            i = _ptr_to_array(i_ptr, n)
             ausaxs.deallocate(tmp_id)
             return q, i
 
@@ -395,8 +395,8 @@ class Molecule(BackendObject):
             _check_error_code(status, "molecule_debye_raw")
 
             n = n_q.value
-            q = np.array([q_ptr[i] for i in range(n)], dtype=np.float64)
-            i = np.array([i_ptr[i] for i in range(n)], dtype=np.float64)
+            q = _ptr_to_array(q_ptr, n)
+            i = _ptr_to_array(i_ptr, n)
             ausaxs.deallocate(tmp_id)
             return q, i
 

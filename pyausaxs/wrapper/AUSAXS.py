@@ -33,6 +33,21 @@ def _as_numpy_f64_arrays(*arrays: Union[list, np.ndarray]) -> list[np.ndarray]:
         np_arrays.append(np_arr)
     return np_arrays
 
+def _ptr_to_array(ptr, n: int, dtype=None) -> np.ndarray:
+    """Copy *n* elements from a ctypes pointer (or array) into an owning numpy array."""
+    if n <= 0 or not ptr:
+        return np.empty(0, dtype=dtype)
+    arr = np.ctypeslib.as_array(ptr, shape=(n,))
+    return arr.astype(dtype) if dtype is not None else arr.copy()
+
+def _ptr_to_str_list(ptr, n: int) -> list[str]:
+    """Decode *n* elements of a ctypes char pointer into a list of str."""
+    return [ptr[i].decode("utf-8") for i in range(n)]
+
+def _ptr_to_str_array(ptr, n: int) -> np.ndarray:
+    """Decode *n* elements of a ctypes char pointer into a numpy array of str."""
+    return np.array(_ptr_to_str_list(ptr, n), dtype=np.str_)
+
 def _check_error_code(status: ct.c_int, function_name: str) -> None:
     """Check the status code returned by AUSAXS functions and raise an error if non-zero."""
     if status.value != 0:
