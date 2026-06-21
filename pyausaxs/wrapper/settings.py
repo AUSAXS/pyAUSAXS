@@ -1,7 +1,28 @@
 from .AUSAXS import AUSAXS, _check_error_code
 from .Models import ExvModel, ExvTable, WaterModel
+from pyausaxs.signatures import register
 import ctypes as ct
 from typing import Any
+
+register({
+    "get_setting": (
+        [
+            ct.c_char_p,                       # setting name
+            ct.POINTER(ct.POINTER(ct.c_char)), # type (output)
+            ct.POINTER(ct.POINTER(ct.c_char)), # value (output)
+            ct.POINTER(ct.c_int)               # status (0 = success)
+        ],
+        int                                    # return temp res id
+    ),
+    "set_setting": (
+        [
+            ct.c_char_p,         # setting name
+            ct.c_char_p,         # new value
+            ct.POINTER(ct.c_int) # status (0 = success)
+        ],
+        None
+    ),
+})
 
 def _type_cast(value: str, type: str):
     """Helper function to cast a string value to the specified type."""

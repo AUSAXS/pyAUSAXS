@@ -1,6 +1,24 @@
 from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _as_numpy_f64_arrays, _check_similar_length
+from pyausaxs.signatures import register
 import ctypes as ct
 import numpy as np
+
+register({
+    "debye_no_ff": (
+        [
+            ct.POINTER(ct.c_double), # q vector
+            ct.POINTER(ct.c_double), # atom x vector
+            ct.POINTER(ct.c_double), # atom y vector
+            ct.POINTER(ct.c_double), # atom z vector
+            ct.POINTER(ct.c_double), # atom weight vector
+            ct.c_int,                # nq (number of points in q)
+            ct.c_int,                # nc (number of points in x, y, z, w)
+            ct.POINTER(ct.c_double), # Iq vector for return value
+            ct.POINTER(ct.c_int)     # status (0 = success)
+        ],
+        None
+    ),
+})
 
 class sasview:
     @staticmethod

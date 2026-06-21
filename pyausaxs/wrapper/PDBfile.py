@@ -3,8 +3,49 @@ from .BackendObject import BackendObject
 from .Models import ExvModel
 from .Datafile import Datafile
 from .FitResult import FitResult
+from pyausaxs.signatures import register
 import ctypes as ct
 import numpy as np
+
+register({
+    "pdb_read": (
+        [
+            ct.c_char_p,         # filename
+            ct.POINTER(ct.c_int) # status (0 = success)
+        ],
+        ct.c_int                 # return pdb id
+    ),
+    "pdb_get_data": (
+        [
+            ct.c_int,                            # object id
+            ct.POINTER(ct.POINTER(ct.c_int)),    # serial (output)
+            ct.POINTER(ct.POINTER(ct.c_char_p)), # name (output)
+            ct.POINTER(ct.POINTER(ct.c_char_p)), # altLoc (output)
+            ct.POINTER(ct.POINTER(ct.c_char_p)), # resName (output)
+            ct.POINTER(ct.POINTER(ct.c_char)),   # chainID (output)
+            ct.POINTER(ct.POINTER(ct.c_int)),    # resSeq (output)
+            ct.POINTER(ct.POINTER(ct.c_char_p)), # iCode (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # x (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # y (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # z (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # occupancy (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # tempFactor (output)
+            ct.POINTER(ct.POINTER(ct.c_char_p)), # element (output)
+            ct.POINTER(ct.POINTER(ct.c_char_p)), # charge (output)
+            ct.POINTER(ct.c_int),                # n_atoms (output)
+            ct.POINTER(ct.c_int)                 # status (0 = success)
+        ],
+        ct.c_int                                 # return data id
+    ),
+    "pdb_debye_fit": (
+        [
+            ct.c_int,            # pdb id
+            ct.c_int,            # data id
+            ct.POINTER(ct.c_int) # status (0 = success)
+        ],
+        None
+    ),
+})
 
 class PDBfile(BackendObject):
     def __init__(self, filename: str):

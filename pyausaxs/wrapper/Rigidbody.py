@@ -1,8 +1,88 @@
 from .AUSAXS import AUSAXS, _check_error_code
 from .BackendObject import BackendObject
+from pyausaxs.signatures import register
 
 import ctypes as ct
 import numpy as np
+
+register({
+    "rigidbody_load_script": (
+        [
+            ct.c_char_p,         # script
+            ct.POINTER(ct.c_int) # status (0 = success)
+        ],
+        ct.c_int                 # return rigidbody id
+    ),
+    "rigidbody_validate": (
+        [
+            ct.c_int,            # rigidbody id
+            ct.POINTER(ct.c_int) # status (0 = success)
+        ],
+        None
+    ),
+    "rigidbody_get_preview_structure": (
+        [
+            ct.c_int,                            # rigidbody id
+            ct.POINTER(ct.POINTER(ct.c_double)), # x vector (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # y vector (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # z vector (output)
+            ct.POINTER(ct.POINTER(ct.c_int)),    # body_index vector (output)
+            ct.POINTER(ct.POINTER(ct.c_int)),    # copy_index vector (output)
+            ct.POINTER(ct.POINTER(ct.c_int)),    # residue_seq vector (output)
+            ct.POINTER(ct.POINTER(ct.c_int)),    # is_ca vector (output)
+            ct.POINTER(ct.c_int),                # n_atoms (output)
+            ct.POINTER(ct.c_int)                 # status (0 = success)
+        ],
+        ct.c_int                                 # return data id
+    ),
+    "rigidbody_get_live_structure": (
+        [
+            ct.POINTER(ct.POINTER(ct.c_double)), # x vector (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # y vector (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # z vector (output)
+            ct.POINTER(ct.c_int),                # n_atoms (output)
+            ct.POINTER(ct.c_int),                # version (output)
+            ct.POINTER(ct.c_int)                 # status (0 = success)
+        ],
+        ct.c_int                                 # return data id
+    ),
+    "rigidbody_register_live_consumer": (
+        [
+            ct.c_bool,           # connected
+            ct.POINTER(ct.c_int) # status (0 = success)
+        ],
+        None
+    ),
+    "rigidbody_run": (
+        [
+            ct.c_int,                            # rigidbody id
+            ct.POINTER(ct.POINTER(ct.c_double)), # q vector (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # I vector (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # Ierr vector (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # Iinterp vector (output)
+            ct.POINTER(ct.c_int),                # n_points (output)
+            ct.POINTER(ct.c_int)                 # status (0 = success)
+        ],
+        ct.c_int                                 # return data id
+    ),
+    "rigidbody_get_valid_elements": (
+        [
+            ct.POINTER(ct.POINTER(ct.c_char_p)), # elements (output)
+            ct.POINTER(ct.c_int),                # size (output)
+            ct.POINTER(ct.c_int)                 # status (0 = success)
+        ],
+        None
+    ),
+    "rigidbody_get_valid_arguments": (
+        [
+            ct.c_char_p,                         # element name
+            ct.POINTER(ct.POINTER(ct.c_char_p)), # arguments (output)
+            ct.POINTER(ct.c_int),                # size (output)
+            ct.POINTER(ct.c_int)                 # status (0 = success)
+        ],
+        None
+    ),
+})
 
 class Rigidbody(BackendObject):
     def __init__(self, script: str):

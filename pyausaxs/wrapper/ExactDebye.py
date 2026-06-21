@@ -1,7 +1,31 @@
 from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _check_similar_length, _as_numpy_f64_arrays
 from .Molecule import Molecule
+from pyausaxs.signatures import register
 import ctypes as ct
 import numpy as np
+
+register({
+    "molecule_debye_exact": (
+        [
+            ct.c_int,                            # molecule id
+            ct.POINTER(ct.POINTER(ct.c_double)), # q
+            ct.POINTER(ct.POINTER(ct.c_double)), # I (output)
+            ct.POINTER(ct.c_int),                # n_points
+            ct.POINTER(ct.c_int)                 # status (0 = success)
+        ],
+        ct.c_int                                 # return obj id
+    ),
+    "molecule_debye_exact_userq": (
+        [
+            ct.c_int,                # molecule id
+            ct.POINTER(ct.c_double), # q
+            ct.POINTER(ct.c_double), # I (output)
+            ct.c_int,                # n_points
+            ct.POINTER(ct.c_int)     # status (0 = success)
+        ],
+        None
+    ),
+})
 
 class unoptimized():
     @staticmethod

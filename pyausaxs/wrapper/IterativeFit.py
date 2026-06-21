@@ -2,9 +2,52 @@ from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _as_numpy_f6
 from .BackendObject import BackendObject
 from .Molecule import Molecule
 from .Datafile import Datafile
+from pyausaxs.signatures import register
 import ctypes as ct
 import numpy as np
 from typing import overload
+
+register({
+    "iterative_fit_init": (
+        [
+            ct.c_int,            # molecule id
+            ct.POINTER(ct.c_int) # return status (0 = success)
+        ],
+        ct.c_int                 # return iterative fit id
+    ),
+    "iterative_fit_init_userq": (
+        [
+            ct.c_int,               # molecule id
+            ct.POINTER(ct.c_double),# q vector to use for fitting
+            ct.c_int,               # n_points q
+            ct.POINTER(ct.c_int)    # return status (0 = success)
+        ],
+        ct.c_int                    # return iterative fit id
+    ),
+    "iterative_fit_evaluate": (
+        [
+            ct.c_int,                            # iterative fit id
+            ct.POINTER(ct.c_double),             # parameters vector
+            ct.c_int,                            # number of parameters
+            ct.POINTER(ct.POINTER(ct.c_double)), # resulting I vector
+            ct.POINTER(ct.c_int),                # number of points in resulting I vector
+            ct.POINTER(ct.c_int),                # return status (0 = success)
+        ],
+        None
+    ),
+    "iterative_fit_evaluate_userq": (
+        [
+            ct.c_int,                # iterative fit id
+            ct.POINTER(ct.c_double), # parameters vector
+            ct.c_int,                # number of parameters
+            ct.POINTER(ct.c_double), # q vector to evaluate
+            ct.POINTER(ct.c_double), # resulting I vector
+            ct.c_int,                # number of points in q vector
+            ct.POINTER(ct.c_int),    # return status (0 = success)
+        ],
+        None
+    ),
+})
 
 class IterativeFit(BackendObject):
     """Manual fitting class for step-by-step SAXS fitting control."""
