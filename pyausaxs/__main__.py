@@ -18,6 +18,7 @@ def main(argv=None):
         print("  em         - Fit EM map to SAXS data")
         print("  rigidbody  - Rigid-body optimization")
         print("  plot       - Plotting utility")
+        print("  gui        - Graphical interface") 
         print("\nFor tool-specific help:")
         print("  ausaxs <tool> --help")
         return 0
@@ -28,6 +29,12 @@ def main(argv=None):
 
     # check if first arg is a tool selector
     tool = argv[0].lower()
+
+    # the gui handles library initialization itself
+    if tool == "gui":
+        print("Warning: The Python GUI is highly experimental. Use at your own risk.", file=sys.stderr)
+        from .gui import main as gui_main
+        return gui_main(argv[1:])
 
     # route to appropriate CLI tool
     lib = AUSAXS().lib()
@@ -50,7 +57,7 @@ def main(argv=None):
             return _run_plot_tool(argv[1:])
         case _:
             print(f"Unknown tool: {tool}", file=sys.stderr)
-            print("Available tools: fit, em, rigidbody", file=sys.stderr)
+            print("Available tools: fit, em, rigidbody, plot, gui", file=sys.stderr)
             return 2
 
 
