@@ -1,4 +1,4 @@
-from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _as_numpy_f64_arrays
+from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _as_numpy_f64_arrays, _ptr_to_array
 from .BackendObject import BackendObject
 from .Molecule import Molecule
 from .Datafile import Datafile
@@ -118,7 +118,7 @@ class IterativeFit(BackendObject):
                 ct.byref(status)
             )
             _check_error_code(status, "iterative_fit_evaluate")
-            return np.ctypeslib.as_array(out_ptr, shape=(out_n.value,)).copy()
+            return _ptr_to_array(out_ptr, out_n.value)
 
 @overload
 def manual_fit(mol: Molecule, q_vals: list[float] | np.ndarray) -> IterativeFit: ...

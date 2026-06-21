@@ -1,4 +1,4 @@
-from .AUSAXS import AUSAXS, _check_error_code
+from .AUSAXS import AUSAXS, _check_error_code, _ptr_to_array, _ptr_to_str_list
 from .BackendObject import BackendObject
 from pyausaxs.signatures import register
 from typing import Any, TYPE_CHECKING
@@ -67,10 +67,10 @@ class FitResult(BackendObject):
 
         n = n_points.value
         self._fit_curves = [
-            np.array([q_ptr[i] for i in range(n)],        dtype=np.float64),
-            np.array([I_data_ptr[i] for i in range(n)],   dtype=np.float64),
-            np.array([I_err_ptr[i] for i in range(n)],    dtype=np.float64),
-            np.array([I_model_ptr[i] for i in range(n)],  dtype=np.float64)
+            _ptr_to_array(q_ptr, n),
+            _ptr_to_array(I_data_ptr, n),
+            _ptr_to_array(I_err_ptr, n),
+            _ptr_to_array(I_model_ptr, n)
         ]
         ausaxs.deallocate(data_id)
 
@@ -99,10 +99,10 @@ class FitResult(BackendObject):
         _check_error_code(status, "fit_get_fit_info")
 
         n = n_pars.value
-        self._fit_info["pars"]      = [pars_ptr[i].decode('utf-8') for i in range(n)]
-        self._fit_info["pvals"]     = [pvals_ptr[i] for i in range(n)]
-        self._fit_info["perr_min"]  = [perr_min_ptr[i] for i in range(n)]
-        self._fit_info["perr_max"]  = [perr_max_ptr[i] for i in range(n)]
+        self._fit_info["pars"]      = _ptr_to_str_list(pars_ptr, n)
+        self._fit_info["pvals"]     = _ptr_to_array(pvals_ptr, n)
+        self._fit_info["perr_min"]  = _ptr_to_array(perr_min_ptr, n)
+        self._fit_info["perr_max"]  = _ptr_to_array(perr_max_ptr, n)
         self._fit_info["chi2"]      = chi2.value
         self._fit_info["dof"]       = dof.value
         ausaxs.deallocate(data_id)

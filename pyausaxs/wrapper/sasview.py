@@ -1,4 +1,4 @@
-from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _as_numpy_f64_arrays, _check_similar_length
+from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _as_numpy_f64_arrays, _check_similar_length, _ptr_to_array
 from pyausaxs.signatures import register
 import ctypes as ct
 import numpy as np
@@ -48,4 +48,4 @@ class sasview:
         ausaxs.lib().functions.debye_no_ff(q, x, y, z, w, nq, nc, Iq, ct.byref(status))
         _check_error_code(status, "debye")
 
-        return np.ctypeslib.as_array(Iq)
+        return _ptr_to_array(Iq, len(q_vector))

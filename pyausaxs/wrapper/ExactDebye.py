@@ -1,4 +1,4 @@
-from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _check_similar_length, _as_numpy_f64_arrays
+from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _check_similar_length, _as_numpy_f64_arrays, _ptr_to_array
 from .Molecule import Molecule
 from pyausaxs.signatures import register
 import ctypes as ct
@@ -65,7 +65,7 @@ class unoptimized():
             _check_error_code(status, "unoptimized_debye_exact")
 
             n = n_q.value
-            q = np.array([q_ptr[i] for i in range(n)], dtype=np.float64)
-            i = np.array([i_ptr[i] for i in range(n)], dtype=np.float64)
+            q = _ptr_to_array(q_ptr, n)
+            i = _ptr_to_array(i_ptr, n)
             ausaxs.deallocate(tmp_id)
             return q, i
