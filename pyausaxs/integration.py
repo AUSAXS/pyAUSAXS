@@ -3,7 +3,7 @@ import ctypes as ct
 from enum import Enum
 
 from pyausaxs.config import architecture_runtime_validation
-from pyausaxs.loader import find_lib_path
+from pyausaxs.loader import bundled_lib_path, get_relink_path
 from pyausaxs.architecture import CPUFeatures
 
 OutputCallback = ct.CFUNCTYPE(None, ct.c_char_p, ct.c_int)
@@ -16,10 +16,16 @@ class AUSAXSLIB:
     def __init__(self):
         self.functions: ct.CDLL = None # type: ignore[assignment]
         self.state = self.STATE.UNINITIALIZED
-        self.lib_path = find_lib_path()
+        self.lib_path = bundled_lib_path()
 
         self._check_cpu_compatibility()
         self._attach_hooks()
+
+        relink = get_relink_path()
+        if relink:
+            self.lib_path = relink
+            self._attach_hooks()
+
         self._test_integration()
 
     def _check_cpu_compatibility(self):

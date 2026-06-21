@@ -1,4 +1,6 @@
 from enum import Enum
+from pathlib import Path
+import os
 import platform
 import cpuinfo
 
@@ -65,6 +67,17 @@ def get_os():
     elif platform.system() == "Linux":  return OS.LINUX
     elif platform.system() == "Darwin": return OS.MAC
     return OS.UNKNOWN
+
+def get_cache_dir() -> Path:
+    """Return the AUSAXS cache directory, mirroring the C++ backend's path resolution."""
+    _os = get_os()
+    if _os == OS.WIN:
+        base = os.environ.get("LOCALAPPDATA")
+    elif _os == OS.MAC:
+        base = os.path.join(os.environ.get("HOME", "~"), "Library", "Caches")
+    else:
+        base = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.environ.get("HOME", "~"), ".cache")
+    return Path(base or ".") / "ausaxs"
 
 def get_shared_lib_extension():
     """

@@ -11,8 +11,8 @@ import os
 
 def _config_path() -> str:
     """Path of the GUI config: <AUSAXS cache>/gui_config.json."""
-    from ..wrapper.settings import settings
-    return os.path.join(settings.get("cache"), "gui_config.json")
+    from ..architecture import get_cache_dir
+    return str(get_cache_dir() / "gui_config.json")
 
 
 def load_config() -> dict:

@@ -844,8 +844,8 @@ class RigidbodyPane(ttk.Frame):
     @staticmethod
     def _resolve_script_cache_path() -> str:
         """Path the script is autosaved to: <AUSAXS cache>/gui_rigidbody_script.txt."""
-        from ..wrapper.settings import settings
-        return os.path.join(settings.get("cache"), "gui_rigidbody_script.txt")
+        from ..architecture import get_cache_dir
+        return str(get_cache_dir() / "gui_rigidbody_script.txt")
 
     def _load_cached_script(self):
         """Return the autosaved script if one exists and is non-empty, else None."""

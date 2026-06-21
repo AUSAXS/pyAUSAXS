@@ -1,3 +1,4 @@
+from pathlib import Path
 import pyausaxs as ausaxs
 from pyausaxs.wrapper.Models import ExvModel, ExvTable
 
@@ -57,3 +58,13 @@ def test_settings_persistence():
     ausaxs.settings.histogram(qmin=0.05)
     assert ausaxs.settings.get("verbose") == False
     assert ausaxs.settings.get("threads") == 8
+
+
+def test_cache_dir_matches_backend():
+    from pyausaxs.architecture import get_cache_dir
+    backend = Path(ausaxs.settings.get("cache"))
+    frontend = get_cache_dir()
+    assert frontend == backend, (
+        f"Cache dir mismatch — frontend: {frontend}, backend: {backend}\n"
+        "Update get_cache_dir() in architecture.py to match the C++ backend."
+    )

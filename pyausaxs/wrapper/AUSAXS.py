@@ -63,7 +63,7 @@ class AUSAXS:
         self._lib = None
         self._ready = False
         self._init_error = None
-        try: 
+        try:
             self._lib = AUSAXSLIB()
             self._ready = self._lib.ready()
         except Exception as e:
@@ -80,11 +80,13 @@ class AUSAXS:
     @classmethod
     def ready(cls) -> bool:
         """Check if the AUSAXS library is ready for use."""
+        cls()
         return cls._instance._ready
 
     @classmethod
     def init_error(cls) -> Optional[Exception]:
         """Return the initialization error, if any."""
+        cls()
         return cls._instance._init_error
 
     @classmethod
