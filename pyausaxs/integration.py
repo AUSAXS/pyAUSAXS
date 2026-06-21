@@ -4,7 +4,7 @@ from enum import Enum
 
 from pyausaxs.config import architecture_runtime_validation
 from pyausaxs.loader import bundled_lib_path, get_relink_path
-from pyausaxs.architecture import CPUFeatures
+from pyausaxs.architecture import CPUFeatures, is_architecture_compatible
 from pyausaxs.signatures import LazyLib
 
 OutputCallback = ct.CFUNCTYPE(None, ct.c_char_p, ct.c_int)
@@ -31,7 +31,7 @@ class AUSAXSLIB:
 
     def _check_cpu_compatibility(self):
         """Check if the current CPU is compatible with the AUSAXS library."""
-        if architecture_runtime_validation and not CPUFeatures.is_compatible_architecture():
+        if architecture_runtime_validation and not is_architecture_compatible():
             self.state = self.STATE.FAILED
             raise RuntimeError(f"AUSAXS: Incompatible CPU architecture: {CPUFeatures.get_architecture()}")
         return True
