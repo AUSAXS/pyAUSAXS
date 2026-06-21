@@ -1,12 +1,7 @@
-import os
-import sys
 import importlib.resources as pkg_resources
 from pathlib import Path
 
 from pyausaxs.architecture import get_shared_lib_extension
-
-# environment override: takes precedence over everything, intended for one-off use.
-ENV_VAR = "AUSAXS_LIB"
 
 def _cache_file() -> Path:
     """File holding the relinked backend path, if any."""
@@ -27,8 +22,7 @@ def get_relink_path() -> str | None:
 def set_relink_path(path: str) -> Path:
     """
     Persist a custom backend library path. Returns the cache file it was written to.
-    Raises FileNotFoundError if the path does not point to an existing file, and
-    ValueError if it does not have this platform's shared-library extension.
+    Raises FileNotFoundError if the path does not point to an existing file, and ValueError if it does not have this platform's shared-library extension.
     """
     p = Path(path).expanduser().resolve()
     if not p.is_file():
@@ -37,7 +31,7 @@ def set_relink_path(path: str) -> Path:
     ext = get_shared_lib_extension()
     if ext and p.suffix != ext:
         raise ValueError(
-            f"'{p.name}' is not a shared library for this platform "
+            f"'{p.name}' is not a valid shared library extension for this platform "
             f"(expected a '*{ext}' file)"
         )
 
@@ -66,15 +60,8 @@ def bundled_lib_path() -> str:
 
 def find_lib_path() -> str:
     """
-    Resolve the backend library path, in order of precedence:
-      1. the AUSAXS_LIB environment variable,
-      2. a path cached via `ausaxs setup --relink`,
-      3. the library bundled with the package.
+    Resolve the backend library path.
     """
-    env = os.environ.get(ENV_VAR)
-    if env:
-        return env
-
     cached = get_relink_path()
     if cached:
         return cached
