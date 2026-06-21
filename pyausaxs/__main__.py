@@ -1,4 +1,3 @@
-import os
 import sys
 import ctypes as ct
 
@@ -6,97 +5,80 @@ from .wrapper.AUSAXS import AUSAXS
 from .__init__ import __version__
 from .plot.plot import main as plot_main
 
+# tool name -> (backend C function, program name passed as argv[0])
+_CLI_TOOLS = {
+    "fit":       ("cli_saxs_fitter", "ausaxs_fit"),
+    "em":        ("cli_em_fitter",   "ausaxs_em"),
+    "rigidbody": ("cli_rigidbody",   "ausaxs_rigidbody"),
+}
+
+_USAGE = """\
+Usage: ausaxs <tool> [options]
+
+Available tools:
+  fit        - Fit SAXS data to a structure
+  em         - Fit EM map to SAXS data
+  rigidbody  - Rigid-body optimization
+  plot       - Plotting utility
+  gui        - Graphical interface
+
+For tool-specific help:
+  ausaxs <tool> --help"""
+
 
 def main(argv=None):
-    # if no args provided, show help
     if argv is None:
         argv = sys.argv[1:]
 
     if not argv or argv[0] in ("-h", "--help"):
-        print("\nUsage: ausaxs <tool> [options]")
-        print("\nAvailable tools:")
-        print("  fit        - Fit SAXS data to a structure")
-        print("  em         - Fit EM map to SAXS data")
-        print("  rigidbody  - Rigid-body optimization")
-        print("  plot       - Plotting utility")
-        print("  gui        - Graphical interface") 
-        print("\nFor tool-specific help:")
-        print("  ausaxs <tool> --help")
+        print(_USAGE)
         return 0
-    
+
     if argv[0] in ("-v", "--version"):
         print(f"pyAUSAXS version {__version__}")
         return 0
 
-    # check if first arg is a tool selector
-    tool = argv[0].lower()
+    tool, rest = argv[0].lower(), argv[1:]
 
-    # backend configuration; handled before the library is loaded, since its
-    # purpose is to point at a (possibly missing or custom) backend.
+    # 'setup' and 'gui' manage the backend library themselves, so they are
+    # dispatched before we attempt to load it.
     if tool == "setup":
-        return _run_setup(argv[1:])
-
-    # the gui handles library initialization itself
+        return _run_setup(rest)
     if tool == "gui":
         print("Warning: The Python GUI is highly experimental. Use at your own risk.", file=sys.stderr)
         from .gui import main as gui_main
-        return gui_main(argv[1:])
+        return gui_main(rest)
+    if tool == "plot":
+        return plot_main(rest)
+    if tool in _CLI_TOOLS:
+        return _run_cli_tool(tool, rest)
 
-    # route to appropriate CLI tool
+    print(f"Unknown tool: {tool}\n", file=sys.stderr)
+    print(_USAGE, file=sys.stderr)
+    return 2
+
+
+def _run_cli_tool(tool, args):
+    """Invoke one of the backend's C CLI entry points."""
+    func_name, prog = _CLI_TOOLS[tool]
     lib = AUSAXS().lib()
     if not lib.ready():
         print("Error: AUSAXS library not ready", file=sys.stderr)
         return 1
-
-    # prepare argv for C function (needs program name as argv[0])
-    match tool:
-        case "fit":
-            c_argv = ["ausaxs_fit"] + argv[1:]
-            return _call_cli(lib.functions.cli_saxs_fitter, c_argv)
-        case "em":
-            c_argv = ["ausaxs_em"] + argv[1:]
-            return _call_cli(lib.functions.cli_em_fitter, c_argv)
-        case "rigidbody":
-            c_argv = ["ausaxs_rigidbody"] + argv[1:]
-            return _call_cli(lib.functions.cli_rigidbody, c_argv)
-        case "plot":
-            return _run_plot_tool(argv[1:])
-        case _:
-            print(f"Unknown tool: {tool}", file=sys.stderr)
-            print("Available tools: fit, em, rigidbody, plot, gui", file=sys.stderr)
-            return 2
+    return _call_cli(getattr(lib.functions, func_name), [prog, *args])
 
 
 def _call_cli(cli_func, args):
-    """
-    Helper function to call a C CLI function with proper argument conversion.
-    
-    Args:
-        cli_func: The C function to call
-        args: List of string arguments (including program name as argv[0])
-    
-    Returns:
-        Exit code from the CLI function
-    """
-    # convert Python strings to C char* array
-    argc = len(args)
-    
-    # encode strings to bytes and create ctypes array
-    c_args = [arg.encode('utf-8') for arg in args]
-    argv = (ct.c_char_p * argc)(*c_args)
-    
-    # call the C function
-    return cli_func(argc, argv)
-
-
-def _run_plot_tool(args):
-    """Run the plotting tool using plot_main."""
-    return plot_main(args)
+    """Call a C CLI function, converting argv (incl. program name) to a char* array."""
+    c_args = [arg.encode("utf-8") for arg in args]
+    c_argv = (ct.c_char_p * len(c_args))(*c_args)
+    return cli_func(len(c_args), c_argv)
 
 
 def _run_setup(args):
-    """Configure which backend shared library AUSAXS uses."""
+    """Configure which backend shared library AUSAXS uses (unlisted tool)."""
     import argparse
+    from pathlib import Path
     from . import loader
 
     parser = argparse.ArgumentParser(
@@ -119,13 +101,13 @@ def _run_setup(args):
     ns = parser.parse_args(args)
 
     if ns.relink:
+        AUSAXS()  # ensure backend is loaded so settings.get("cache") works
         try:
             cache = loader.set_relink_path(ns.relink)
         except (FileNotFoundError, ValueError) as e:
             print(f"Error: {e}", file=sys.stderr)
             return 1
         linked = loader.get_relink_path()
-        from pathlib import Path
         if "ausaxs" not in Path(linked).stem.lower():
             print(
                 f"Warning: '{Path(linked).name}' does not look like an AUSAXS "
@@ -137,6 +119,7 @@ def _run_setup(args):
         return 0
 
     if ns.reset:
+        AUSAXS()  # needed to resolve cache dir for clear_relink_path()
         if loader.clear_relink_path():
             print("Reset: now using the bundled AUSAXS backend.")
         else:
@@ -144,44 +127,13 @@ def _run_setup(args):
         return 0
 
     # default action: --show
+    AUSAXS()  # needed to resolve cache dir for get_relink_path()
     print(f"AUSAXS backend in use: {loader.find_lib_path()}")
-    if os.environ.get(loader.ENV_VAR):
-        print(f"  (overridden by ${loader.ENV_VAR})")
-    elif loader.get_relink_path():
+    if loader.get_relink_path():
         print("  (relinked; reset with: ausaxs setup --reset)")
     else:
         print("  (bundled)")
     return 0
-
-
-def saxs_fitter():
-    """Entry point for saxs_fitter CLI tool."""
-    lib = AUSAXS().lib()
-    if not lib.ready():
-        print("Error: AUSAXS library not ready", file=sys.stderr)
-        return 1
-    c_argv = ["saxs_fitter"] + sys.argv[1:]
-    return _call_cli(lib.functions.cli_saxs_fitter, c_argv)
-
-
-def em_fitter():
-    """Entry point for em_fitter CLI tool."""
-    lib = AUSAXS().lib()
-    if not lib.ready():
-        print("Error: AUSAXS library not ready", file=sys.stderr)
-        return 1
-    c_argv = ["em_fitter"] + sys.argv[1:]
-    return _call_cli(lib.functions.cli_em_fitter, c_argv)
-
-
-def rigidbody_optimizer():
-    """Entry point for rigidbody_optimizer CLI tool."""
-    lib = AUSAXS().lib()
-    if not lib.ready():
-        print("Error: AUSAXS library not ready", file=sys.stderr)
-        return 1
-    c_argv = ["rigidbody_optimizer"] + sys.argv[1:]
-    return _call_cli(lib.functions.cli_rigidbody, c_argv)
 
 
 if __name__ == "__main__":
