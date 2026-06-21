@@ -5,17 +5,15 @@ import pyausaxs
 
 
 def test_import_all_submodules():
-    """Importing every submodule must not raise.
+    """Importing every submodule must not raise."""
+    # Subpackages that can't be imported in a headless test environment:
+    #  - __pyinstaller: build-time hooks that require PyInstaller (an optional dependency)
+    #  - gui: gui.py calls matplotlib.use("TkAgg") at import, which needs an interactive display
+    skip = (".__pyinstaller", ".gui")
 
-    Besides catching plain import errors, this exercises the lazy backend binding: each
-    wrapper registers its function signatures as an import-time side effect, so importing
-    every module triggers every register() call (e.g. Filetypes, which is only imported
-    lazily by the GUI at runtime).
-    """
     failures = []
     for module in pkgutil.walk_packages(pyausaxs.__path__, prefix="pyausaxs."):
-        # __pyinstaller holds build-time hooks that require PyInstaller (an optional dependency)
-        if ".__pyinstaller" in module.name:
+        if any(s in module.name for s in skip):
             continue
         try:
             importlib.import_module(module.name)

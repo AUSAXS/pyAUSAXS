@@ -4,14 +4,9 @@
 """
 Lazy ctypes binding for the AUSAXS backend.
 
-Each wrapper module registers the signatures of the backend functions it uses via
-``register({...})`` at import time. ``LazyLib`` wraps the loaded ``CDLL`` and applies a
-function's ``argtypes``/``restype`` the first time that function is accessed, then caches
-it so subsequent calls go straight through.
-
-A signature is therefore only available once its owning module has been imported. That is
-safe by construction: a backend function can only be reached through the wrapper that uses
-it, and importing that wrapper runs its ``register(...)`` call.
+Each wrapper module registers the signatures of the backend functions it uses via ``register({...})`` at import time. 
+``LazyLib`` wraps the loaded ``CDLL`` and applies a function's ``argtypes``/``restype`` the first time that function 
+is accessed, then caches it so subsequent calls go straight through.
 """
 
 import ctypes as ct
@@ -45,9 +40,8 @@ class LazyLib:
         return func
 
 
-# Core functions not owned by a single wrapper module: the integration self-test, the
-# allocation/error helpers used across wrappers, and the CLI tools dispatched dynamically
-# by name from __main__.py and the GUI runner.
+# Core functions not owned by a single wrapper module: the integration self-test, the allocation/error helpers 
+# used across wrappers, and the CLI tools dispatched dynamically by name from __main__.py and the GUI runner.
 register({
     "test_integration":   ([ct.POINTER(ct.c_int)], None),
     "deallocate":         ([ct.c_int, ct.POINTER(ct.c_int)], None),

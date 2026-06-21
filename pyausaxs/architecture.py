@@ -97,12 +97,7 @@ def _compat_cache_file() -> Path:
     return get_cache_dir() / "cpu_compatible"
 
 def is_architecture_compatible() -> bool:
-    """Return whether the current CPU is compatible with the AUSAXS backend.
-
-    The underlying probe (py-cpuinfo) is slow (~1s), so a successful result is cached: once
-    the check has passed on this machine, subsequent runs skip it entirely. Delete the cache
-    file (_compat_cache_file) to force a re-check.
-    """
+    """Return whether the current CPU is compatible with the AUSAXS backend."""
     cache = _compat_cache_file()
     if cache.is_file():
         return True
