@@ -1,6 +1,36 @@
 from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _check_similar_length, _as_numpy_f64_arrays
+from pyausaxs.signatures import register
 import ctypes as ct
 import numpy as np
+
+register({
+    "ff_valid_form_factor_types": (
+        [
+            ct.POINTER(ct.POINTER(ct.c_char_p)), # types (output)
+            ct.POINTER(ct.c_int),                # n_types (output)
+            ct.POINTER(ct.c_int)                 # status (0 = success)
+        ],
+        ct.c_int                                 # return data id
+    ),
+    "ff_get_five_gaussian_coefficients": (
+        [
+            ct.c_char_p,             # form factor type
+            ct.POINTER(ct.c_double), # a coefficients (output)
+            ct.POINTER(ct.c_double), # b coefficients (output)
+            ct.POINTER(ct.c_double), # c coefficient (output)
+            ct.POINTER(ct.c_int)     # status (0 = success)
+        ],
+        None
+    ),
+    "ff_get_current_exv_volume": (
+        [
+            ct.c_char_p,             # form factor type
+            ct.POINTER(ct.c_double), # volume (output)
+            ct.POINTER(ct.c_int)     # status (0 = success)
+        ],
+        None
+    ),
+})
 
 class form_factor():
     @staticmethod

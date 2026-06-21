@@ -1,8 +1,30 @@
 from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _as_numpy_f64_arrays, _check_similar_length
 from .BackendObject import BackendObject
+from pyausaxs.signatures import register
 from typing import overload
 import ctypes as ct
 import numpy as np
+
+register({
+    "data_read": (
+        [
+            ct.c_char_p,         # filename
+            ct.POINTER(ct.c_int) # status (0 = success)
+        ],
+        ct.c_int                 # return data id
+    ),
+    "data_get_data": (
+        [
+            ct.c_int,                            # object id
+            ct.POINTER(ct.POINTER(ct.c_double)), # q vector (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # I vector (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # Ierr vector (output)
+            ct.POINTER(ct.c_int),                # n_points (output)
+            ct.POINTER(ct.c_int)                 # status (0 = success)
+        ],
+        ct.c_int                                 # return data id
+    ),
+})
 
 class Datafile(BackendObject):
     __slots__ = ['_data']

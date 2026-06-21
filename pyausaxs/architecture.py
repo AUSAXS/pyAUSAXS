@@ -92,3 +92,22 @@ def get_shared_lib_extension():
     elif _os == OS.MAC:
         return ".dylib"
     return ""
+
+def _compat_cache_file() -> Path:
+    return get_cache_dir() / "cpu_compatible"
+
+def is_architecture_compatible() -> bool:
+    """Return whether the current CPU is compatible with the AUSAXS backend."""
+    cache = _compat_cache_file()
+    if cache.is_file():
+        return True
+
+    if not CPUFeatures.is_compatible_architecture():
+        return False
+
+    try:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text("ok", encoding="utf-8")
+    except OSError:
+        pass  # caching is best-effort; we'll just re-check next time
+    return True

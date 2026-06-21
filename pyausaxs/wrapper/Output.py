@@ -2,7 +2,13 @@
 # Author: Kristian Lytje
 
 from pyausaxs.integration import OutputCallback
+from pyausaxs.signatures import register
 from .AUSAXS import AUSAXS
+
+register({
+    "set_output_callback": ([OutputCallback], None),
+    "reset_output_callback": ([], None),
+})
 
 _active_cb: OutputCallback | None = None
 def set_output_callback(python_callable) -> None:

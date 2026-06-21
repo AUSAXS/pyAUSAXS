@@ -1,10 +1,7 @@
 import argparse
 import sys
-import ctypes as ct
 
-from .wrapper.AUSAXS import AUSAXS
 from .__init__ import __version__
-from .plot.plot import main as plot_main
 
 # tool name -> (backend C function name, program name passed as argv[0])
 _CLI_TOOLS = {
@@ -94,12 +91,14 @@ def main(argv=None):
             from .gui import main as gui_main
             return gui_main(remaining)
         case "plot":
+            from .plot.plot import main as plot_main
             return plot_main(remaining)
         case t if t in _CLI_TOOLS:
             return _run_cli_tool(t, remaining)
 
 
 def _run_cli_tool(tool, args):
+    from .wrapper.AUSAXS import AUSAXS
     func_name, prog = _CLI_TOOLS[tool]
     lib = AUSAXS().lib()
     if not lib.ready():
@@ -109,6 +108,7 @@ def _run_cli_tool(tool, args):
 
 
 def _call_cli(cli_func, args):
+    import ctypes as ct
     c_args = [arg.encode("utf-8") for arg in args]
     c_argv = (ct.c_char_p * len(c_args))(*c_args)
     return cli_func(len(c_args), c_argv)
@@ -117,6 +117,7 @@ def _call_cli(cli_func, args):
 def _run_setup(ns):
     from pathlib import Path
     from . import loader
+    from .wrapper.AUSAXS import AUSAXS
 
     if ns.relink:
         AUSAXS()

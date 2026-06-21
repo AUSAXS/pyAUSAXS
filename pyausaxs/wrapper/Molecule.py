@@ -4,9 +4,138 @@ from .PDBfile import PDBfile
 from .Histogram import Histogram
 from .Datafile import Datafile
 from .FitResult import FitResult
+from pyausaxs.signatures import register
 import ctypes as ct
 import numpy as np
 from typing import overload
+
+register({
+    "molecule_from_file": (
+        [
+            ct.c_char_p,         # filename
+            ct.POINTER(ct.c_int) # status (0 = success)
+        ],
+        ct.c_int                 # return mol id
+    ),
+    "molecule_from_pdb_id": (
+        [
+            ct.c_int,            # pdb id
+            ct.POINTER(ct.c_int) # status (0 = success)
+        ],
+        ct.c_int                 # return mol id
+    ),
+    "molecule_from_arrays": (
+        [
+            ct.POINTER(ct.c_double), # x vector
+            ct.POINTER(ct.c_double), # y vector
+            ct.POINTER(ct.c_double), # z vector
+            ct.POINTER(ct.c_double), # weight vector
+            ct.c_int,                # n_atoms
+            ct.POINTER(ct.c_int)     # status (0 = success)
+        ],
+        ct.c_int                     # return mol id
+    ),
+    "molecule_get_data": (
+        [
+            ct.c_int,                            # molecule id
+            ct.POINTER(ct.POINTER(ct.c_double)), # ax_out (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # ay_out (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # az_out (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # aw_out (output)
+            ct.POINTER(ct.POINTER(ct.c_char_p)), # aform_factors_out (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # wx_out (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # wy_out (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # wz_out (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # ww_out (output)
+            ct.POINTER(ct.c_int),                # na (output)
+            ct.POINTER(ct.c_int),                # nw (output)
+            ct.POINTER(ct.c_int)                 # status (0 = success)
+        ],
+        ct.c_int                                 # return data id
+    ),
+    "molecule_hydrate": (
+        [
+            ct.c_int,            # molecule id
+            ct.POINTER(ct.c_int) # status (0 = success)
+        ],
+        None
+    ),
+    "molecule_clear_hydration": (
+        [
+            ct.c_int,            # molecule id
+            ct.POINTER(ct.c_int) # status (0 = success)
+        ],
+        None
+    ),
+    "molecule_Rg": (
+        [
+            ct.c_int,               # molecule id
+            ct.POINTER(ct.c_double),# Rg (output)
+            ct.POINTER(ct.c_int)    # status (0 = success)
+        ],
+        None
+    ),
+    "molecule_distance_histogram": (
+        [
+            ct.c_int,                            # molecule id
+            ct.POINTER(ct.POINTER(ct.c_double)), # aa (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # aw (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # ww (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # bin axis (output)
+            ct.POINTER(ct.c_int),                # n_bins (output)
+            ct.POINTER(ct.c_int)                 # status (0 = success)
+        ],
+        ct.c_int                                 # return obj id
+    ),
+    "molecule_debye": (
+        [
+            ct.c_int,                            # molecule id
+            ct.POINTER(ct.POINTER(ct.c_double)), # q (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # I (output)
+            ct.POINTER(ct.c_int),                # n_points (output)
+            ct.POINTER(ct.c_int)                 # status (0 = success)
+        ],
+        ct.c_int                                 # return obj id
+    ),
+    "molecule_debye_userq": (
+        [
+            ct.c_int,                # molecule id
+            ct.POINTER(ct.c_double), # q
+            ct.POINTER(ct.c_double), # I (output)
+            ct.c_int,                # n_points
+            ct.POINTER(ct.c_int)     # status (0 = success)
+        ],
+        None
+    ),
+    "molecule_debye_raw": (
+        [
+            ct.c_int,                            # molecule id
+            ct.POINTER(ct.POINTER(ct.c_double)), # q (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # I (output)
+            ct.POINTER(ct.c_int),                # n_points (output)
+            ct.POINTER(ct.c_int)                 # status (0 = success)
+        ],
+        ct.c_int                                 # return obj id
+    ),
+    "molecule_debye_raw_userq": (
+        [
+            ct.c_int,                # molecule id
+            ct.POINTER(ct.c_double), # q
+            ct.POINTER(ct.c_double), # I (output)
+            ct.c_int,                # n_points
+            ct.POINTER(ct.c_int)     # status (0 = success)
+        ],
+        None
+    ),
+    "molecule_debye_fit": (
+        [
+            ct.c_int,            # molecule id
+            ct.c_int,            # data id
+            ct.POINTER(ct.c_int) # status (0 = success)
+        ],
+        ct.c_int                 # return res id
+    ),
+})
 
 class Molecule(BackendObject):
     __slots__ = ['_atom_data', '_water_data']
