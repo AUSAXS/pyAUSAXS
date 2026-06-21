@@ -8,21 +8,10 @@ from pyausaxs.architecture import get_shared_lib_extension
 # environment override: takes precedence over everything, intended for one-off use.
 ENV_VAR = "AUSAXS_LIB"
 
-
-def _config_dir() -> Path:
-    """Platform-appropriate user config directory for AUSAXS (dependency-free)."""
-    if sys.platform.startswith("win"):
-        base = os.environ.get("APPDATA") or (Path.home() / "AppData" / "Roaming")
-    elif sys.platform == "darwin":
-        base = Path.home() / "Library" / "Application Support"
-    else:
-        base = os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config")
-    return Path(base) / "ausaxs"
-
-
 def _cache_file() -> Path:
     """File holding the relinked backend path, if any."""
-    return _config_dir() / "libpath"
+    from .wrapper.settings import settings
+    return settings.get("cache") / "libpath"
 
 
 def get_relink_path() -> str | None:
