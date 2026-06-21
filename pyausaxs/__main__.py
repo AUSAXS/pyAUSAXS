@@ -40,22 +40,21 @@ def main(argv=None):
 
     tool, rest = argv[0].lower(), argv[1:]
 
-    # 'setup' and 'gui' manage the backend library themselves, so they are
-    # dispatched before we attempt to load it.
-    if tool == "setup":
-        return _run_setup(rest)
-    if tool == "gui":
-        print("Warning: The Python GUI is highly experimental. Use at your own risk.", file=sys.stderr)
-        from .gui import main as gui_main
-        return gui_main(rest)
-    if tool == "plot":
-        return plot_main(rest)
-    if tool in _CLI_TOOLS:
-        return _run_cli_tool(tool, rest)
-
-    print(f"Unknown tool: {tool}\n", file=sys.stderr)
-    print(_USAGE, file=sys.stderr)
-    return 2
+    match tool:
+        case "setup":
+            return _run_setup(rest)
+        case "gui":
+            print("Warning: The Python GUI is highly experimental. Use at your own risk.", file=sys.stderr)
+            from .gui import main as gui_main
+            return gui_main(rest)
+        case "plot":
+            return plot_main(rest)
+        case t if t in _CLI_TOOLS:
+            return _run_cli_tool(t, rest)
+        case _:
+            print(f"Unknown tool: {tool}\n", file=sys.stderr)
+            print(_USAGE, file=sys.stderr)
+            return 2
 
 
 def _run_cli_tool(tool, args):
