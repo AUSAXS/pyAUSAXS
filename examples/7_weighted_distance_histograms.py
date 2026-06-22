@@ -25,7 +25,7 @@ plt.show()
 
 # To clearly illustrate how the bin centers shifts, we recalculate the distance histogram without 
 # using weighted bins to compare with:
-ausaxs.settings.histogram(weighted_bins=False, bin_width=0.1, bin_count=10000)
+ausaxs.settings.histogram(weighted_bins=False)
 dist = mol.distance_histogram()
 dist.truncate()
 unweighted_bins = dist.bins()               # unweighted distance axis
