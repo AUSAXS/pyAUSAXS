@@ -1044,19 +1044,22 @@ class RigidbodyPane(ttk.Frame):
                 tuple(m.group(0) for m in _SYMMETRY_RE.finditer(script)))
 
     def _preview_data(self, script: str, sig: tuple):
-        """Build the rigid body from the current script and return its preview structure 
-        (coords + per-atom body/copy/residue/Cα metadata), or None if it can't be built. Cached on 
+        """Build the rigid body from the current script and return its preview structure
+        (coords + per-atom body/copy/residue/Cα metadata), or None if it can't be built. Cached on
         the structural signature; skipped while a refinement runs to avoid a concurrent backend call."""
         if self.runner.running():
             return None
         if sig != self._preview_cache_key:
             self._preview_cache_key = sig
-            try:
-                from ..wrapper.Rigidbody import Rigidbody
-                data = Rigidbody(script).preview_structure()
-                self._preview_cache = data if len(data["coords"]) else None
-            except Exception:
-                self._preview_cache = None  # script mid-edit / invalid: show the placeholder
+            if not self._load_value("pdb"):
+                self._preview_cache = None
+            else:
+                try:
+                    from ..wrapper.Rigidbody import Rigidbody
+                    data = Rigidbody(script).preview_structure()
+                    self._preview_cache = data if len(data["coords"]) else None
+                except Exception:
+                    self._preview_cache = None  # script mid-edit / invalid: show the placeholder
         return self._preview_cache
 
     _update_structure_preview_first_draw = True
