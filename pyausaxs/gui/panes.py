@@ -690,6 +690,11 @@ class RigidbodyPane(ttk.Frame):
         # a persistent "structure" tab: a 3D Cα backbone with the split residues in red,
         # kept across runs (the fit tabs are added alongside it)
         self.structure_tab = tk.Frame(self.results, background=PALETTE["surface"])
+        struct_toolbar = tk.Frame(self.structure_tab, background=PALETTE["surface"])
+        struct_toolbar.pack(side="top", fill="x", padx=4, pady=(2, 0))
+        self._make_icon_button(
+            struct_toolbar, "⌂", self._home_preview, "Reset to default view"
+        ).pack(side="left")
         self._struct_fig = Figure(facecolor=PALETTE["surface"])
         self._struct_ax = self._struct_fig.add_subplot(111, projection="3d")
         self._struct_canvas = FigureCanvasTkAgg(self._struct_fig, master=self.structure_tab)
@@ -1070,6 +1075,12 @@ class RigidbodyPane(ttk.Frame):
             self._last_valid_lims = [ax.get_xlim(), ax.get_ylim(), ax.get_zlim()]
         self._struct_fig.set_layout_engine("tight")
         self._struct_canvas.draw_idle()
+
+    def _home_preview(self):
+        """Reset the structure preview to the auto-fit default view."""
+        self._last_valid_lims = None
+        self._preview_key = None  # force a redraw so the reset takes effect immediately
+        self._update_structure_preview()
 
     # ----- actions ------------------------------------------------------------
     def _set_busy(self, busy: bool, label: str = "Run refinement"):
