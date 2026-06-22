@@ -798,10 +798,10 @@ class RigidbodyPane(ttk.Frame):
         periodic cache autosave continues untouched, and the file we write here is never overwritten
         by it."""
         path = filedialog.asksaveasfilename(
-            parent=self, title="Save refinement script", defaultextension=".txt",
+            parent=self, title="Save refinement script", defaultextension=".conf",
             initialdir=os.path.dirname(self._script_file_path) if self._script_file_path else None,
-            initialfile=os.path.basename(self._script_file_path) if self._script_file_path else "refinement.txt",
-            filetypes=[("Script", "*.txt"), ("All files", "*")],
+            initialfile=os.path.basename(self._script_file_path) if self._script_file_path else "refinement.conf",
+            filetypes=[("Script", "*.conf"), ("All files", "*")],
         )
         if not path:
             return
@@ -821,7 +821,7 @@ class RigidbodyPane(ttk.Frame):
         path = filedialog.askopenfilename(
             parent=self, title="Load refinement script",
             initialdir=os.path.dirname(self._script_file_path) if self._script_file_path else None,
-            filetypes=[("Script", "*.txt"), ("All files", "*")],
+            filetypes=[("Script", "*.conf"), ("All files", "*")],
         )
         if not path:
             return
