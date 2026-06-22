@@ -692,9 +692,11 @@ class RigidbodyPane(ttk.Frame):
         self.structure_tab = tk.Frame(self.results, background=PALETTE["surface"])
         struct_toolbar = tk.Frame(self.structure_tab, background=PALETTE["surface"])
         struct_toolbar.pack(side="top", fill="x", padx=4, pady=(2, 0))
-        self._make_icon_button(
+        home_btn = self._make_icon_button(
             struct_toolbar, "⌂", self._home_preview, "Reset to default view"
-        ).pack(side="left")
+        )
+        home_btn.configure(font=(FONTS["base"][0], 18), padding=(10, 0))
+        home_btn.pack(side="left", padx=2, pady=2)
         self._struct_fig = Figure(facecolor=PALETTE["surface"])
         self._struct_ax = self._struct_fig.add_subplot(111, projection="3d")
         self._struct_canvas = FigureCanvasTkAgg(self._struct_fig, master=self.structure_tab)
