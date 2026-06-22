@@ -680,6 +680,8 @@ class RigidbodyPane(ttk.Frame):
         # Ctrl-A selects all (Tk's default binds it to "start of line")
         self.editor.bind("<Control-a>", self._select_all)
         self.editor.bind("<Control-A>", self._select_all)
+        # Tk's <<Paste>> on X11 does not delete the selection before inserting
+        self.editor.bind("<<Paste>>", self._on_paste)
 
         # --- results pane (right), the larger pane by default ----------------
         self.results_pane = ttk.Frame(self.outer, padding=(10, 4, 4, 4))
@@ -771,6 +773,21 @@ class RigidbodyPane(ttk.Frame):
         self.editor.tag_add("sel", "1.0", "end-1c")
         self.editor.mark_set("insert", "1.0")
         self.editor.see("insert")
+        return "break"
+
+    def _on_paste(self, _event=None):
+        """Ctrl-V: replace selection before inserting — Tk's <<Paste>> on X11 skips this."""
+        try:
+            text = self.editor.clipboard_get()
+        except tk.TclError:
+            return "break"
+        try:
+            self.editor.delete("sel.first", "sel.last")
+        except tk.TclError:
+            pass  # no selection active
+        self.editor.insert("insert", text)
+        self.editor.see("insert")
+        self._on_editor_changed()
         return "break"
 
     def _reset_clicked(self):
