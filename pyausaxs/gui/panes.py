@@ -507,6 +507,7 @@ class RigidbodyPane(ttk.Frame):
         self._preview_key = None         # signature of what the preview currently shows
         self._preview_cache_key = None   # signature the preview structure was last built from
         self._preview_cache = None       # cached backend preview-structure dict, or None
+        self._last_valid_lims = None     # axis limits from the last successful preview draw
         self._live_job = None            # pending live-structure poll during a run
         self._live_meta = None           # backbone mask (preview dict) for the active run, or None
         self._live_version = 0           # last live-structure version drawn
@@ -1051,22 +1052,22 @@ class RigidbodyPane(ttk.Frame):
         data = self._preview_data(script, sig)
 
         ax = self._struct_ax
-        lims = [ax.get_xlim(), ax.get_ylim(), ax.get_zlim()]
         ax.clear()
         ax.set_axis_off()
         if data is None:
             ax.text2D(
-                0.5, 0.5, "Set a structure to preview the splits", transform=ax.transAxes, 
+                0.5, 0.5, "Set a structure to preview the splits", transform=ax.transAxes,
                 ha="center", va="center", color=PALETTE["muted"], fontsize=10
             )
         else:
             draw_structure(ax, data, splits)
             if self._update_structure_preview_first_draw:
                 self._update_structure_preview_first_draw = False
-            else:
-                ax.set_xlim(lims[0])
-                ax.set_ylim(lims[1])
-                ax.set_zlim(lims[2])
+            elif self._last_valid_lims is not None:
+                ax.set_xlim(self._last_valid_lims[0])
+                ax.set_ylim(self._last_valid_lims[1])
+                ax.set_zlim(self._last_valid_lims[2])
+            self._last_valid_lims = [ax.get_xlim(), ax.get_ylim(), ax.get_zlim()]
         self._struct_fig.set_layout_engine("tight")
         self._struct_canvas.draw_idle()
 
