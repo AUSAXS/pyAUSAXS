@@ -507,6 +507,7 @@ class RigidbodyPane(ttk.Frame):
         self._preview_key = None         # signature of what the preview currently shows
         self._preview_cache_key = None   # signature the preview structure was last built from
         self._preview_cache = None       # cached backend preview-structure dict, or None
+        self._last_valid_lims = None     # axis limits from the last successful preview draw
         self._live_job = None            # pending live-structure poll during a run
         self._live_meta = None           # backbone mask (preview dict) for the active run, or None
         self._live_version = 0           # last live-structure version drawn
@@ -679,6 +680,8 @@ class RigidbodyPane(ttk.Frame):
         # Ctrl-A selects all (Tk's default binds it to "start of line")
         self.editor.bind("<Control-a>", self._select_all)
         self.editor.bind("<Control-A>", self._select_all)
+        # Tk's <<Paste>> on X11 does not delete the selection before inserting
+        self.editor.bind("<<Paste>>", self._on_paste)
 
         # --- results pane (right), the larger pane by default ----------------
         self.results_pane = ttk.Frame(self.outer, padding=(10, 4, 4, 4))
@@ -689,6 +692,13 @@ class RigidbodyPane(ttk.Frame):
         # a persistent "structure" tab: a 3D Cα backbone with the split residues in red,
         # kept across runs (the fit tabs are added alongside it)
         self.structure_tab = tk.Frame(self.results, background=PALETTE["surface"])
+        struct_toolbar = tk.Frame(self.structure_tab, background=PALETTE["surface"])
+        struct_toolbar.pack(side="top", fill="x", padx=4, pady=(2, 0))
+        home_btn = self._make_icon_button(
+            struct_toolbar, "⌂", self._home_preview, "Reset to default view"
+        )
+        home_btn.configure(font=(FONTS["base"][0], 18), padding=(10, 0))
+        home_btn.pack(side="left", padx=2, pady=2)
         self._struct_fig = Figure(facecolor=PALETTE["surface"])
         self._struct_ax = self._struct_fig.add_subplot(111, projection="3d")
         self._struct_canvas = FigureCanvasTkAgg(self._struct_fig, master=self.structure_tab)
@@ -765,6 +775,21 @@ class RigidbodyPane(ttk.Frame):
         self.editor.see("insert")
         return "break"
 
+    def _on_paste(self, _event=None):
+        """Ctrl-V: replace selection before inserting — Tk's <<Paste>> on X11 skips this."""
+        try:
+            text = self.editor.clipboard_get()
+        except tk.TclError:
+            return "break"
+        try:
+            self.editor.delete("sel.first", "sel.last")
+        except tk.TclError:
+            pass  # no selection active
+        self.editor.insert("insert", text)
+        self.editor.see("insert")
+        self._on_editor_changed()
+        return "break"
+
     def _reset_clicked(self):
         """Restore the default script after a confirmation, so an accidental click
         can't silently wipe a hand-written script."""
@@ -798,10 +823,10 @@ class RigidbodyPane(ttk.Frame):
         periodic cache autosave continues untouched, and the file we write here is never overwritten
         by it."""
         path = filedialog.asksaveasfilename(
-            parent=self, title="Save refinement script", defaultextension=".txt",
+            parent=self, title="Save refinement script", defaultextension=".conf",
             initialdir=os.path.dirname(self._script_file_path) if self._script_file_path else None,
-            initialfile=os.path.basename(self._script_file_path) if self._script_file_path else "refinement.txt",
-            filetypes=[("Script", "*.txt"), ("All files", "*")],
+            initialfile=os.path.basename(self._script_file_path) if self._script_file_path else "refinement.conf",
+            filetypes=[("Script", "*.conf"), ("All files", "*")],
         )
         if not path:
             return
@@ -821,7 +846,7 @@ class RigidbodyPane(ttk.Frame):
         path = filedialog.askopenfilename(
             parent=self, title="Load refinement script",
             initialdir=os.path.dirname(self._script_file_path) if self._script_file_path else None,
-            filetypes=[("Script", "*.txt"), ("All files", "*")],
+            filetypes=[("Script", "*.conf"), ("All files", "*")],
         )
         if not path:
             return
@@ -1019,19 +1044,22 @@ class RigidbodyPane(ttk.Frame):
                 tuple(m.group(0) for m in _SYMMETRY_RE.finditer(script)))
 
     def _preview_data(self, script: str, sig: tuple):
-        """Build the rigid body from the current script and return its preview structure 
-        (coords + per-atom body/copy/residue/Cα metadata), or None if it can't be built. Cached on 
+        """Build the rigid body from the current script and return its preview structure
+        (coords + per-atom body/copy/residue/Cα metadata), or None if it can't be built. Cached on
         the structural signature; skipped while a refinement runs to avoid a concurrent backend call."""
         if self.runner.running():
             return None
         if sig != self._preview_cache_key:
             self._preview_cache_key = sig
-            try:
-                from ..wrapper.Rigidbody import Rigidbody
-                data = Rigidbody(script).preview_structure()
-                self._preview_cache = data if len(data["coords"]) else None
-            except Exception:
-                self._preview_cache = None  # script mid-edit / invalid: show the placeholder
+            if not self._load_value("pdb"):
+                self._preview_cache = None
+            else:
+                try:
+                    from ..wrapper.Rigidbody import Rigidbody
+                    data = Rigidbody(script).preview_structure()
+                    self._preview_cache = data if len(data["coords"]) else None
+                except Exception:
+                    self._preview_cache = None  # script mid-edit / invalid: show the placeholder
         return self._preview_cache
 
     _update_structure_preview_first_draw = True
@@ -1051,24 +1079,30 @@ class RigidbodyPane(ttk.Frame):
         data = self._preview_data(script, sig)
 
         ax = self._struct_ax
-        lims = [ax.get_xlim(), ax.get_ylim(), ax.get_zlim()]
         ax.clear()
         ax.set_axis_off()
         if data is None:
             ax.text2D(
-                0.5, 0.5, "Set a structure to preview the splits", transform=ax.transAxes, 
+                0.5, 0.5, "Set a structure to preview the splits", transform=ax.transAxes,
                 ha="center", va="center", color=PALETTE["muted"], fontsize=10
             )
         else:
             draw_structure(ax, data, splits)
             if self._update_structure_preview_first_draw:
                 self._update_structure_preview_first_draw = False
-            else:
-                ax.set_xlim(lims[0])
-                ax.set_ylim(lims[1])
-                ax.set_zlim(lims[2])
+            elif self._last_valid_lims is not None:
+                ax.set_xlim(self._last_valid_lims[0])
+                ax.set_ylim(self._last_valid_lims[1])
+                ax.set_zlim(self._last_valid_lims[2])
+            self._last_valid_lims = [ax.get_xlim(), ax.get_ylim(), ax.get_zlim()]
         self._struct_fig.set_layout_engine("tight")
         self._struct_canvas.draw_idle()
+
+    def _home_preview(self):
+        """Reset the structure preview to the auto-fit default view."""
+        self._last_valid_lims = None
+        self._preview_key = None  # force a redraw so the reset takes effect immediately
+        self._update_structure_preview()
 
     # ----- actions ------------------------------------------------------------
     def _set_busy(self, busy: bool, label: str = "Run refinement"):
