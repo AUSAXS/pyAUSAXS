@@ -29,7 +29,9 @@ plots = [
 gui = [
   "pyausaxs[plots]",
 ]
-
+all = [
+  "pyausaxs[plots,gui]",
+]
 [project.urls]
 Homepage = "https://github.com/AUSAXS/pyAUSAXS"
 
