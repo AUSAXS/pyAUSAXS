@@ -25,28 +25,9 @@ fit_grid = mol.fit(data)
 
 plt.figure(figsize=(10, 6))
 plt.errorbar(data.q(), data.I(), yerr=data.Ierr(), fmt='k.', markersize=4, capsize=2)
-plt.plot(data.q(), fit_simple.fitted_curve(), label=f'Simple, χ²={fit_simple.chi2():.2f}')
-plt.plot(data.q(), fit_fraser.fitted_curve(), label=f'Fraser, χ²={fit_fraser.chi2():.2f}')
-plt.plot(data.q(), fit_grid.fitted_curve(), label=f'Grid, χ²={fit_grid.chi2():.2f}')
-plt.xlabel("q")
-plt.ylabel("I(q)")
-plt.loglog()
-plt.legend()
-plt.show()
-
-# The Fraser model seems broken. That's because it _must_ be used with excluded volume fitting enabled. Let's fix that:
-ausaxs.settings.fit(fit_excluded_volume=True)
-ausaxs.settings.exv(ausaxs.ExvModel.fraser)
-fit_fraser_exv = mol.fit(data)
-
-ausaxs.settings.exv(ausaxs.ExvModel.grid)
-fit_grid_exv = mol.fit(data)
-
-plt.figure(figsize=(10, 6))
-plt.errorbar(data.q(), data.I(), yerr=data.Ierr(), fmt='k.', markersize=4, capsize=2)
-plt.plot(data.q(), fit_simple.fitted_curve(), label=f'Simple, χ²={fit_simple.chi2():.2f}')
-plt.plot(data.q(), fit_fraser_exv.fitted_curve(), label=f'Fraser (fitted exv), χ²={fit_fraser_exv.chi2():.2f}')
-plt.plot(data.q(), fit_grid_exv.fitted_curve(), label=f'Grid (fitted exv), χ²={fit_grid_exv.chi2():.2f}')
+plt.plot(data.q(), fit_simple.fitted_curve(), label=f'Simple, χ²={fit_simple.chi2r():.2f}')
+plt.plot(data.q(), fit_fraser.fitted_curve(), label=f'Fraser, χ²={fit_fraser.chi2r():.2f}')
+plt.plot(data.q(), fit_grid.fitted_curve(), label=f'Grid, χ²={fit_grid.chi2r():.2f}')
 plt.xlabel("q")
 plt.ylabel("I(q)")
 plt.loglog()
@@ -55,7 +36,4 @@ plt.show()
 
 ### Summary ###
 # In this example, we demonstrated how to perform advanced model fitting using different excluded volume models in pyausaxs.
-# We showed how the Fraser model should be used with care, since it requires excluded volume fitting to be enabled for 
-# meaningful results. The grid-based model usually does not require this additional fit parameter, and is therefore expected
-# to be the most robust choice for general use. However, due to its high computational cost, the default model is instead 
-# the Simple model, which provides a good balance between accuracy and performance for most applications.
+# We compared the three models from the AUSAXS paper: the Simple model, the Fraser model, and the Grid-based model. 

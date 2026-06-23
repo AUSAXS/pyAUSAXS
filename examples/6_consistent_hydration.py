@@ -10,7 +10,7 @@ mol = ausaxs.create_molecule("tests/files/2epe.pdb")
 
 # The hydration shell is randomly generated each time, which can lead to small variations in the scattering.
 # This is especially true at higher q-values. To get a more consistent result, we should average over multiple configurations.
-ausaxs.settings.set_hist_settings(qmax=1)
+ausaxs.settings.histogram(qmax=1)
 
 num_configs = 100
 Iq_list = []
