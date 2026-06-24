@@ -195,20 +195,24 @@ class RangeSlider(ttk.Frame):
         self.canvas = tk.Canvas(
             self, height=self.CANVAS_H, highlightthickness=0,
             background=PALETTE["bg"], bd=0)
-        self.canvas.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(2, 2))
+        self.canvas.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(2, 2))
 
         self.lo_var, self.hi_var = tk.StringVar(), tk.StringVar()
         lo_entry = ttk.Entry(self, textvariable=self.lo_var, width=9, justify="center")
         hi_entry = ttk.Entry(self, textvariable=self.hi_var, width=9, justify="center")
+        # an empty centre slot between the entries that callers can populate (e.g. an
+        # axis label / unit selector); stays zero-width when unused
+        self.center = ttk.Frame(self)
         lo_entry.grid(row=1, column=0, sticky="w")
-        hi_entry.grid(row=1, column=1, sticky="e")
+        self.center.grid(row=1, column=1)
+        hi_entry.grid(row=1, column=2, sticky="e")
         lo_entry.bind("<Return>", lambda _e: self._entry_changed())
         lo_entry.bind("<FocusOut>", lambda _e: self._entry_changed())
         hi_entry.bind("<Return>", lambda _e: self._entry_changed())
         hi_entry.bind("<FocusOut>", lambda _e: self._entry_changed())
 
         self.columnconfigure(0, weight=1)
-        self.columnconfigure(1, weight=1)
+        self.columnconfigure(2, weight=1)
 
         self.canvas.bind("<Configure>", lambda _e: self._redraw())
         self.canvas.bind("<Button-1>", self._press)
@@ -240,6 +244,14 @@ class RangeSlider(ttk.Frame):
         self._redraw()
         if self._on_change:
             self._on_change(*self.values())
+
+    def set_range(self, vmin: float, vmax: float):
+        """Replace the value bounds while keeping the handles at their current
+        fractional positions — a uniform rescale, e.g. a unit change. Refreshes the
+        tick labels and entry readouts but does not fire on_change."""
+        self._min, self._max = vmin, vmax
+        self._sync_entries()
+        self._redraw()
 
     def _track_x(self, pos: float) -> float:
         w = self.canvas.winfo_width()

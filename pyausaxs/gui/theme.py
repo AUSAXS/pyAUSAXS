@@ -114,6 +114,8 @@ def apply_theme(root):
     style.configure("Heading.TLabel", background=p["bg"], foreground=p["muted"], font=heading)
     style.configure("Title.TLabel", background=p["bg"], foreground=p["text"], font=title)
     style.configure("Footer.TLabel", background=p["bg"], foreground=p["muted"], font=small)
+    # muted label on a surface (card) background, e.g. the plot's overlaid axis label
+    style.configure("CardMuted.TLabel", background=p["surface"], foreground=p["muted"], font=small)
 
     # labelframes become flat bordered cards with a quiet uppercase-feeling header
     style.configure("TLabelframe",

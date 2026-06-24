@@ -20,7 +20,13 @@ class SaxsDataPane(ttk.Frame):
     plot whose x-axis is replaced by a RangeSlider overlaid on the figure's
     reserved bottom margin: two axvlines mark the selected q-range and continue
     as dashed risers into the slider's handles. Data outside the range is shown
-    in muted red; data inside in blue. Call qrange() to read (qmin, qmax)."""
+    in muted red; data inside in blue. The plot is always in Å⁻¹; the unit
+    selector declares the file's q unit and converts the data to match. Call
+    qrange() to read the selected (qmin, qmax) in Å⁻¹."""
+
+    # factor that converts a raw q value in the selected unit to Å⁻¹
+    UNIT_FACTORS = {"Å⁻¹": 1.0, "nm⁻¹": 0.1}
+    DEFAULT_UNIT = "Å⁻¹"
 
     def __init__(self, parent, file_path: str):
         super().__init__(parent)
@@ -29,9 +35,11 @@ class SaxsDataPane(ttk.Frame):
         self._vlines = [None, None]
         self._track_pads = (None, None)
         self._bottom_frac = None
-        self._qs = self._Is = self._sigs = None
+        self._qs_raw = None  # q as read from file, in the selected unit
+        self._qs = self._Is = self._sigs = None  # q converted to Å⁻¹
         self._has_sigma = False
         self._data_artists: list = []
+        self._unit_var = tk.StringVar(value=self.DEFAULT_UNIT)
 
         # read data first so we can set the slider bounds from the actual q-range
         data = _read_saxs_data(file_path)
@@ -61,6 +69,17 @@ class SaxsDataPane(ttk.Frame):
         self.q_slider.canvas.configure(background=PALETTE["surface"])
         self.q_slider.place(in_=self._mpl_widget, relx=0, rely=1.0,
                             relwidth=1.0, anchor="sw")
+
+        # x-axis label + source-unit selector, centred between the qmin/qmax entries.
+        # the plot is always shown in Å⁻¹; picking nm⁻¹ declares the file's q to be in
+        # nm⁻¹, so the data is converted (×0.1) to keep the displayed axis in Å⁻¹.
+        self.q_slider.center.configure(style="Card.TFrame")
+        ttk.Label(self.q_slider.center, text="q [Å⁻¹]", style="CardMuted.TLabel").pack()
+        unit_box = ttk.Combobox(
+            self.q_slider.center, textvariable=self._unit_var,
+            values=list(self.UNIT_FACTORS), state="readonly", width=5)
+        unit_box.pack()
+        unit_box.bind("<<ComboboxSelected>>", lambda _e: self._on_unit_changed())
 
         self._draw_data(data, vmin, vmax)
 
@@ -147,7 +166,10 @@ class SaxsDataPane(ttk.Frame):
 
         if data:
             qs, Is, sigs = data
-            self._qs, self._Is, self._sigs = qs, Is, sigs
+            self._qs_raw = qs
+            factor = self.UNIT_FACTORS[self._unit_var.get()]
+            self._qs = [q * factor for q in qs]
+            self._Is, self._sigs = Is, sigs
             self._has_sigma = any(s > 0 for s in sigs)
             ax.set_xscale("log")
             ax.set_yscale("log")
@@ -159,7 +181,7 @@ class SaxsDataPane(ttk.Frame):
             ax.autoscale_view()
             ax.autoscale(enable=False)
         else:
-            self._qs = self._Is = self._sigs = None
+            self._qs_raw = self._qs = self._Is = self._sigs = None
             ax.text(0.5, 0.5, "Could not read data file",
                     transform=ax.transAxes, ha="center", va="center", color=p["muted"])
 
@@ -210,5 +232,23 @@ class SaxsDataPane(ttk.Frame):
         if self._vlines[0] is not None:
             self._vlines[0].set_xdata([qmin, qmin])
             self._vlines[1].set_xdata([qmax, qmax])
+        self._redraw_data_artists(qmin, qmax)
+        self._mpl_canvas.draw_idle()
+
+
+    def _on_unit_changed(self):
+        """Re-interpret the file's q in the newly selected unit and convert to Å⁻¹.
+        The handles keep their fractional positions (a uniform log-axis shift), so the
+        selection and the axvlines do not appear to move — only the values rescale."""
+        if self._qs_raw is None:
+            return
+        factor = self.UNIT_FACTORS[self._unit_var.get()]
+        self._qs = [q * factor for q in self._qs_raw]
+        vmin, vmax = min(self._qs), max(self._qs)
+        self.q_slider.set_range(vmin, vmax)
+        self._ax.set_xlim(vmin, vmax)
+        qmin, qmax = self.q_slider.values()
+        self._vlines[0].set_xdata([qmin, qmin])
+        self._vlines[1].set_xdata([qmax, qmax])
         self._redraw_data_artists(qmin, qmax)
         self._mpl_canvas.draw_idle()
