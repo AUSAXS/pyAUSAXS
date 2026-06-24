@@ -12,7 +12,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from .plotting import fit_figure, plot_file_figure, pretty_plot_name
 from .runner import CliRunner
 from .theme import FONTS, PALETTE
-from .widgets import ConsolePane, FileField, RangeSlider
+from .widgets import ConsolePane, FileField
 
 QMIN, QMAX = 1e-4, 1.0
 
@@ -89,9 +89,10 @@ def add_text_tab(notebook: ttk.Notebook, content: str, title: str):
     notebook.add(frame, text=title)
 
 
-def _saxs_data_span(path: str) -> tuple[float, float] | None:
-    """Extract the q-range spanned by a SAXS data file, ignoring non-numeric lines."""
-    qs = []
+def _read_saxs_data(path: str) -> tuple[list, list, list] | None:
+    """Read a SAXS file, returning (q, I, sigma) lists skipping header/comment lines.
+    Only rows with q > 0 and I > 0 are included so log-scale plots work cleanly."""
+    qs, Is, sigs = [], [], []
     try:
         with open(path, errors="replace") as f:
             for line in f:
@@ -99,13 +100,18 @@ def _saxs_data_span(path: str) -> tuple[float, float] | None:
                 if len(words) < 2:
                     continue
                 try:
-                    qs.append(float(words[0]))
-                    float(words[1])
+                    q, I_val = float(words[0]), float(words[1])
+                    sig = float(words[2]) if len(words) >= 3 else 0.0
+                    if q > 0 and I_val > 0:
+                        qs.append(q)
+                        Is.append(I_val)
+                        sigs.append(sig)
                 except ValueError:
                     continue
     except OSError:
         return None
-    return (min(qs), max(qs)) if qs else None
+    return (qs, Is, sigs) if qs else None
+
 
 
 def make_on_load_structure(set_load_directive=None, saxs_field=None):
@@ -241,17 +247,6 @@ class FitterPane(ttk.Frame):
         raise NotImplementedError
 
     # ----- shared behavior ----------------------------------------------------
-    def _make_q_slider(self, parent) -> RangeSlider:
-        ttk.Label(parent, text="q-range [1/Å]").pack(anchor="w", pady=(4, 0))
-        slider = RangeSlider(parent, QMIN, QMAX, log=True, fmt="{:.4g}")
-        slider.pack(fill="x")
-        return slider
-
-    def _update_q_range(self, saxs_path: str):
-        span = _saxs_data_span(saxs_path)
-        if span:
-            self.q_slider.set_values(max(span[0] - 1e-3, QMIN), min(span[1] + 1e-3, QMAX))
-
     def _autodetect_saxs(self, near_file: str, saxs_field: FileField):
         """Look for a SAXS data file next to the given input file, like the old GUI did."""
         if saxs_field.valid:

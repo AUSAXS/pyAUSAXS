@@ -162,6 +162,12 @@ class RangeSlider(ttk.Frame):
     PAD = 14
     CANVAS_H = 42
 
+    def set_track_pads(self, left: int, right: int):
+        """Override the symmetric PAD with per-side values, e.g. to align with a plot's x-axis."""
+        self._left_pad = max(left, self.HANDLE_R + 2)
+        self._right_pad = max(right, self.HANDLE_R + 2)
+        self._redraw()
+
     def __init__(
         self, parent,
         vmin: float, vmax: float,
@@ -179,6 +185,8 @@ class RangeSlider(ttk.Frame):
         self._pos = [self._to_pos(lo), self._to_pos(hi)]
         self._drag = None
         self._hover = None
+        self._left_pad = self.PAD
+        self._right_pad = self.PAD
 
         self.canvas = tk.Canvas(
             self, height=self.CANVAS_H, highlightthickness=0,
@@ -231,11 +239,11 @@ class RangeSlider(ttk.Frame):
 
     def _track_x(self, pos: float) -> float:
         w = self.canvas.winfo_width()
-        return self.PAD + pos*(w - 2*self.PAD)
+        return self._left_pad + pos * (w - self._left_pad - self._right_pad)
 
     def _x_to_pos(self, x: float) -> float:
         w = self.canvas.winfo_width()
-        return (x - self.PAD) / max(w - 2*self.PAD, 1)
+        return (x - self._left_pad) / max(w - self._left_pad - self._right_pad, 1)
 
     def _redraw(self):
         c = self.canvas
@@ -246,7 +254,7 @@ class RangeSlider(ttk.Frame):
         ht = self.TRACK_H
 
         # background track with rounded caps
-        c.create_line(self.PAD, cy, w - self.PAD, cy,
+        c.create_line(self._left_pad, cy, w - self._right_pad, cy,
                       width=ht, fill=PALETTE["track"], capstyle="round")
         # selected span
         x0, x1 = self._track_x(self._pos[0]), self._track_x(self._pos[1])

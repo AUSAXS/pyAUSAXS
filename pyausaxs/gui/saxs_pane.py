@@ -3,11 +3,12 @@
 
 import os
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
+from .data_pane import SaxsDataPane
 from .panes import (
     FitterPane, _make_validator, _file_stem, _output_arg,
-    SAXS_EXTENSIONS, STRUCTURE_EXTENSIONS,
+    QMIN, QMAX, SAXS_EXTENSIONS, STRUCTURE_EXTENSIONS,
     make_on_load_structure, make_on_load_saxs,
 )
 from .widgets import FileField
@@ -16,12 +17,15 @@ from .widgets import FileField
 class SaxsFitterPane(FitterPane):
     title = "SAXS fitter"
 
+    def __init__(self, parent):
+        self._data_pane: SaxsDataPane | None = None
+        super().__init__(parent)
+
     def _build_inputs(self, parent):
         self.saxs_field = FileField(
             parent, "SAXS data",
             validator=_make_validator(SAXS_EXTENSIONS, "_is_saxs_data_file"),
-            on_valid=self._update_q_range,
-            on_commit=lambda p: self._on_load_saxs(p),
+            on_commit=self._on_saxs_commit,
             filetypes=[("SAXS data", "*.dat *.rsr *.xvg")],
         )
         self.structure_field = FileField(
@@ -37,33 +41,38 @@ class SaxsFitterPane(FitterPane):
         self.structure_field.pack(fill="x")
         self.saxs_field.pack(fill="x", pady=(6, 0))
         self.output_field.pack(fill="x", pady=(6, 0))
-        # wire shared handlers (no script directive callback for the fitter pane)
+
+        self._view_btn = ttk.Button(parent, text="View data", command=self._open_data_pane,
+                                    state="disabled")
+        self._view_btn.pack(anchor="e", pady=(8, 0))
+
         self._on_load_structure = make_on_load_structure(None, self.saxs_field)
         self._on_load_saxs = make_on_load_saxs(None, self.structure_field)
 
     def _build_settings(self, parent):
-        self.q_slider = self._make_q_slider(parent)
-
         grid = ttk.Frame(parent)
-        grid.pack(fill="x", pady=(4, 0))
+        grid.pack(fill="x")
         grid.columnconfigure(1, weight=1)
 
         ttk.Label(grid, text="q unit").grid(row=0, column=0, sticky="w")
-        self.unit_var = tk.StringVar(value="1/Å")
-        ttk.Combobox(
-            grid, textvariable=self.unit_var, values=["1/Å", "1/nm"],
-            state="readonly", width=12).grid(row=0, column=1, sticky="ew", pady=2
-        )
+        self.unit_var = tk.StringVar()
+        unit_box = ttk.Combobox(grid, textvariable=self.unit_var, values=["1/Å", "1/nm"],
+                                 state="readonly", width=12)
+        unit_box.set("1/Å")
+        unit_box.grid(row=0, column=1, sticky="ew", pady=2)
 
         ttk.Label(grid, text="Hydration model").grid(row=1, column=0, sticky="w", padx=(0, 8))
-        self.hydration_var = tk.StringVar(value="radial")
-        ttk.Combobox(grid, textvariable=self.hydration_var, values=["radial", "none"], state="readonly", width=12).grid(
-            row=1, column=1, sticky="ew", pady=2
-        )
+        self.hydration_var = tk.StringVar()
+        hydration_box = ttk.Combobox(grid, textvariable=self.hydration_var,
+                                      values=["radial", "none"], state="readonly", width=12)
+        hydration_box.set("radial")
+        hydration_box.grid(row=1, column=1, sticky="ew", pady=2)
 
         ttk.Label(grid, text="Excluded volume model").grid(row=2, column=0, sticky="w", padx=(0, 8))
-        self.exv_var = tk.StringVar(value="simple")
-        exv_box = ttk.Combobox(grid, textvariable=self.exv_var, values=["simple", "fraser", "grid"], state="readonly", width=12)
+        self.exv_var = tk.StringVar()
+        exv_box = ttk.Combobox(grid, textvariable=self.exv_var,
+                                values=["simple", "fraser", "grid"], state="readonly", width=12)
+        exv_box.set("simple")
         exv_box.grid(row=2, column=1, sticky="ew", pady=2)
         exv_box.bind("<<ComboboxSelected>>", lambda _e: self._exv_changed())
 
@@ -76,7 +85,6 @@ class SaxsFitterPane(FitterPane):
         self._exv_changed()
 
     def _exv_changed(self):
-        # the simple excluded volume model does not support fitting its parameters
         state = "disabled" if self.exv_var.get() == "simple" else "normal"
         if state == "disabled":
             self.fit_exv_var.set(False)
@@ -84,11 +92,52 @@ class SaxsFitterPane(FitterPane):
         self.fit_exv_check.configure(state=state)
         self.fit_density_check.configure(state=state)
 
+    # ----- data pane management -----------------------------------------------
+
+    def _on_saxs_commit(self, path: str):
+        if self._data_pane is not None and self._data_pane.file_path != path:
+            stem = self._data_pane.title
+            if not messagebox.askyesno(
+                    "Discard data pane",
+                    f'Loading a new dataset will close the "{stem}" data pane and '
+                    f'discard its customisation. Continue?',
+                    parent=self):
+                self.saxs_field.set(self._data_pane.file_path)
+                return
+            self._close_data_pane()
+        self._on_load_saxs(path)
+        self._view_btn.configure(state="normal" if self.saxs_field.valid else "disabled")
+
+    def _open_data_pane(self):
+        path = self.saxs_field.get()
+        if not path:
+            return
+        if self._data_pane is None:
+            notebook = self.master
+            self._data_pane = SaxsDataPane(notebook, path)
+            notebook.add(self._data_pane, text=self._data_pane.title)
+        self.master.select(self._data_pane)
+
+    def _close_data_pane(self):
+        if self._data_pane is None:
+            return
+        try:
+            self.master.forget(self._data_pane)
+        except Exception:
+            pass
+        self._data_pane.destroy()
+        self._data_pane = None
+
+    # ----- FitterPane interface ------------------------------------------------
+
     def _input_fields(self):
         return [self.structure_field, self.saxs_field]
 
     def _build_command(self):
-        qmin, qmax = self.q_slider.values()
+        if self._data_pane is not None:
+            qmin, qmax = self._data_pane.qrange()
+        else:
+            qmin, qmax = QMIN, QMAX
         argv = [
             "saxs_fitter",
             self.structure_field.get(), self.saxs_field.get(),
@@ -105,5 +154,4 @@ class SaxsFitterPane(FitterPane):
         return "cli_saxs_fitter", argv
 
     def _result_dir(self):
-        # the CLI appends the measurement stem to the output folder
         return os.path.join(self.output_field.get(), _file_stem(self.saxs_field.get()))
