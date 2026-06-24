@@ -11,7 +11,10 @@ from pathlib import Path
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
-from .panes import SAXS_EXTENSIONS, STRUCTURE_EXTENSIONS, _make_validator, add_figure_tab
+from .panes import (
+    SAXS_EXTENSIONS, STRUCTURE_EXTENSIONS, _make_validator, add_figure_tab,
+    make_on_load_structure, make_on_load_saxs,
+)
 from .plotting import draw_structure, fit_figure_from_curves
 from .runner import RigidbodyRunner
 from .theme import FONTS, PALETTE
@@ -106,70 +109,22 @@ class RigidbodyPane(ttk.Frame):
         input_frame = ttk.Labelframe(controls, text="Input", padding=12)
         input_frame.pack(fill="x")
 
-        def _on_load_structure(p):
-            self._set_load_directive("pdb", p)
-            if p and not self.saxs_field.valid:
-                # first try direct filename match
-                for ext in SAXS_EXTENSIONS:
-                    candidate = str(Path(p).with_suffix(ext))
-                    if os.path.isfile(candidate):
-                        self.saxs_field.set(candidate)
-                        self._set_load_directive("saxs", candidate)
-                        break
-
-                # then check if only a single data file is present, and if so, use it
-                else:
-                    directory = os.path.dirname(os.path.abspath(p))
-                    try:
-                        entries = sorted(os.listdir(directory))
-                    except OSError:
-                        return
-                    if 20 < len(entries):
-                        return
-                    saxs_candidates = [e for e in entries if os.path.splitext(e)[1].lower() in SAXS_EXTENSIONS]
-                    if len(saxs_candidates) == 1:
-                        self.saxs_field.set(os.path.join(directory, saxs_candidates[0]))
-                        self._set_load_directive("saxs", saxs_candidates[0])
-
-        def _on_load_saxs(p):
-            self._set_load_directive("saxs", p)
-            if p and not self.structure_field.valid:
-                # first try direct filename match
-                for ext in STRUCTURE_EXTENSIONS:
-                    candidate = str(Path(p).with_suffix(ext))
-                    if os.path.isfile(candidate):
-                        self.structure_field.set(candidate)
-                        self._set_load_directive("pdb", candidate)
-                        break
-
-                # then check if only a single structure file is present, and if so, use it
-                else:
-                    directory = os.path.dirname(os.path.abspath(p))
-                    try:
-                        entries = sorted(os.listdir(directory))
-                    except OSError:
-                        return
-                    if 20 < len(entries):
-                        return
-                    struct_candidates = [e for e in entries if os.path.splitext(e)[1].lower() in STRUCTURE_EXTENSIONS]
-                    if len(struct_candidates) == 1:
-                        self.structure_field.set(os.path.join(directory, struct_candidates[0]))
-                        self._set_load_directive("pdb", struct_candidates[0])
-
         self.structure_field = FileField(
             input_frame, "Structure",
             validator=_make_validator(STRUCTURE_EXTENSIONS, "_is_pdb_file"),
-            on_commit=lambda p: _on_load_structure(p),
+            on_commit=lambda p: self._on_load_structure(p),
             filetypes=[("Structure", "*.pdb *.ent *.cif *.xyz")],
         )
         self.saxs_field = FileField(
             input_frame, "SAXS data",
             validator=_make_validator(SAXS_EXTENSIONS, "_is_saxs_data_file"),
-            on_commit=lambda p: _on_load_saxs(p),
+            on_commit=lambda p: self._on_load_saxs(p),
             filetypes=[("SAXS data", "*.dat *.rsr *.xvg")],
         )
         self.structure_field.pack(fill="x")
         self.saxs_field.pack(fill="x", pady=(6, 0))
+        self._on_load_structure = make_on_load_structure(self._set_load_directive, self.saxs_field)
+        self._on_load_saxs = make_on_load_saxs(self._set_load_directive, self.structure_field)
 
         splits_row = ttk.Frame(input_frame)
         splits_row.pack(fill="x", pady=(6, 0))

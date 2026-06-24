@@ -8,6 +8,7 @@ from tkinter import ttk
 from .panes import (
     FitterPane, _make_validator, _file_stem, _output_arg,
     SAXS_EXTENSIONS, STRUCTURE_EXTENSIONS,
+    make_on_load_structure, make_on_load_saxs,
 )
 from .widgets import FileField
 
@@ -20,12 +21,14 @@ class SaxsFitterPane(FitterPane):
             parent, "SAXS data",
             validator=_make_validator(SAXS_EXTENSIONS, "_is_saxs_data_file"),
             on_valid=self._update_q_range,
+            on_commit=lambda p: self._on_load_saxs(p),
             filetypes=[("SAXS data", "*.dat *.rsr *.xvg")],
         )
         self.structure_field = FileField(
             parent, "Structure",
             validator=_make_validator(STRUCTURE_EXTENSIONS, "_is_pdb_file"),
             on_valid=lambda path: self._autodetect_saxs(path, self.saxs_field),
+            on_commit=lambda p: self._on_load_structure(p),
             filetypes=[("Structure", "*.pdb *.ent *.cif *.xyz")],
         )
         self.output_field = FileField(parent, "Output folder", validator=lambda _p: True, directory=True)
@@ -34,6 +37,9 @@ class SaxsFitterPane(FitterPane):
         self.structure_field.pack(fill="x")
         self.saxs_field.pack(fill="x", pady=(6, 0))
         self.output_field.pack(fill="x", pady=(6, 0))
+        # wire shared handlers (no script directive callback for the fitter pane)
+        self._on_load_structure = make_on_load_structure(None, self.saxs_field)
+        self._on_load_saxs = make_on_load_saxs(None, self.structure_field)
 
     def _build_settings(self, parent):
         self.q_slider = self._make_q_slider(parent)

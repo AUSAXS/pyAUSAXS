@@ -5,6 +5,7 @@ import glob
 import os
 import tkinter as tk
 from tkinter import ttk
+from pathlib import Path
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
@@ -105,6 +106,77 @@ def _saxs_data_span(path: str) -> tuple[float, float] | None:
     except OSError:
         return None
     return (min(qs), max(qs)) if qs else None
+
+
+def make_on_load_structure(set_load_directive=None, saxs_field=None):
+    """Return a handler that mirrors a chosen structure file into the SAXS field.
+
+    If `set_load_directive` is provided it will be called as `set_load_directive("pdb", path)` and 
+    `set_load_directive("saxs", candidate)` when a candidate is found (used by the script editor). 
+    `saxs_field` is a FileField instance to populate.
+    """
+    def _on_load_structure(p: str):
+        if set_load_directive:
+            set_load_directive("pdb", p)
+        if not p or saxs_field is None or saxs_field.valid:
+            return
+        # try direct filename match (same stem, SAXS extensions)
+        for ext in SAXS_EXTENSIONS:
+            candidate = str(Path(p).with_suffix(ext))
+            if os.path.isfile(candidate):
+                saxs_field.set(candidate)
+                if set_load_directive:
+                    set_load_directive("saxs", candidate)
+                return
+        # otherwise, if the directory is small, look for a single SAXS file
+        directory = os.path.dirname(os.path.abspath(p))
+        try:
+            entries = sorted(os.listdir(directory))
+        except OSError:
+            return
+        if 20 < len(entries):
+            return
+        saxs_candidates = [e for e in entries if os.path.splitext(e)[1].lower() in SAXS_EXTENSIONS]
+        if len(saxs_candidates) == 1:
+            saxs_field.set(os.path.join(directory, saxs_candidates[0]))
+            if set_load_directive:
+                set_load_directive("saxs", saxs_candidates[0])
+
+    return _on_load_structure
+
+
+def make_on_load_saxs(set_load_directive=None, structure_field=None):
+    """Return a handler that mirrors a chosen SAXS file into the structure field.
+
+    If `set_load_directive` is provided it will be called as `set_load_directive("saxs", path)` and `
+    set_load_directive("pdb", candidate)` when a candidate is found. `structure_field` is a FileField to populate.
+    """
+    def _on_load_saxs(p: str):
+        if set_load_directive:
+            set_load_directive("saxs", p)
+        if not p or structure_field is None or structure_field.valid:
+            return
+        for ext in STRUCTURE_EXTENSIONS:
+            candidate = str(Path(p).with_suffix(ext))
+            if os.path.isfile(candidate):
+                structure_field.set(candidate)
+                if set_load_directive:
+                    set_load_directive("pdb", candidate)
+                return
+        directory = os.path.dirname(os.path.abspath(p))
+        try:
+            entries = sorted(os.listdir(directory))
+        except OSError:
+            return
+        if 20 < len(entries):
+            return
+        struct_candidates = [e for e in entries if os.path.splitext(e)[1].lower() in STRUCTURE_EXTENSIONS]
+        if len(struct_candidates) == 1:
+            structure_field.set(os.path.join(directory, struct_candidates[0]))
+            if set_load_directive:
+                set_load_directive("pdb", struct_candidates[0])
+
+    return _on_load_saxs
 
 
 class FitterPane(ttk.Frame):
