@@ -10,7 +10,9 @@ from tkinter import ttk
 import matplotlib
 matplotlib.use("TkAgg")
 
-from .panes import EmFitterPane, RigidbodyPane, SaxsFitterPane
+from .em_pane import EmFitterPane
+from .rigidbody_pane import RigidbodyPane
+from .saxs_pane import SaxsFitterPane
 from .session import load_config, update_config
 from .theme import PALETTE, apply_theme
 
