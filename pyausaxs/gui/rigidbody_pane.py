@@ -4,6 +4,7 @@
 import os
 import re
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 from pathlib import Path
 
@@ -229,6 +230,16 @@ class RigidbodyPane(ttk.Frame):
             background=PALETTE["surface"], foreground=PALETTE["text"],
             insertbackground=PALETTE["text"], selectbackground=PALETTE["accent"],
         )
+        # Show tabs as 4 spaces: compute pixel width of a space in the editor font
+        try:
+            _mono_font = tkfont.Font(font=FONTS["mono"])
+            _space_px = _mono_font.measure(" ") or 8
+            # configure tab stops to 4 * space width
+            self.editor.configure(tabs=(_space_px * 4,))
+        except Exception:
+            # fall back silently if font metrics aren't available
+            pass
+
         editor_scroll = ttk.Scrollbar(editor_frame, command=self.editor.yview)
         self.editor.configure(yscrollcommand=editor_scroll.set)
         editor_scroll.pack(side="right", fill="y")
