@@ -166,6 +166,16 @@ def apply_theme(root):
         fieldbackground=[("readonly", p["surface"]), ("disabled", p["bg"])],
         bordercolor=[("focus", p["accent"]), ("active", p["accent"])],
         arrowcolor=[("disabled", p["border"])])
+    # clear the automatic selection that Tk sets on the entry when an item is chosen
+    root.bind_class(
+        "TCombobox", "<<ComboboxSelected>>", 
+        lambda e: (
+            e.widget.after_idle(e.widget.selection_clear),
+            e.widget.after_idle(e.widget.winfo_toplevel().focus_set)
+        ), add="+"
+    )
+    root.bind_class("TCombobox", "<FocusIn>",
+                    lambda e: e.widget.after_idle(e.widget.winfo_toplevel().focus_set), add="+")    
     # the dropdown list is a classic Tk listbox
     root.option_add("*TCombobox*Listbox.background", p["surface"])
     root.option_add("*TCombobox*Listbox.foreground", p["text"])
