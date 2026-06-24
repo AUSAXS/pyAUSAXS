@@ -176,15 +176,15 @@ class RangeSlider(ttk.Frame):
         fmt: str = "{:.4g}",
         on_change: Optional[Callable[[float, float], None]] = None,
         stem: bool = False,
+        stem_color: Optional[str] = None,
     ):
         super().__init__(parent)
         self._min, self._max = vmin, vmax
         self._log = log
         self._fmt = fmt
         self._on_change = on_change
-        # when overlaid on a plot, draw a dashed riser from each handle up to the top
-        # of the canvas so it visually continues the plot's axvline down to the handle
         self._stem = stem
+        self._stem_color = stem_color or PALETTE["accent"]
         lo, hi = start if start else (vmin, vmax)
         self._pos = [self._to_pos(lo), self._to_pos(hi)]
         self._drag = None
@@ -258,8 +258,7 @@ class RangeSlider(ttk.Frame):
         ht = self.TRACK_H
 
         # background track with rounded caps
-        c.create_line(self._left_pad, cy, w - self._right_pad, cy,
-                      width=ht, fill=PALETTE["track"], capstyle="round")
+        c.create_line(self._left_pad, cy, w - self._right_pad, cy, width=ht, fill=PALETTE["track"], capstyle="round")
         # selected span
         x0, x1 = self._track_x(self._pos[0]), self._track_x(self._pos[1])
         c.create_line(x0, cy, x1, cy, width=ht, fill=PALETTE["accent"], capstyle="round")
@@ -272,23 +271,20 @@ class RangeSlider(ttk.Frame):
             ticks = [self._min + i*(self._max - self._min)/4 for i in range(5)]
         for t in ticks:
             x = self._track_x(self._to_pos(t))
-            c.create_text(x, cy + r + 7, text=self._fmt.format(t),
-                          font=FONTS["small"], fill=PALETTE["muted"])
+            c.create_text(x, cy + r + 7, text=self._fmt.format(t), font=FONTS["small"], fill=PALETTE["muted"])
 
         # dashed risers continuing the plot's axvlines down to each handle
         if self._stem:
             for pos in self._pos:
                 x = self._track_x(pos)
-                c.create_line(x, 0, x, cy, fill=PALETTE["accent"], dash=(2, 3))
+                c.create_line(x, 0, x, cy, fill=self._stem_color, dash=(2, 3))
 
         # circular handles, accent-filled with a white core and a hover ring
         for i, pos in enumerate(self._pos):
             x = self._track_x(pos)
             if self._hover == i or self._drag == i:
-                c.create_oval(x - r - 3, cy - r - 3, x + r + 3, cy + r + 3,
-                              fill=PALETTE["accent_soft"], outline="")
-            c.create_oval(x - r, cy - r, x + r, cy + r,
-                          fill=PALETTE["accent"], outline=PALETTE["surface"], width=2)
+                c.create_oval(x - r - 3, cy - r - 3, x + r + 3, cy + r + 3, fill=PALETTE["accent_soft"], outline="")
+            c.create_oval(x - r, cy - r, x + r, cy + r, fill=PALETTE["accent"], outline=PALETTE["surface"], width=2)
             c.create_oval(x - 2, cy - 2, x + 2, cy + 2, fill=PALETTE["surface"], outline="")
 
     def _nearest_handle(self, x: float) -> int:

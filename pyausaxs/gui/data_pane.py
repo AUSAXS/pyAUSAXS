@@ -19,7 +19,8 @@ class SaxsDataPane(ttk.Frame):
     Shown as a sibling notebook tab named after the file stem. Hosts an I(q)
     plot whose x-axis is replaced by a RangeSlider overlaid on the figure's
     reserved bottom margin: two axvlines mark the selected q-range and continue
-    as dashed risers into the slider's handles. Call qrange() to read (qmin, qmax)."""
+    as dashed risers into the slider's handles. Data outside the range is shown
+    in muted red; data inside in blue. Call qrange() to read (qmin, qmax)."""
 
     def __init__(self, parent, file_path: str):
         super().__init__(parent)
@@ -28,6 +29,9 @@ class SaxsDataPane(ttk.Frame):
         self._vlines = [None, None]
         self._track_pads = (None, None)
         self._bottom_frac = None
+        self._qs = self._Is = self._sigs = None
+        self._has_sigma = False
+        self._data_artists: list = []
 
         # read data first so we can set the slider bounds from the actual q-range
         data = _read_saxs_data(file_path)
@@ -50,7 +54,7 @@ class SaxsDataPane(ttk.Frame):
         # as dashed risers down to its handles, so dragging feels like grabbing the plot.
         self.q_slider = RangeSlider(
             self, vmin, vmax,
-            log=True, fmt="{:.4g}", stem=True,
+            log=True, fmt="{:.4g}", stem=True, stem_color=PALETTE["danger"],
             on_change=self._on_range_changed,
         )
         self.q_slider.configure(style="Card.TFrame")
@@ -73,18 +77,18 @@ class SaxsDataPane(ttk.Frame):
         self.q_slider.canvas.bind("<Configure>", lambda _e: self._relayout(), add="+")
         self.bind("<Map>", lambda _e: self._relayout(), add="+")
 
-    # ------------------------------------------------------------------
+
     def qrange(self) -> tuple[float, float]:
         return self.q_slider.values()
 
-    # ------------------------------------------------------------------
+
     def _relayout(self):
         """Re-reserve the figure's bottom margin and re-align the slider. Safe to call
         from any of the staggered geometry events; each step no-ops until ready."""
         self._reserve_bottom()
         self._align_slider()
 
-    # ------------------------------------------------------------------
+
     def _reserve_bottom(self):
         """Reserve a bottom strip of the figure so the axes stop exactly where the
         overlaid slider's canvas begins — then the axvlines (clipped at the axes bottom)
@@ -95,14 +99,14 @@ class SaxsDataPane(ttk.Frame):
         canvas = self.q_slider.canvas
         if fig_h <= 1 or not canvas.winfo_ismapped():
             return
-        canvas_top = canvas.winfo_rooty() - self._mpl_widget.winfo_rooty()  # from figure top
+        canvas_top = canvas.winfo_rooty() - self._mpl_widget.winfo_rooty()
         frac = min(max((fig_h - canvas_top) / fig_h, 0.05), 0.6)
         if self._bottom_frac is None or abs(frac - self._bottom_frac) > 0.004:
             self._bottom_frac = frac
             self._fig.get_layout_engine().set(rect=(0, frac, 1, 1))
             self._fig.canvas.draw_idle()
 
-    # ------------------------------------------------------------------
+
     def _align_slider(self):
         """Match the slider's track padding to the axes' horizontal extent so the
         handles line up with the plotted q-range. Driven by matplotlib's draw_event,
@@ -117,21 +121,23 @@ class SaxsDataPane(ttk.Frame):
         slider_canvas = self.q_slider.canvas
         fig_w = mpl_widget.winfo_width()
         slider_w = slider_canvas.winfo_width()
-        if fig_w <= 1 or slider_w <= 1:  # widgets not realised yet; a later draw retries
+        if fig_w <= 1 or slider_w <= 1:
             return
-        pos = self._ax.get_position()  # axes rect in figure-fraction coords
-        dx = mpl_widget.winfo_rootx() - slider_canvas.winfo_rootx()  # figure left in slider frame
+        pos = self._ax.get_position()
+        dx = mpl_widget.winfo_rootx() - slider_canvas.winfo_rootx()
         pads = (round(dx + pos.x0 * fig_w),
                 round(slider_w - dx - pos.x1 * fig_w))
-        if pads != self._track_pads:  # avoid redundant slider redraws on every draw
+        if pads != self._track_pads:
             self._track_pads = pads
             self.q_slider.set_track_pads(*pads)
 
-    # ------------------------------------------------------------------
+
     def _draw_data(self, data, vmin: float, vmax: float):
         ax = self._ax
         p = PALETTE
         ax.clear()
+        self._data_artists = []  # cleared together with the axes
+
         self._fig.patch.set_facecolor(p["surface"])
         ax.set_facecolor(p["surface"])
         ax.tick_params(colors=p["muted"], labelsize=8)
@@ -141,38 +147,68 @@ class SaxsDataPane(ttk.Frame):
 
         if data:
             qs, Is, sigs = data
-            has_sigma = any(s > 0 for s in sigs)
-            if has_sigma:
-                ax.errorbar(qs, Is, yerr=sigs, fmt=".", color=p["accent"],
-                            ecolor=p["border"], ms=3, lw=0.8, capsize=0)
-            else:
-                ax.plot(qs, Is, ".", color=p["accent"], ms=3)
+            self._qs, self._Is, self._sigs = qs, Is, sigs
+            self._has_sigma = any(s > 0 for s in sigs)
             ax.set_xscale("log")
             ax.set_yscale("log")
-            # pin x-limits to the data range so the axes edges coincide with the slider's
-            # vmin/vmax — otherwise matplotlib's default margins inset the data and the
-            # axvlines no longer line up with the handles directly below them
+            # pin x-limits to data range so axes edges coincide with the slider's vmin/vmax
             ax.set_xlim(vmin, vmax)
+            self._redraw_data_artists(vmin, vmax)
+            # freeze y-limits from the full dataset so range changes don't rescale the view
+            ax.relim()
+            ax.autoscale_view()
+            ax.autoscale(enable=False)
         else:
+            self._qs = self._Is = self._sigs = None
             ax.text(0.5, 0.5, "Could not read data file",
-                    transform=ax.transAxes, ha="center", va="center",
-                    color=p["muted"])
+                    transform=ax.transAxes, ha="center", va="center", color=p["muted"])
 
-        # the slider below stands in for the x-axis, so strip the axes' own one and let
-        # the axvlines run to the bottom edge where the slider's risers pick them up.
-        # (done after set_xscale, which would otherwise re-enable the bottom ticks)
+        # strip the x-axis after set_xscale (which would otherwise re-enable the ticks)
         ax.tick_params(axis="x", bottom=False, labelbottom=False)
         ax.spines["bottom"].set_visible(False)
 
-        self._vlines[0] = ax.axvline(vmin, color=p["accent"], lw=1.5, ls="--", alpha=0.7)
-        self._vlines[1] = ax.axvline(vmax, color=p["accent"], lw=1.5, ls="--", alpha=0.7)
+        self._vlines[0] = ax.axvline(vmin, color=p["danger"], lw=1.5, ls="--", alpha=0.8)
+        self._vlines[1] = ax.axvline(vmax, color=p["danger"], lw=1.5, ls="--", alpha=0.8)
 
         self._fig.set_layout_engine("tight")
         self._mpl_canvas.draw_idle()
+
+
+    def _redraw_data_artists(self, qmin: float, qmax: float):
+        """Remove and re-add data artists split into included (blue) and excluded (muted red)."""
+        for a in self._data_artists:
+            a.remove()
+        self._data_artists = []
+        if self._qs is None:
+            return
+
+        ax, p = self._ax, PALETTE
+        qs, Is, sigs = self._qs, self._Is, self._sigs
+
+        def _pick(seq, mask):
+            return [v for v, m in zip(seq, mask) if m]
+
+        def _add(qsel, Isel, ssel, color, ecolor):
+            if not qsel:
+                return
+            if self._has_sigma:
+                artist = ax.errorbar(qsel, Isel, yerr=ssel, fmt=".", color=color,
+                                     ecolor=ecolor, ms=3, lw=0.8, capsize=0)
+            else:
+                artist, = ax.plot(qsel, Isel, ".", color=color, ms=3)
+            self._data_artists.append(artist)
+
+        ex = [not (qmin <= q <= qmax) for q in qs]
+        inc = [not e for e in ex]
+        _add(_pick(qs, ex), _pick(Is, ex), _pick(sigs, ex),
+             p["bad_border"], p["bad_border"])
+        _add(_pick(qs, inc), _pick(Is, inc), _pick(sigs, inc),
+             p["accent"], p["border"])
+
 
     def _on_range_changed(self, qmin: float, qmax: float):
         if self._vlines[0] is not None:
             self._vlines[0].set_xdata([qmin, qmin])
             self._vlines[1].set_xdata([qmax, qmax])
-            self._mpl_canvas.draw_idle()
-
+        self._redraw_data_artists(qmin, qmax)
+        self._mpl_canvas.draw_idle()
