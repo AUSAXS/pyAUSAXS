@@ -175,12 +175,16 @@ class RangeSlider(ttk.Frame):
         log: bool = False,
         fmt: str = "{:.4g}",
         on_change: Optional[Callable[[float, float], None]] = None,
+        stem: bool = False,
     ):
         super().__init__(parent)
         self._min, self._max = vmin, vmax
         self._log = log
         self._fmt = fmt
         self._on_change = on_change
+        # when overlaid on a plot, draw a dashed riser from each handle up to the top
+        # of the canvas so it visually continues the plot's axvline down to the handle
+        self._stem = stem
         lo, hi = start if start else (vmin, vmax)
         self._pos = [self._to_pos(lo), self._to_pos(hi)]
         self._drag = None
@@ -270,6 +274,12 @@ class RangeSlider(ttk.Frame):
             x = self._track_x(self._to_pos(t))
             c.create_text(x, cy + r + 7, text=self._fmt.format(t),
                           font=FONTS["small"], fill=PALETTE["muted"])
+
+        # dashed risers continuing the plot's axvlines down to each handle
+        if self._stem:
+            for pos in self._pos:
+                x = self._track_x(pos)
+                c.create_line(x, 0, x, cy, fill=PALETTE["accent"], dash=(2, 3))
 
         # circular handles, accent-filled with a white core and a hover ring
         for i, pos in enumerate(self._pos):
