@@ -129,16 +129,19 @@ class RigidbodyPane(ttk.Frame):
         splits_row = ttk.Frame(input_frame)
         splits_row.pack(fill="x", pady=(6, 0))
         ttk.Label(splits_row, text="Splits", style="Muted.TLabel").pack(anchor="w")
+        inner = ttk.Frame(splits_row)
+        inner.pack(fill="x")
         self.splits_var = tk.StringVar()
-        ttk.Entry(splits_row, textvariable=self.splits_var).pack(fill="x")
+        send_btn = ttk.Button(inner, text="Send to SAXS fitter", command=self._send_to_saxs_fitter)
+        send_btn.pack(side="right")
+        ttk.Entry(inner, textvariable=self.splits_var).pack(side="left", fill="x", expand=True, padx=(0, 16))
         # the trace is attached at the end of __init__, once the preview exists
 
         run_frame = ttk.Frame(controls)
         run_frame.pack(fill="x", pady=12)
         self.validate_button = ttk.Button(run_frame, text="Validate", command=self._validate_clicked)
         self.validate_button.pack(side="left")
-        self.run_button = ttk.Button(run_frame, text="Run refinement", style="Accent.TButton",
-                                     command=self._run_clicked)
+        self.run_button = ttk.Button(run_frame, text="Run refinement", style="Accent.TButton", command=self._run_clicked)
         self.run_button.pack(side="left", padx=(8, 0))
         self.progress = ttk.Progressbar(run_frame, mode="indeterminate")  # packed only while running
 
@@ -251,6 +254,18 @@ class RigidbodyPane(ttk.Frame):
         self.after(60, self._restore_split)
         self.after(80, self._update_structure_preview)
         self._autosave_job = self.after(self._AUTOSAVE_INTERVAL_MS, self._autosave_script)
+
+    def _send_to_saxs_fitter(self):
+        """Populate the SAXS fitter pane with the current structure and SAXS fields and switch to it."""
+        from .saxs_pane import SaxsFitterPane
+        notebook = self.master
+        for tab_id in notebook.tabs():
+            pane = notebook.nametowidget(tab_id)
+            if isinstance(pane, SaxsFitterPane):
+                pane.structure_field.set(self.structure_field.get(), touched=True)
+                pane.saxs_field.set(self.saxs_field.get(), touched=True)
+                notebook.select(tab_id)
+                break
 
     # ----- layout -------------------------------------------------------------
     # fraction of the space (right of the controls) given to the editor when the results pane is visible; the results pane keeps the rest.
