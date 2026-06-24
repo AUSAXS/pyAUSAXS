@@ -242,7 +242,7 @@ class FitterPane(ttk.Frame):
 
     # ----- shared behavior ----------------------------------------------------
     def _make_q_slider(self, parent) -> RangeSlider:
-        ttk.Label(parent, text="q-range [1/Å]").pack(anchor="w", pady=(8, 0))
+        ttk.Label(parent, text="q-range [1/Å]").pack(anchor="w", pady=(4, 0))
         slider = RangeSlider(parent, QMIN, QMAX, log=True, fmt="{:.4g}")
         slider.pack(fill="x")
         return slider

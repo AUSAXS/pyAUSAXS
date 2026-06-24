@@ -23,8 +23,8 @@ class App(tk.Tk):
         from .. import __version__
 
         self.title("AUSAXS")
-        self.geometry("1320x840")
-        self.minsize(960, 640)
+        self.geometry("1320x880")
+        self.minsize(960, 680)
         apply_theme(self)
 
         header = ttk.Frame(self, padding=(20, 14, 20, 6))

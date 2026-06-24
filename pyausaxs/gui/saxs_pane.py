@@ -45,7 +45,7 @@ class SaxsFitterPane(FitterPane):
         self.q_slider = self._make_q_slider(parent)
 
         grid = ttk.Frame(parent)
-        grid.pack(fill="x", pady=(8, 0))
+        grid.pack(fill="x", pady=(4, 0))
         grid.columnconfigure(1, weight=1)
 
         ttk.Label(grid, text="q unit").grid(row=0, column=0, sticky="w")
