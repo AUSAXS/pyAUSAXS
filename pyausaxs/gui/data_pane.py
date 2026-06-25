@@ -22,8 +22,10 @@ class SaxsDataPane(ttk.Frame):
     DEFAULT_UNIT = "Å⁻¹"
 
     DATA_RATIO = 8      # data-axes : slider-strip height ratio
-    Y_TRACK = 0.6       # handle row, as a fraction of the slider strip's height
+    Y_TRACK = 0.64      # handle row, as a fraction of the slider strip's height
+    Y_LABEL = 0.48      # decade-label row, just beneath the handles
     HANDLE_MS = 11      # handle marker diameter (points)
+    LABEL_SIZE = 10     # decade-label font size (points)
 
     def __init__(self, parent, file_path: str):
         super().__init__(parent)
@@ -38,14 +40,14 @@ class SaxsDataPane(ttk.Frame):
         self._drag = None                         # handle being dragged (0 / 1 / None)
         self._vline_top = None                    # cached slider-fraction of the plot top
 
-        # read data first so we can set the selector bounds from the actual q-range
+        self._vmin, self._vmax = QMIN, QMAX
         data = _read_saxs_data(file_path)
         if data:
             qs, _, _ = data
-            self._vmin, self._vmax = min(qs), max(qs)
+            self._qmin = max(min(qs) * self._unit_factor, QMIN)
+            self._qmax = min(max(qs) * self._unit_factor, QMAX)
         else:
-            self._vmin, self._vmax = QMIN, QMAX
-        self._qmin, self._qmax = self._vmin, self._vmax
+            self._qmin, self._qmax = QMIN, QMAX
 
         # --- figure: data axes on top, a thin slider strip sharing its x below ---
         self._fig = Figure(facecolor=PALETTE["surface"])
@@ -118,11 +120,11 @@ class SaxsDataPane(ttk.Frame):
             self._has_sigma = any(s > 0 for s in sigs)
             ax.set_xscale("log")
             ax.set_yscale("log")
-            ax.set_xlim(self._vmin, self._vmax)
             self._redraw_data_artists()
-            # freeze y-limits from the full dataset so range changes don't rescale the view
+            # y-limits come from the data; x stays pinned to the fixed Å⁻¹ frame
             ax.relim()
-            ax.autoscale_view()
+            ax.autoscale_view(scalex=False)
+            ax.set_xlim(self._vmin, self._vmax)
             ax.autoscale(enable=False)
         else:
             self._qs_raw = self._qs = self._Is = self._sigs = None
@@ -132,14 +134,15 @@ class SaxsDataPane(ttk.Frame):
         self._style_strip()
 
     def _style_strip(self):
-        """The slider strip carries the (log) x decade labels and nothing else."""
+        """The slider strip hosts the track/handles/risers and the decade labels (drawn
+        as text in _draw_selector); its own axis furniture is hidden."""
         sax, p = self._sax, PALETTE
         sax.set_ylim(0, 1)
         sax.set_yticks([])
         sax.set_facecolor(p["surface"])
         for spine in sax.spines.values():
             spine.set_visible(False)
-        sax.tick_params(axis="x", colors=p["muted"], labelsize=8, length=0)
+        sax.tick_params(axis="x", which="both", bottom=False, labelbottom=False)
 
     # ------------------------------------------------------------------
     def _redraw_data_artists(self):
@@ -203,6 +206,13 @@ class SaxsDataPane(ttk.Frame):
                                     mec="none", clip_on=False, zorder=6)
         sax.add_line(self._handles)
         sax.add_line(self._handle_cores)
+
+        # decade labels just beneath the handles; the frame is fixed, so they never move
+        d0, d1 = math.ceil(math.log10(self._vmin)), math.floor(math.log10(self._vmax))
+        for d in range(d0, d1 + 1):
+            sax.text(10.0 ** d, self.Y_LABEL, rf"$10^{{{d}}}$", transform=tr,
+                     ha="center", va="top", color=p["muted"], fontsize=self.LABEL_SIZE,
+                     clip_on=False)
 
     def _update_selector(self):
         self._span_line.set_xdata([self._qmin, self._qmax])
@@ -275,17 +285,12 @@ class SaxsDataPane(ttk.Frame):
         self._refresh()
 
     def _on_unit_changed(self):
-        """Re-interpret the file's q in the newly selected unit and convert to Å⁻¹. The
-        selection scales with the data (a uniform log shift)"""
+        """Reinterpret the file's q in the selected unit and convert to Å⁻¹. The axis is a
+        fixed Å⁻¹ frame, so nothing about it (or the selection) changes — only the data
+        moves, since its unit is the one thing we don't know about it."""
         if self._qs_raw is None:
             return
-        new_factor = self.UNIT_FACTORS[self._unit_var.get()]
-        ratio = new_factor / self._unit_factor
-        self._unit_factor = new_factor
-        self._qs = [q * new_factor for q in self._qs_raw]
-        self._vmin, self._vmax = min(self._qs), max(self._qs)
-        self._qmin *= ratio
-        self._qmax *= ratio
-        self._ax.set_xlim(self._vmin, self._vmax)
-        self._track_line.set_xdata([self._vmin, self._vmax])
-        self._refresh()
+        self._unit_factor = self.UNIT_FACTORS[self._unit_var.get()]
+        self._qs = [q * self._unit_factor for q in self._qs_raw]
+        self._redraw_data_artists()
+        self._mpl_canvas.draw_idle()
