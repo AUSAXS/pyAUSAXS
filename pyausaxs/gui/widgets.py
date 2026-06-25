@@ -175,16 +175,12 @@ class RangeSlider(ttk.Frame):
         log: bool = False,
         fmt: str = "{:.4g}",
         on_change: Optional[Callable[[float, float], None]] = None,
-        stem: bool = False,
-        stem_color: Optional[str] = None,
     ):
         super().__init__(parent)
         self._min, self._max = vmin, vmax
         self._log = log
         self._fmt = fmt
         self._on_change = on_change
-        self._stem = stem
-        self._stem_color = stem_color or PALETTE["accent"]
         lo, hi = start if start else (vmin, vmax)
         self._pos = [self._to_pos(lo), self._to_pos(hi)]
         self._drag = None
@@ -195,24 +191,20 @@ class RangeSlider(ttk.Frame):
         self.canvas = tk.Canvas(
             self, height=self.CANVAS_H, highlightthickness=0,
             background=PALETTE["bg"], bd=0)
-        self.canvas.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(2, 2))
+        self.canvas.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(2, 2))
 
         self.lo_var, self.hi_var = tk.StringVar(), tk.StringVar()
         lo_entry = ttk.Entry(self, textvariable=self.lo_var, width=9, justify="center")
         hi_entry = ttk.Entry(self, textvariable=self.hi_var, width=9, justify="center")
-        # an empty centre slot between the entries that callers can populate (e.g. an
-        # axis label / unit selector); stays zero-width when unused
-        self.center = ttk.Frame(self)
         lo_entry.grid(row=1, column=0, sticky="w")
-        self.center.grid(row=1, column=1)
-        hi_entry.grid(row=1, column=2, sticky="e")
+        hi_entry.grid(row=1, column=1, sticky="e")
         lo_entry.bind("<Return>", lambda _e: self._entry_changed())
         lo_entry.bind("<FocusOut>", lambda _e: self._entry_changed())
         hi_entry.bind("<Return>", lambda _e: self._entry_changed())
         hi_entry.bind("<FocusOut>", lambda _e: self._entry_changed())
 
         self.columnconfigure(0, weight=1)
-        self.columnconfigure(2, weight=1)
+        self.columnconfigure(1, weight=1)
 
         self.canvas.bind("<Configure>", lambda _e: self._redraw())
         self.canvas.bind("<Button-1>", self._press)
@@ -245,14 +237,6 @@ class RangeSlider(ttk.Frame):
         if self._on_change:
             self._on_change(*self.values())
 
-    def set_range(self, vmin: float, vmax: float):
-        """Replace the value bounds while keeping the handles at their current
-        fractional positions — a uniform rescale, e.g. a unit change. Refreshes the
-        tick labels and entry readouts but does not fire on_change."""
-        self._min, self._max = vmin, vmax
-        self._sync_entries()
-        self._redraw()
-
     def _track_x(self, pos: float) -> float:
         w = self.canvas.winfo_width()
         return self._left_pad + pos * (w - self._left_pad - self._right_pad)
@@ -284,12 +268,6 @@ class RangeSlider(ttk.Frame):
         for t in ticks:
             x = self._track_x(self._to_pos(t))
             c.create_text(x, cy + r + 7, text=self._fmt.format(t), font=FONTS["small"], fill=PALETTE["muted"])
-
-        # dashed risers continuing the plot's axvlines down to each handle
-        if self._stem:
-            for pos in self._pos:
-                x = self._track_x(pos)
-                c.create_line(x, 0, x, cy, fill=self._stem_color, dash=(2, 3))
 
         # circular handles, accent-filled with a white core and a hover ring
         for i, pos in enumerate(self._pos):
