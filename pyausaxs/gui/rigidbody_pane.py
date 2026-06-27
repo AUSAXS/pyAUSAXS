@@ -11,6 +11,7 @@ from pathlib import Path
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
+from .data_pane import SaxsDataPane
 from .panes import (
     SAXS_EXTENSIONS, STRUCTURE_EXTENSIONS, _make_validator, add_figure_tab,
     make_on_load_structure, make_on_load_saxs,
@@ -93,6 +94,7 @@ class RigidbodyPane(ttk.Frame):
         self._last_saved_script = None   # last text written, to skip unchanged autosaves
         self._script_file_path = None    # last file the user manually saved to / loaded from
         self._autosave_job = None        # pending periodic autosave
+        self._data_pane = None           # SaxsDataPane tab for inspecting the SAXS data, or None
 
         # three panes: controls | script editor | results. The editor can expand over the results pane (and collapses again
         # when a refinement is launched).
@@ -118,23 +120,29 @@ class RigidbodyPane(ttk.Frame):
         self.saxs_field = FileField(
             input_frame, "SAXS data",
             validator=_make_validator(SAXS_EXTENSIONS, "_is_saxs_data_file"),
+            on_valid=lambda _p: self._refresh_view_btn(),
             on_commit=lambda p: self._on_load_saxs(p),
             filetypes=[("SAXS data", "*.dat *.rsr *.xvg")],
         )
         self.structure_field.pack(fill="x")
         self.saxs_field.pack(fill="x", pady=(6, 0))
+        # actions that act on the inputs as a whole rather than a single field, grouped to
+        # the right: hand the inputs to the SAXS fitter, or open a data-inspection tab
+        button_row = ttk.Frame(input_frame)
+        button_row.pack(fill="x", pady=(8, 0))
+        self._view_btn = ttk.Button(button_row, text="View data", command=self._open_data_pane,
+                                    state="disabled")
+        self._view_btn.pack(side="right")
+        ttk.Button(button_row, text="Send to SAXS fitter", command=self._send_to_saxs_fitter).pack(
+            side="right", padx=(0, 8))
         self._on_load_structure = make_on_load_structure(self._set_load_directive, self.saxs_field)
         self._on_load_saxs = make_on_load_saxs(self._set_load_directive, self.structure_field)
 
         splits_row = ttk.Frame(input_frame)
         splits_row.pack(fill="x", pady=(6, 0))
         ttk.Label(splits_row, text="Splits", style="Muted.TLabel").pack(anchor="w")
-        inner = ttk.Frame(splits_row)
-        inner.pack(fill="x")
         self.splits_var = tk.StringVar()
-        send_btn = ttk.Button(inner, text="Send to SAXS fitter", command=self._send_to_saxs_fitter)
-        send_btn.pack(side="right")
-        ttk.Entry(inner, textvariable=self.splits_var).pack(side="left", fill="x", expand=True, padx=(0, 16))
+        ttk.Entry(splits_row, textvariable=self.splits_var).pack(fill="x")
         # the trace is attached at the end of __init__, once the preview exists
 
         run_frame = ttk.Frame(controls)
@@ -254,6 +262,38 @@ class RigidbodyPane(ttk.Frame):
         self.after(60, self._restore_split)
         self.after(80, self._update_structure_preview)
         self._autosave_job = self.after(self._AUTOSAVE_INTERVAL_MS, self._autosave_script)
+
+    # ----- data pane management -----------------------------------------------
+    def _refresh_view_btn(self):
+        """Enable "View data" whenever the SAXS field is valid (driven by on_valid, so it
+        also fires when the field is filled from a restored/loaded script)."""
+        if hasattr(self, "_view_btn"):
+            self._view_btn.configure(state="normal" if self.saxs_field.valid else "disabled")
+
+    def _open_data_pane(self):
+        """Open (or focus) a data-inspection tab for the current SAXS file. Rebuilt if the
+        file has changed since it was opened; the rigid-body run is script-driven, so this
+        is purely for inspecting the data."""
+        path = self.saxs_field.get()
+        if not path:
+            return
+        if self._data_pane is not None and self._data_pane.file_path != path:
+            self._close_data_pane()
+        if self._data_pane is None:
+            notebook = self.master
+            self._data_pane = SaxsDataPane(notebook, path)
+            notebook.add(self._data_pane, text=self._data_pane.title)
+        self.master.select(self._data_pane)
+
+    def _close_data_pane(self):
+        if self._data_pane is None:
+            return
+        try:
+            self.master.forget(self._data_pane)
+        except Exception:
+            pass
+        self._data_pane.destroy()
+        self._data_pane = None
 
     def _send_to_saxs_fitter(self):
         """Populate the SAXS fitter pane with the current structure and SAXS fields and switch to it."""
