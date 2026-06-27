@@ -319,8 +319,7 @@ class SaxsDataPane(ttk.Frame):
         # ghost the previous interpretation at its old positions, and widen the axis to
         # span both ranges so the data is seen sliding across before the view settles
         self._clear_ghosts()
-        ghost, = self._ax.plot(old_qs, self._Is, ".", color=PALETTE["muted"], ms=3,
-                               alpha=0.35, zorder=0)
+        ghost, = self._ax.plot(old_qs, self._Is, ".", color=PALETTE["muted"], ms=3, alpha=0.35, zorder=0)
         self._ghost_artists = [ghost]
         self._track_line.set_xdata([self._vmin, self._vmax])
         self._draw_decade_labels()

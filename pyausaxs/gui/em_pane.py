@@ -41,8 +41,7 @@ class EmFitterPane(FitterPane):
         self.saxs_field.pack(fill="x", pady=(6, 0))
         self.output_field.pack(fill="x", pady=(6, 0))
 
-        self._view_btn = ttk.Button(parent, text="View data", command=self._open_data_pane,
-                                    state="disabled")
+        self._view_btn = ttk.Button(parent, text="View data", command=self._open_data_pane, state="disabled")
         self._view_btn.pack(anchor="e", pady=(8, 0))
 
     def _build_settings(self, parent):

@@ -49,8 +49,7 @@ class FileField(ttk.Frame):
             highlightbackground=PALETTE["border"], highlightcolor=PALETTE["accent"],
         )
         self.entry.grid(row=1, column=0, sticky="ew", ipady=4)
-        ttk.Button(self, text="Browse", style="Icon.TButton", command=self._browse).grid(
-            row=1, column=1, padx=(6, 0))
+        ttk.Button(self, text="Browse", style="Icon.TButton", command=self._browse).grid(row=1, column=1, padx=(6, 0))
         self.columnconfigure(0, weight=1)
 
         self.entry.bind("<Return>", lambda _e: self._commit())
@@ -58,8 +57,7 @@ class FileField(ttk.Frame):
         self.entry.bind("<Key>", self._on_keypress)
 
     def _set_state_color(self, fill: str, border: str):
-        self.entry.configure(background=fill, readonlybackground=fill,
-                             disabledbackground=fill, highlightbackground=border)
+        self.entry.configure(background=fill, readonlybackground=fill, disabledbackground=fill, highlightbackground=border)
 
     def _on_keypress(self, event):
         if event.keysym in ("Return", "Tab"):

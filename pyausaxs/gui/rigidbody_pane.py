@@ -635,8 +635,7 @@ class RigidbodyPane(ttk.Frame):
         """Distil the parts of the script that affect the preview — the load block and any symmetry elements — so
         edits to unrelated lines (iterations, print, save, ...) don't trigger a redraw or a backend rebuild."""
         load = _LOAD_BLOCK_RE.search(script)
-        return (load.group(0) if load else "",
-                tuple(m.group(0) for m in _SYMMETRY_RE.finditer(script)))
+        return (load.group(0) if load else "", tuple(m.group(0) for m in _SYMMETRY_RE.finditer(script)))
 
     def _preview_data(self, script: str, sig: tuple):
         """Build the rigid body from the current script and return its preview structure
