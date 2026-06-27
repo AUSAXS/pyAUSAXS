@@ -26,11 +26,12 @@ class SaxsDataPane(ttk.Frame):
     Y_LABEL = 0.48      # decade-label row, just beneath the handles
     HANDLE_MS = 11      # handle marker diameter (points)
     LABEL_SIZE = 10     # decade-label font size (points)
+    UNIT_ANIM_MS = 900  # how long both interpretations are shown on a unit change
 
     def __init__(self, parent, file_path: str):
         super().__init__(parent)
         self.file_path = file_path
-        self.title = os.path.splitext(os.path.basename(file_path))[0]
+        self.title = "Dataset: " + os.path.splitext(os.path.basename(file_path))[0]
         self._qs_raw = None                       # q as read from file (selected unit)
         self._qs = self._Is = self._sigs = None   # q converted to Å⁻¹
         self._has_sigma = False
@@ -39,15 +40,20 @@ class SaxsDataPane(ttk.Frame):
         self._unit_factor = self.UNIT_FACTORS[self.DEFAULT_UNIT]
         self._drag = None                         # handle being dragged (0 / 1 / None)
         self._vline_top = None                    # cached slider-fraction of the plot top
+        self._decade_labels: list = []
+        self._ghost_artists: list = []            # previous interpretation during a unit change
+        self._unit_anim_job = None                # pending end-of-transition callback
 
-        self._vmin, self._vmax = QMIN, QMAX
+        # the axis (and slider track) span the data's own q-range, in Å⁻¹; the unit
+        # selector reinterprets the file's q and the range rescales with it
         data = _read_saxs_data(file_path)
         if data:
             qs, _, _ = data
-            self._qmin = max(min(qs) * self._unit_factor, QMIN)
-            self._qmax = min(max(qs) * self._unit_factor, QMAX)
+            self._vmin = min(qs) * self._unit_factor
+            self._vmax = max(qs) * self._unit_factor
         else:
-            self._qmin, self._qmax = QMIN, QMAX
+            self._vmin, self._vmax = QMIN, QMAX
+        self._qmin, self._qmax = self._vmin, self._vmax
 
         # --- figure: data axes on top, a thin slider strip sharing its x below ---
         self._fig = Figure(facecolor=PALETTE["surface"])
@@ -121,7 +127,7 @@ class SaxsDataPane(ttk.Frame):
             ax.set_xscale("log")
             ax.set_yscale("log")
             self._redraw_data_artists()
-            # y-limits come from the data; x stays pinned to the fixed Å⁻¹ frame
+            # y-limits from the data; x is the data's own q-range
             ax.relim()
             ax.autoscale_view(scalex=False)
             ax.set_xlim(self._vmin, self._vmax)
@@ -206,13 +212,21 @@ class SaxsDataPane(ttk.Frame):
                                     mec="none", clip_on=False, zorder=6)
         sax.add_line(self._handles)
         sax.add_line(self._handle_cores)
+        self._draw_decade_labels()
 
-        # decade labels just beneath the handles; the frame is fixed, so they never move
+    def _draw_decade_labels(self):
+        """(Re)draw the decade labels just beneath the handles; redrawn on a unit change
+        since the q-range — and thus which decades fall in it — rescales."""
+        for t in self._decade_labels:
+            t.remove()
+        self._decade_labels = []
+        tr = self._sax.get_xaxis_transform()
         d0, d1 = math.ceil(math.log10(self._vmin)), math.floor(math.log10(self._vmax))
         for d in range(d0, d1 + 1):
-            sax.text(10.0 ** d, self.Y_LABEL, rf"$10^{{{d}}}$", transform=tr,
-                     ha="center", va="top", color=p["muted"], fontsize=self.LABEL_SIZE,
-                     clip_on=False)
+            self._decade_labels.append(self._sax.text(
+                10.0 ** d, self.Y_LABEL, rf"$10^{{{d}}}$", transform=tr,
+                ha="center", va="top", color=PALETTE["muted"], fontsize=self.LABEL_SIZE,
+                clip_on=False))
 
     def _update_selector(self):
         self._span_line.set_xdata([self._qmin, self._qmax])
@@ -285,12 +299,47 @@ class SaxsDataPane(ttk.Frame):
         self._refresh()
 
     def _on_unit_changed(self):
-        """Reinterpret the file's q in the selected unit and convert to Å⁻¹. The axis is a
-        fixed Å⁻¹ frame, so nothing about it (or the selection) changes — only the data
-        moves, since its unit is the one thing we don't know about it."""
+        """Reinterpret the file's q in the selected unit and convert to Å⁻¹. The data's
+        q-range — and so the axis, slider track and decade labels — rescales with it,
+        while the selection keeps its position relative to the data. A short transition
+        keeps the previous interpretation on screen so the shift is visible."""
         if self._qs_raw is None:
             return
-        self._unit_factor = self.UNIT_FACTORS[self._unit_var.get()]
-        self._qs = [q * self._unit_factor for q in self._qs_raw]
-        self._redraw_data_artists()
+        new_factor = self.UNIT_FACTORS[self._unit_var.get()]
+        if new_factor == self._unit_factor:
+            return
+        old_qs, old_lim = self._qs, (self._vmin, self._vmax)
+        ratio = new_factor / self._unit_factor
+        self._unit_factor = new_factor
+        self._qs = [q * new_factor for q in self._qs_raw]
+        self._vmin, self._vmax = min(self._qs), max(self._qs)
+        self._qmin *= ratio
+        self._qmax *= ratio
+
+        # ghost the previous interpretation at its old positions, and widen the axis to
+        # span both ranges so the data is seen sliding across before the view settles
+        self._clear_ghosts()
+        ghost, = self._ax.plot(old_qs, self._Is, ".", color=PALETTE["muted"], ms=3,
+                               alpha=0.35, zorder=0)
+        self._ghost_artists = [ghost]
+        self._track_line.set_xdata([self._vmin, self._vmax])
+        self._draw_decade_labels()
+        self._refresh()
+        self._ax.set_xlim(min(self._vmin, old_lim[0]), max(self._vmax, old_lim[1]))
         self._mpl_canvas.draw_idle()
+
+        if self._unit_anim_job is not None:
+            self.after_cancel(self._unit_anim_job)
+        self._unit_anim_job = self.after(self.UNIT_ANIM_MS, self._settle_unit_change)
+
+    def _settle_unit_change(self):
+        """End the unit-change transition: drop the ghost and zoom onto the new range."""
+        self._unit_anim_job = None
+        self._clear_ghosts()
+        self._ax.set_xlim(self._vmin, self._vmax)
+        self._mpl_canvas.draw_idle()
+
+    def _clear_ghosts(self):
+        for a in self._ghost_artists:
+            a.remove()
+        self._ghost_artists = []
