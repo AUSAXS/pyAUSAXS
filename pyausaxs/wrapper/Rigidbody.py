@@ -31,6 +31,8 @@ register({
             ct.POINTER(ct.POINTER(ct.c_int)),    # residue_seq vector (output)
             ct.POINTER(ct.POINTER(ct.c_int)),    # is_ca vector (output)
             ct.POINTER(ct.c_int),                # n_atoms (output)
+            ct.POINTER(ct.POINTER(ct.c_int)),    # constraint_data vector, flat [idx1,idx2,type]* (output)
+            ct.POINTER(ct.c_int),                # n_constraints (output)
             ct.POINTER(ct.c_int)                 # status (0 = success)
         ],
         ct.c_int                                 # return data id
@@ -106,7 +108,10 @@ class Rigidbody(BackendObject):
             body        : (N,) int   — index of the body each atom belongs to
             copy        : (N,) int   — symmetry copy index (0 = original)
             residue_seq : (N,) int   — residue number (-1 if unknown)
-            is_ca       : (N,) bool  — whether the atom is a Cα"""
+            is_ca       : (N,) bool  — whether the atom is a Cα
+            constraints : (M, 3) int — one row per constraint, [atom_index_1, atom_index_2, type]
+                          with type 0=backbone, 1=centre-of-mass, 2=attractor, 3=repulsor.
+                          The atom indices point into the rows of `coords` (copy 0 of each body)."""
         ausaxs = AUSAXS()
         x = ct.POINTER(ct.c_double)()
         y = ct.POINTER(ct.c_double)()
@@ -116,16 +121,19 @@ class Rigidbody(BackendObject):
         residue = ct.POINTER(ct.c_int)()
         is_ca = ct.POINTER(ct.c_int)()
         n_atoms = ct.c_int()
+        constraints = ct.POINTER(ct.c_int)()
+        n_constraints = ct.c_int()
         status = ct.c_int()
         temp_id = ausaxs.lib().functions.rigidbody_get_preview_structure(
             self._get_id(),
             ct.byref(x), ct.byref(y), ct.byref(z),
             ct.byref(body), ct.byref(copy), ct.byref(residue), ct.byref(is_ca),
-            ct.byref(n_atoms), ct.byref(status)
+            ct.byref(n_atoms), ct.byref(constraints), ct.byref(n_constraints), ct.byref(status)
         )
         _check_error_code(status, "rigidbody_get_preview_structure")
         n = n_atoms.value
-        # copy out before deallocating the backend-owned buffers
+        nc = n_constraints.value
+        # copy out before deallocating the backend-owned buffers (constraint_data is null when nc == 0)
         result = {
             "coords": np.column_stack((
                 _ptr_to_array(x, n),
@@ -136,6 +144,8 @@ class Rigidbody(BackendObject):
             "copy": _ptr_to_array(copy, n, dtype=int),
             "residue_seq": _ptr_to_array(residue, n, dtype=int),
             "is_ca": _ptr_to_array(is_ca, n, dtype=bool),
+            "constraints": (_ptr_to_array(constraints, nc * 3, dtype=int).reshape(-1, 3)
+                            if nc else np.empty((0, 3), dtype=int)),
         }
         ausaxs.deallocate(temp_id)
         return result
