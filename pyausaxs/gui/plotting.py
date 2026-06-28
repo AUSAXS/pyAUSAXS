@@ -279,6 +279,7 @@ def draw_structure(ax, data: dict, split_residues: list[int]):
     # directional arrowheads for attractors (2, pointing inward) and repulsors (3, outward).
     # indices reference copy 0, so they map straight onto the rows of `coords`.
     constraints = data.get("constraints")
+    print(constraints)
     if constraints is not None and len(constraints):
         n = len(coords)
         scale = float((coords.max(0) - coords.min(0)).max()) or 1.0

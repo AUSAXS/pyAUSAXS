@@ -57,6 +57,10 @@ _LOAD_BLOCK_RE = re.compile(r"load\s*\{.*?\}", re.DOTALL)
 # a 'symmetry' element: either a brace block (symmetry { ... }) or a single inline line
 # (symmetry c6 / symmetry b1 c6), anchored to the first token on a line
 _SYMMETRY_RE = re.compile(r"(?m)^[ \t]*symmetry\b\s*(?:\{.*?\}|[^\n]*)", re.DOTALL)
+# a constraint element — autoconstrain/autoconstraints (inline) or constrain/constraint
+# (inline or a brace block) — anchored to the first token on a line. The whole { ... } block
+# is captured so edits to its arguments (type, bodies, …) refresh the preview too.
+_CONSTRAINT_RE = re.compile(r"(?m)^[ \t]*(?:auto)?constrain(?:ts?)?\b\s*(?:\{.*?\}|[^\n]*)", re.DOTALL)
 # an 'update' element (e.g. `update structure`) as the first token on a line; its presence makes
 # the GUI poll the backend for the live structure during a run
 _UPDATE_RE = re.compile(r"(?m)^[ \t]*update\b")
@@ -632,10 +636,13 @@ class RigidbodyPane(ttk.Frame):
 
     @staticmethod
     def _structural_signature(script: str) -> tuple:
-        """Distil the parts of the script that affect the preview — the load block and any symmetry elements — so
-        edits to unrelated lines (iterations, print, save, ...) don't trigger a redraw or a backend rebuild."""
+        """Distil the parts of the script that affect the preview — the load block, any symmetry elements, and any
+        constraint lines — so edits to unrelated lines (iterations, print, save, ...) don't trigger a redraw or a
+        backend rebuild."""
         load = _LOAD_BLOCK_RE.search(script)
-        return (load.group(0) if load else "", tuple(m.group(0) for m in _SYMMETRY_RE.finditer(script)))
+        return (load.group(0) if load else "",
+                tuple(m.group(0) for m in _SYMMETRY_RE.finditer(script)),
+                tuple(m.group(0) for m in _CONSTRAINT_RE.finditer(script)))
 
     def _preview_data(self, script: str, sig: tuple):
         """Build the rigid body from the current script and return its preview structure
