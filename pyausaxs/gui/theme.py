@@ -116,56 +116,49 @@ def apply_theme(root):
     style.configure("Footer.TLabel", background=p["bg"], foreground=p["muted"], font=small)
 
     # labelframes become flat bordered cards with a quiet uppercase-feeling header
-    style.configure("TLabelframe",
-        background=p["bg"], bordercolor=p["border"], relief="solid", borderwidth=1)
-    style.configure("TLabelframe.Label",
-        background=p["bg"], foreground=p["muted"], font=heading)
+    style.configure("TLabelframe", background=p["bg"], bordercolor=p["border"], relief="solid", borderwidth=1)
+    style.configure("TLabelframe.Label", background=p["bg"], foreground=p["muted"], font=heading)
 
     # default buttons: flat, hairline border, accent on hover
     style.configure("TButton",
         background=p["surface"], foreground=p["text"], font=base,
         relief="flat", borderwidth=1, bordercolor=p["border"], padding=(14, 7))
     style.map("TButton",
-        background=[("active", p["surface_alt"]), ("pressed", p["surface_alt"]),
-                    ("disabled", p["bg"])],
+        background=[("active", p["surface_alt"]), ("pressed", p["surface_alt"]), ("disabled", p["bg"])],
         bordercolor=[("active", p["accent"]), ("focus", p["accent"])],
         foreground=[("disabled", p["muted"])])
 
     # primary action button: solid accent
-    style.configure("Accent.TButton",
-        background=p["accent"], foreground="#ffffff", font=heading,
-        relief="flat", borderwidth=0, padding=(18, 8))
-    style.map("Accent.TButton",
-        background=[("active", p["accent_hover"]), ("pressed", p["accent_hover"]),
-                    ("disabled", p["border"])],
-        foreground=[("disabled", p["muted"])])
+    style.configure("Accent.TButton", background=p["accent"], foreground="#ffffff", font=heading, relief="flat", borderwidth=0, padding=(18, 8))
+    style.map("Accent.TButton", background=[("active", p["accent_hover"]), ("pressed", p["accent_hover"]), ("disabled", p["border"])], foreground=[("disabled", p["muted"])])
 
     # icon-sized browse button
     style.configure("Icon.TButton", padding=(8, 6))
 
-    style.configure("TNotebook",
-        background=p["bg"], borderwidth=0, tabmargins=(6, 6, 6, 0))
-    style.configure("TNotebook.Tab",
-        background=p["bg"], foreground=p["muted"], font=base,
-        padding=(20, 9), borderwidth=0)
-    style.map("TNotebook.Tab",
-        background=[("selected", p["bg"]), ("active", p["surface_alt"])],
-        foreground=[("selected", p["accent"]), ("active", p["text"])],
-        font=[("selected", heading)])
+    style.configure("TNotebook", background=p["bg"], borderwidth=0, tabmargins=(6, 6, 6, 0))
+    style.configure("TNotebook.Tab", background=p["bg"], foreground=p["muted"], font=base, padding=(20, 9), borderwidth=0)
+    style.map("TNotebook.Tab", background=[("selected", p["bg"]), ("active", p["surface_alt"])], 
+        foreground=[("selected", p["accent"]), ("active", p["text"])], font=[("selected", heading)]
+    )
 
-    style.configure("TCheckbutton",
-        background=p["bg"], foreground=p["text"], focuscolor=p["bg"])
-    style.map("TCheckbutton",
-        background=[("active", p["bg"])],
-        indicatorcolor=[("selected", p["accent"]), ("!selected", p["surface"])])
+    style.configure("TCheckbutton", background=p["bg"], foreground=p["text"], focuscolor=p["bg"])
+    style.map("TCheckbutton", background=[("active", p["bg"])], indicatorcolor=[("selected", p["accent"]), ("!selected", p["surface"])])
 
-    style.configure("TCombobox",
-        fieldbackground=p["surface"], background=p["surface"], foreground=p["text"],
-        bordercolor=p["border"], arrowcolor=p["muted"], relief="flat", padding=5)
-    style.map("TCombobox",
-        fieldbackground=[("readonly", p["surface"]), ("disabled", p["bg"])],
-        bordercolor=[("focus", p["accent"]), ("active", p["accent"])],
-        arrowcolor=[("disabled", p["border"])])
+    style.configure("TCombobox", fieldbackground=p["surface"], background=p["surface"], foreground=p["text"],
+        bordercolor=p["border"], arrowcolor=p["muted"], relief="flat", padding=5
+    )
+    style.map("TCombobox", fieldbackground=[("readonly", p["surface"]), ("disabled", p["bg"])], 
+        bordercolor=[("focus", p["accent"]), ("active", p["accent"])], arrowcolor=[("disabled", p["border"])]
+    )
+    # clear the automatic selection that Tk sets on the entry when an item is chosen
+    root.bind_class(
+        "TCombobox", "<<ComboboxSelected>>", 
+        lambda e: (
+            e.widget.after_idle(e.widget.selection_clear),
+            e.widget.after_idle(e.widget.winfo_toplevel().focus_set)
+        ), add="+"
+    )
+    root.bind_class("TCombobox", "<FocusIn>", lambda e: e.widget.after_idle(e.widget.winfo_toplevel().focus_set), add="+")    
     # the dropdown list is a classic Tk listbox
     root.option_add("*TCombobox*Listbox.background", p["surface"])
     root.option_add("*TCombobox*Listbox.foreground", p["text"])
@@ -173,18 +166,12 @@ def apply_theme(root):
     root.option_add("*TCombobox*Listbox.selectForeground", "#ffffff")
     root.option_add("*TCombobox*Listbox.borderWidth", 0)
 
-    style.configure("TEntry",
-        fieldbackground=p["surface"], foreground=p["text"],
-        bordercolor=p["border"], relief="flat", padding=5)
+    style.configure("TEntry", fieldbackground=p["surface"], foreground=p["text"], bordercolor=p["border"], relief="flat", padding=5)
     style.map("TEntry", bordercolor=[("focus", p["accent"])])
 
-    style.configure("TProgressbar",
-        background=p["accent"], troughcolor=p["surface_alt"],
-        bordercolor=p["surface_alt"], borderwidth=0, thickness=6)
+    style.configure("TProgressbar", background=p["accent"], troughcolor=p["surface_alt"], bordercolor=p["surface_alt"], borderwidth=0, thickness=6)
 
-    style.configure("TScrollbar",
-        background=p["track"], troughcolor=p["bg"], bordercolor=p["bg"],
-        arrowcolor=p["muted"], relief="flat", borderwidth=0)
+    style.configure("TScrollbar", background=p["track"], troughcolor=p["bg"], bordercolor=p["bg"], arrowcolor=p["muted"], relief="flat", borderwidth=0)
     style.map("TScrollbar", background=[("active", p["muted"])])
 
     style.configure("TPanedwindow", background=p["bg"])

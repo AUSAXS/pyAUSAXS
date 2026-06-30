@@ -3,23 +3,29 @@
 
 import os
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
+from .data_pane import SaxsDataPane
 from .panes import (
     FitterPane, _make_validator, _file_stem, _output_arg,
-    SAXS_EXTENSIONS, EM_MAP_EXTENSIONS,
+    QMIN, QMAX, SAXS_EXTENSIONS, EM_MAP_EXTENSIONS,
 )
-from .widgets import FileField, RangeSlider
+from .widgets import FileField
 
 
 class EmFitterPane(FitterPane):
     title = "EM fitter"
 
+    def __init__(self, parent):
+        self._data_pane: SaxsDataPane | None = None
+        super().__init__(parent)
+
     def _build_inputs(self, parent):
         self.saxs_field = FileField(
             parent, "SAXS data",
             validator=_make_validator(SAXS_EXTENSIONS, "_is_saxs_data_file"),
-            on_valid=self._update_q_range,
+            on_valid=lambda _p: self._refresh_view_btn(),
+            on_commit=self._on_saxs_commit,
             filetypes=[("SAXS data", "*.dat *.rsr *.xvg")],
         )
         self.map_field = FileField(
@@ -35,21 +41,25 @@ class EmFitterPane(FitterPane):
         self.saxs_field.pack(fill="x", pady=(6, 0))
         self.output_field.pack(fill="x", pady=(6, 0))
 
-    def _build_settings(self, parent):
-        self.q_slider = self._make_q_slider(parent)
+        self._view_btn = ttk.Button(parent, text="View data", command=self._open_data_pane, state="disabled")
+        self._view_btn.pack(anchor="e", pady=(8, 0))
 
-        ttk.Label(parent, text="alpha levels").pack(anchor="w", pady=(8, 0))
+    def _build_settings(self, parent):
+        ttk.Label(parent, text="alpha levels").pack(anchor="w", pady=(4, 0))
+        from .widgets import RangeSlider
         self.alpha_slider = RangeSlider(parent, 0, 15, start=(1, 10), fmt="{:.3g}")
         self.alpha_slider.pack(fill="x")
 
         grid = ttk.Frame(parent)
-        grid.pack(fill="x", pady=(8, 0))
+        grid.pack(fill="x", pady=(4, 0))
         grid.columnconfigure(1, weight=1)
 
         ttk.Label(grid, text="q unit").grid(row=0, column=0, sticky="w", padx=(0, 8))
-        self.unit_var = tk.StringVar(value="1/Å")
-        ttk.Combobox(grid, textvariable=self.unit_var, values=["1/Å", "1/nm"],
-                     state="readonly", width=12).grid(row=0, column=1, sticky="ew", pady=2)
+        self.unit_var = tk.StringVar()
+        unit_box = ttk.Combobox(grid, textvariable=self.unit_var, values=["1/Å", "1/nm"],
+                                 state="readonly", width=12)
+        unit_box.set("1/Å")
+        unit_box.grid(row=0, column=1, sticky="ew", pady=2)
 
         ttk.Label(grid, text="Fit evaluations").grid(row=1, column=0, sticky="w", padx=(0, 8))
         self.iterations_var = tk.StringVar()
@@ -64,11 +74,57 @@ class EmFitterPane(FitterPane):
         ttk.Checkbutton(parent, text="Hydrate", variable=self.hydrate_var).pack(anchor="w", pady=(6, 0))
         ttk.Checkbutton(parent, text="Fixed weights", variable=self.fixed_weights_var).pack(anchor="w")
 
+    # ----- data pane management -----------------------------------------------
+
+    def _on_saxs_commit(self, path: str):
+        if self._data_pane is not None and self._data_pane.file_path != path:
+            stem = self._data_pane.title
+            if not messagebox.askyesno(
+                    "Discard data pane",
+                    f'Loading a new dataset will close the "{stem}" data pane and '
+                    f'discard its customisation. Continue?',
+                    parent=self):
+                self.saxs_field.set(self._data_pane.file_path)
+                return
+            self._close_data_pane()
+        self._refresh_view_btn()
+
+    def _refresh_view_btn(self):
+        """Enable "View data" whenever the SAXS field is valid. Driven by on_valid so it
+        also fires for paths set programmatically (autodetection), not just on commit."""
+        if hasattr(self, "_view_btn"):
+            self._view_btn.configure(state="normal" if self.saxs_field.valid else "disabled")
+
+    def _open_data_pane(self):
+        path = self.saxs_field.get()
+        if not path:
+            return
+        if self._data_pane is None:
+            notebook = self.master
+            self._data_pane = SaxsDataPane(notebook, path)
+            notebook.add(self._data_pane, text=self._data_pane.title)
+        self.master.select(self._data_pane)
+
+    def _close_data_pane(self):
+        if self._data_pane is None:
+            return
+        try:
+            self.master.forget(self._data_pane)
+        except Exception:
+            pass
+        self._data_pane.destroy()
+        self._data_pane = None
+
+    # ----- FitterPane interface ------------------------------------------------
+
     def _input_fields(self):
         return [self.map_field, self.saxs_field]
 
     def _build_command(self):
-        qmin, qmax = self.q_slider.values()
+        if self._data_pane is not None:
+            qmin, qmax = self._data_pane.qrange()
+        else:
+            qmin, qmax = QMIN, QMAX
         amin, amax = self.alpha_slider.values()
         argv = [
             "em_fitter",
@@ -89,7 +145,6 @@ class EmFitterPane(FitterPane):
         return "cli_em_fitter", argv
 
     def _result_dir(self):
-        # the CLI appends both the measurement and map stems to the output folder
         return os.path.join(
             self.output_field.get(),
             _file_stem(self.saxs_field.get()),

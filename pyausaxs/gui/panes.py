@@ -5,13 +5,14 @@ import glob
 import os
 import tkinter as tk
 from tkinter import ttk
+from pathlib import Path
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
 from .plotting import fit_figure, plot_file_figure, pretty_plot_name
 from .runner import CliRunner
 from .theme import FONTS, PALETTE
-from .widgets import ConsolePane, FileField, RangeSlider
+from .widgets import ConsolePane, FileField
 
 QMIN, QMAX = 1e-4, 1.0
 
@@ -88,9 +89,10 @@ def add_text_tab(notebook: ttk.Notebook, content: str, title: str):
     notebook.add(frame, text=title)
 
 
-def _saxs_data_span(path: str) -> tuple[float, float] | None:
-    """Extract the q-range spanned by a SAXS data file, ignoring non-numeric lines."""
-    qs = []
+def _read_saxs_data(path: str) -> tuple[list, list, list] | None:
+    """Read a SAXS file, returning (q, I, sigma) lists skipping header/comment lines.
+    Only rows with q > 0 and I > 0 are included so log-scale plots work cleanly."""
+    qs, Is, sigs = [], [], []
     try:
         with open(path, errors="replace") as f:
             for line in f:
@@ -98,13 +100,89 @@ def _saxs_data_span(path: str) -> tuple[float, float] | None:
                 if len(words) < 2:
                     continue
                 try:
-                    qs.append(float(words[0]))
-                    float(words[1])
+                    q, I_val = float(words[0]), float(words[1])
+                    sig = float(words[2]) if len(words) >= 3 else 0.0
+                    if q > 0 and I_val > 0:
+                        qs.append(q)
+                        Is.append(I_val)
+                        sigs.append(sig)
                 except ValueError:
                     continue
     except OSError:
         return None
-    return (min(qs), max(qs)) if qs else None
+    return (qs, Is, sigs) if qs else None
+
+
+
+def make_on_load_structure(set_load_directive=None, saxs_field=None):
+    """Return a handler that mirrors a chosen structure file into the SAXS field.
+
+    If `set_load_directive` is provided it will be called as `set_load_directive("pdb", path)` and 
+    `set_load_directive("saxs", candidate)` when a candidate is found (used by the script editor). 
+    `saxs_field` is a FileField instance to populate.
+    """
+    def _on_load_structure(p: str):
+        if set_load_directive:
+            set_load_directive("pdb", p)
+        if not p or saxs_field is None or saxs_field.valid:
+            return
+        # try direct filename match (same stem, SAXS extensions)
+        for ext in SAXS_EXTENSIONS:
+            candidate = str(Path(p).with_suffix(ext))
+            if os.path.isfile(candidate):
+                saxs_field.set(candidate)
+                if set_load_directive:
+                    set_load_directive("saxs", candidate)
+                return
+        # otherwise, if the directory is small, look for a single SAXS file
+        directory = os.path.dirname(os.path.abspath(p))
+        try:
+            entries = sorted(os.listdir(directory))
+        except OSError:
+            return
+        if 20 < len(entries):
+            return
+        saxs_candidates = [e for e in entries if os.path.splitext(e)[1].lower() in SAXS_EXTENSIONS]
+        if len(saxs_candidates) == 1:
+            saxs_field.set(os.path.join(directory, saxs_candidates[0]))
+            if set_load_directive:
+                set_load_directive("saxs", saxs_candidates[0])
+
+    return _on_load_structure
+
+
+def make_on_load_saxs(set_load_directive=None, structure_field=None):
+    """Return a handler that mirrors a chosen SAXS file into the structure field.
+
+    If `set_load_directive` is provided it will be called as `set_load_directive("saxs", path)` and `
+    set_load_directive("pdb", candidate)` when a candidate is found. `structure_field` is a FileField to populate.
+    """
+    def _on_load_saxs(p: str):
+        if set_load_directive:
+            set_load_directive("saxs", p)
+        if not p or structure_field is None or structure_field.valid:
+            return
+        for ext in STRUCTURE_EXTENSIONS:
+            candidate = str(Path(p).with_suffix(ext))
+            if os.path.isfile(candidate):
+                structure_field.set(candidate)
+                if set_load_directive:
+                    set_load_directive("pdb", candidate)
+                return
+        directory = os.path.dirname(os.path.abspath(p))
+        try:
+            entries = sorted(os.listdir(directory))
+        except OSError:
+            return
+        if 20 < len(entries):
+            return
+        struct_candidates = [e for e in entries if os.path.splitext(e)[1].lower() in STRUCTURE_EXTENSIONS]
+        if len(struct_candidates) == 1:
+            structure_field.set(os.path.join(directory, struct_candidates[0]))
+            if set_load_directive:
+                set_load_directive("pdb", struct_candidates[0])
+
+    return _on_load_saxs
 
 
 class FitterPane(ttk.Frame):
@@ -169,17 +247,6 @@ class FitterPane(ttk.Frame):
         raise NotImplementedError
 
     # ----- shared behavior ----------------------------------------------------
-    def _make_q_slider(self, parent) -> RangeSlider:
-        ttk.Label(parent, text="q-range [1/Å]").pack(anchor="w", pady=(8, 0))
-        slider = RangeSlider(parent, QMIN, QMAX, log=True, fmt="{:.4g}")
-        slider.pack(fill="x")
-        return slider
-
-    def _update_q_range(self, saxs_path: str):
-        span = _saxs_data_span(saxs_path)
-        if span:
-            self.q_slider.set_values(max(span[0] - 1e-3, QMIN), min(span[1] + 1e-3, QMAX))
-
     def _autodetect_saxs(self, near_file: str, saxs_field: FileField):
         """Look for a SAXS data file next to the given input file, like the old GUI did."""
         if saxs_field.valid:

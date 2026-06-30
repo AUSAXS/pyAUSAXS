@@ -23,15 +23,14 @@ class App(tk.Tk):
         from .. import __version__
 
         self.title("AUSAXS")
-        self.geometry("1320x840")
-        self.minsize(960, 640)
+        self.geometry("1320x880")
+        self.minsize(960, 680)
         apply_theme(self)
 
         header = ttk.Frame(self, padding=(20, 14, 20, 6))
         header.pack(side="top", fill="x")
         ttk.Label(header, text="AUSAXS", style="Title.TLabel").pack(side="left")
-        ttk.Label(header, text="small-angle scattering fitter",
-                  style="Muted.TLabel").pack(side="left", padx=(12, 0), pady=(6, 0))
+        ttk.Label(header, text="small-angle scattering fitter", style="Muted.TLabel").pack(side="left", padx=(12, 0), pady=(6, 0))
 
         config = load_config()
 
@@ -58,8 +57,7 @@ class App(tk.Tk):
         footer = ttk.Frame(self, padding=(20, 6, 20, 10))
         footer.pack(side="bottom", fill="x")
         ttk.Label(footer, text=f"pyAUSAXS {__version__}", style="Footer.TLabel").pack(side="left")
-        ttk.Label(footer, text="Kristian Lytje & Jan Skov Pedersen",
-                  style="Footer.TLabel").pack(side="right")
+        ttk.Label(footer, text="Kristian Lytje & Jan Skov Pedersen", style="Footer.TLabel").pack(side="right")
 
 
 def main(argv=None) -> int:

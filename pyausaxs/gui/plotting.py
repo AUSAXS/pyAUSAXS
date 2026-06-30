@@ -270,9 +270,40 @@ def draw_structure(ax, data: dict, split_residues: list[int]):
     highlight = is_ca & (copy == 0) & np.isin(res, splits)
     if highlight.any():
         ax.scatter(
-            coords[highlight, 0], coords[highlight, 1], coords[highlight, 2], s=80, 
+            coords[highlight, 0], coords[highlight, 1], coords[highlight, 2], s=80,
             color="red", edgecolors="black", linewidths=0.6, depthshade=False, zorder=3
         )
+
+    # active constraints, all in black: a dashed tether for backbone (0) / centre-of-mass (1)
+    # constraints (told apart by length — CM ones span much further), and a solid line with
+    # directional arrowheads for attractors (2, pointing inward) and repulsors (3, outward).
+    # indices reference copy 0, so they map straight onto the rows of `coords`.
+    constraints = data.get("constraints")
+    print(constraints)
+    if constraints is not None and len(constraints):
+        n = len(coords)
+        scale = float((coords.max(0) - coords.min(0)).max()) or 1.0
+        for idx1, idx2, ctype in constraints:
+            if not (0 <= idx1 < n and 0 <= idx2 < n):
+                continue
+            p1, p2 = coords[idx1], coords[idx2]
+            if ctype in (0, 1):
+                ax.plot([p1[0], p2[0]], [p1[1], p2[1]], [p1[2], p2[2]],
+                        color="black", ls="--", lw=1.0, zorder=4)
+                continue
+            ax.plot([p1[0], p2[0]], [p1[1], p2[1]], [p1[2], p2[2]],
+                    color="black", lw=1.2, zorder=4)
+            d = p2 - p1
+            dist = float(np.linalg.norm(d))
+            if dist == 0:
+                continue
+            d /= dist
+            length = min(0.15 * scale, 0.4 * dist)
+            inward = (ctype == 2)  # attractor pulls together; repulsor pushes apart
+            for tail, direction in ((p1, d if inward else -d), (p2, -d if inward else d)):
+                ax.quiver(tail[0], tail[1], tail[2], direction[0], direction[1], direction[2],
+                          length=length, normalize=True, color="black",
+                          arrow_length_ratio=0.45, lw=1.2, zorder=5)
 
     # equal aspect over every atom so symmetry copies are never clipped out of view
     span = float((coords.max(0) - coords.min(0)).max()) / 2 or 1.0

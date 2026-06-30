@@ -120,6 +120,7 @@ class settings:
     def histogram(
         qmin: float = None,
         qmax: float = None,
+        unit: str = None,
         weighted_bins: bool = None,
         bin_width: float = None,
         bin_count: int = None,
@@ -128,6 +129,7 @@ class settings:
         Settings related to histogramming of Debye scattering calculations.
         param qmin: Minimum calculated intensity. 
         param qmax: Maximum calculated intensity. 
+        param unit: Unit of q values, either inverse "A" or "nm".
         param weighted_bins: Whether to use weighted bins.
         param bin_width: Width of each histogram bin.
         param bin_count: Number of histogram bins.
@@ -136,6 +138,8 @@ class settings:
             settings.set("qmin", str(qmin))
         if qmax is not None:
             settings.set("qmax", str(qmax))
+        if unit is not None:
+            settings.set("qunit", unit.lower())
         if weighted_bins is not None:
             settings.set("weighted_bins", _b(weighted_bins))
         if bin_width is not None:

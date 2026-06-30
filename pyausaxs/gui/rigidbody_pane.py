@@ -4,13 +4,18 @@
 import os
 import re
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 from pathlib import Path
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
-from .panes import SAXS_EXTENSIONS, STRUCTURE_EXTENSIONS, _make_validator, add_figure_tab
+from .data_pane import SaxsDataPane
+from .panes import (
+    SAXS_EXTENSIONS, STRUCTURE_EXTENSIONS, _make_validator, add_figure_tab,
+    make_on_load_structure, make_on_load_saxs,
+)
 from .plotting import draw_structure, fit_figure_from_curves
 from .runner import RigidbodyRunner
 from .theme import FONTS, PALETTE
@@ -24,7 +29,7 @@ load {
     saxs
     split
 }
-autoconstrain linear
+autoconstrain backbone
 save initial_state.pdb
 save trajectory.xyz
 parameter_generator {
@@ -52,6 +57,10 @@ _LOAD_BLOCK_RE = re.compile(r"load\s*\{.*?\}", re.DOTALL)
 # a 'symmetry' element: either a brace block (symmetry { ... }) or a single inline line
 # (symmetry c6 / symmetry b1 c6), anchored to the first token on a line
 _SYMMETRY_RE = re.compile(r"(?m)^[ \t]*symmetry\b\s*(?:\{.*?\}|[^\n]*)", re.DOTALL)
+# a constraint element — autoconstrain/autoconstraints (inline) or constrain/constraint
+# (inline or a brace block) — anchored to the first token on a line. The whole { ... } block
+# is captured so edits to its arguments (type, bodies, …) refresh the preview too.
+_CONSTRAINT_RE = re.compile(r"(?m)^[ \t]*(?:auto)?constrain(?:ts?)?\b\s*(?:\{.*?\}|[^\n]*)", re.DOTALL)
 # an 'update' element (e.g. `update structure`) as the first token on a line; its presence makes
 # the GUI poll the backend for the live structure during a run
 _UPDATE_RE = re.compile(r"(?m)^[ \t]*update\b")
@@ -89,6 +98,7 @@ class RigidbodyPane(ttk.Frame):
         self._last_saved_script = None   # last text written, to skip unchanged autosaves
         self._script_file_path = None    # last file the user manually saved to / loaded from
         self._autosave_job = None        # pending periodic autosave
+        self._data_pane = None           # SaxsDataPane tab for inspecting the SAXS data, or None
 
         # three panes: controls | script editor | results. The editor can expand over the results pane (and collapses again
         # when a refinement is launched).
@@ -105,70 +115,32 @@ class RigidbodyPane(ttk.Frame):
         input_frame = ttk.Labelframe(controls, text="Input", padding=12)
         input_frame.pack(fill="x")
 
-        def _on_load_structure(p):
-            self._set_load_directive("pdb", p)
-            if p and not self.saxs_field.valid:
-                # first try direct filename match
-                for ext in SAXS_EXTENSIONS:
-                    candidate = str(Path(p).with_suffix(ext))
-                    if os.path.isfile(candidate):
-                        self.saxs_field.set(candidate)
-                        self._set_load_directive("saxs", candidate)
-                        break
-
-                # then check if only a single data file is present, and if so, use it
-                else:
-                    directory = os.path.dirname(os.path.abspath(p))
-                    try:
-                        entries = sorted(os.listdir(directory))
-                    except OSError:
-                        return
-                    if 20 < len(entries):
-                        return
-                    saxs_candidates = [e for e in entries if os.path.splitext(e)[1].lower() in SAXS_EXTENSIONS]
-                    if len(saxs_candidates) == 1:
-                        self.saxs_field.set(os.path.join(directory, saxs_candidates[0]))
-                        self._set_load_directive("saxs", saxs_candidates[0])
-
-        def _on_load_saxs(p):
-            self._set_load_directive("saxs", p)
-            if p and not self.structure_field.valid:
-                # first try direct filename match
-                for ext in STRUCTURE_EXTENSIONS:
-                    candidate = str(Path(p).with_suffix(ext))
-                    if os.path.isfile(candidate):
-                        self.structure_field.set(candidate)
-                        self._set_load_directive("pdb", candidate)
-                        break
-
-                # then check if only a single structure file is present, and if so, use it
-                else:
-                    directory = os.path.dirname(os.path.abspath(p))
-                    try:
-                        entries = sorted(os.listdir(directory))
-                    except OSError:
-                        return
-                    if 20 < len(entries):
-                        return
-                    struct_candidates = [e for e in entries if os.path.splitext(e)[1].lower() in STRUCTURE_EXTENSIONS]
-                    if len(struct_candidates) == 1:
-                        self.structure_field.set(os.path.join(directory, struct_candidates[0]))
-                        self._set_load_directive("pdb", struct_candidates[0])
-
         self.structure_field = FileField(
             input_frame, "Structure",
             validator=_make_validator(STRUCTURE_EXTENSIONS, "_is_pdb_file"),
-            on_commit=lambda p: _on_load_structure(p),
+            on_commit=lambda p: self._on_load_structure(p),
             filetypes=[("Structure", "*.pdb *.ent *.cif *.xyz")],
         )
         self.saxs_field = FileField(
             input_frame, "SAXS data",
             validator=_make_validator(SAXS_EXTENSIONS, "_is_saxs_data_file"),
-            on_commit=lambda p: _on_load_saxs(p),
+            on_valid=lambda _p: self._refresh_view_btn(),
+            on_commit=lambda p: self._on_load_saxs(p),
             filetypes=[("SAXS data", "*.dat *.rsr *.xvg")],
         )
         self.structure_field.pack(fill="x")
         self.saxs_field.pack(fill="x", pady=(6, 0))
+        # actions that act on the inputs as a whole rather than a single field, grouped to
+        # the right: hand the inputs to the SAXS fitter, or open a data-inspection tab
+        button_row = ttk.Frame(input_frame)
+        button_row.pack(fill="x", pady=(8, 0))
+        self._view_btn = ttk.Button(button_row, text="View data", command=self._open_data_pane,
+                                    state="disabled")
+        self._view_btn.pack(side="right")
+        ttk.Button(button_row, text="Send to SAXS fitter", command=self._send_to_saxs_fitter).pack(
+            side="right", padx=(0, 8))
+        self._on_load_structure = make_on_load_structure(self._set_load_directive, self.saxs_field)
+        self._on_load_saxs = make_on_load_saxs(self._set_load_directive, self.structure_field)
 
         splits_row = ttk.Frame(input_frame)
         splits_row.pack(fill="x", pady=(6, 0))
@@ -181,8 +153,7 @@ class RigidbodyPane(ttk.Frame):
         run_frame.pack(fill="x", pady=12)
         self.validate_button = ttk.Button(run_frame, text="Validate", command=self._validate_clicked)
         self.validate_button.pack(side="left")
-        self.run_button = ttk.Button(run_frame, text="Run refinement", style="Accent.TButton",
-                                     command=self._run_clicked)
+        self.run_button = ttk.Button(run_frame, text="Run refinement", style="Accent.TButton", command=self._run_clicked)
         self.run_button.pack(side="left", padx=(8, 0))
         self.progress = ttk.Progressbar(run_frame, mode="indeterminate")  # packed only while running
 
@@ -229,6 +200,16 @@ class RigidbodyPane(ttk.Frame):
             background=PALETTE["surface"], foreground=PALETTE["text"],
             insertbackground=PALETTE["text"], selectbackground=PALETTE["accent"],
         )
+        # Show tabs as 4 spaces: compute pixel width of a space in the editor font
+        try:
+            _mono_font = tkfont.Font(font=FONTS["mono"])
+            _space_px = _mono_font.measure(" ") or 8
+            # configure tab stops to 4 * space width
+            self.editor.configure(tabs=(_space_px * 4,))
+        except Exception:
+            # fall back silently if font metrics aren't available
+            pass
+
         editor_scroll = ttk.Scrollbar(editor_frame, command=self.editor.yview)
         self.editor.configure(yscrollcommand=editor_scroll.set)
         editor_scroll.pack(side="right", fill="y")
@@ -285,6 +266,50 @@ class RigidbodyPane(ttk.Frame):
         self.after(60, self._restore_split)
         self.after(80, self._update_structure_preview)
         self._autosave_job = self.after(self._AUTOSAVE_INTERVAL_MS, self._autosave_script)
+
+    # ----- data pane management -----------------------------------------------
+    def _refresh_view_btn(self):
+        """Enable "View data" whenever the SAXS field is valid (driven by on_valid, so it
+        also fires when the field is filled from a restored/loaded script)."""
+        if hasattr(self, "_view_btn"):
+            self._view_btn.configure(state="normal" if self.saxs_field.valid else "disabled")
+
+    def _open_data_pane(self):
+        """Open (or focus) a data-inspection tab for the current SAXS file. Rebuilt if the
+        file has changed since it was opened; the rigid-body run is script-driven, so this
+        is purely for inspecting the data."""
+        path = self.saxs_field.get()
+        if not path:
+            return
+        if self._data_pane is not None and self._data_pane.file_path != path:
+            self._close_data_pane()
+        if self._data_pane is None:
+            notebook = self.master
+            self._data_pane = SaxsDataPane(notebook, path)
+            notebook.add(self._data_pane, text=self._data_pane.title)
+        self.master.select(self._data_pane)
+
+    def _close_data_pane(self):
+        if self._data_pane is None:
+            return
+        try:
+            self.master.forget(self._data_pane)
+        except Exception:
+            pass
+        self._data_pane.destroy()
+        self._data_pane = None
+
+    def _send_to_saxs_fitter(self):
+        """Populate the SAXS fitter pane with the current structure and SAXS fields and switch to it."""
+        from .saxs_pane import SaxsFitterPane
+        notebook = self.master
+        for tab_id in notebook.tabs():
+            pane = notebook.nametowidget(tab_id)
+            if isinstance(pane, SaxsFitterPane):
+                pane.structure_field.set(self.structure_field.get(), touched=True)
+                pane.saxs_field.set(self.saxs_field.get(), touched=True)
+                notebook.select(tab_id)
+                break
 
     # ----- layout -------------------------------------------------------------
     # fraction of the space (right of the controls) given to the editor when the results pane is visible; the results pane keeps the rest.
@@ -611,11 +636,13 @@ class RigidbodyPane(ttk.Frame):
 
     @staticmethod
     def _structural_signature(script: str) -> tuple:
-        """Distil the parts of the script that affect the preview — the load block and any symmetry elements — so
-        edits to unrelated lines (iterations, print, save, ...) don't trigger a redraw or a backend rebuild."""
+        """Distil the parts of the script that affect the preview — the load block, any symmetry elements, and any
+        constraint lines — so edits to unrelated lines (iterations, print, save, ...) don't trigger a redraw or a
+        backend rebuild."""
         load = _LOAD_BLOCK_RE.search(script)
         return (load.group(0) if load else "",
-                tuple(m.group(0) for m in _SYMMETRY_RE.finditer(script)))
+                tuple(m.group(0) for m in _SYMMETRY_RE.finditer(script)),
+                tuple(m.group(0) for m in _CONSTRAINT_RE.finditer(script)))
 
     def _preview_data(self, script: str, sig: tuple):
         """Build the rigid body from the current script and return its preview structure

@@ -49,8 +49,7 @@ class FileField(ttk.Frame):
             highlightbackground=PALETTE["border"], highlightcolor=PALETTE["accent"],
         )
         self.entry.grid(row=1, column=0, sticky="ew", ipady=4)
-        ttk.Button(self, text="Browse", style="Icon.TButton", command=self._browse).grid(
-            row=1, column=1, padx=(6, 0))
+        ttk.Button(self, text="Browse", style="Icon.TButton", command=self._browse).grid(row=1, column=1, padx=(6, 0))
         self.columnconfigure(0, weight=1)
 
         self.entry.bind("<Return>", lambda _e: self._commit())
@@ -58,8 +57,7 @@ class FileField(ttk.Frame):
         self.entry.bind("<Key>", self._on_keypress)
 
     def _set_state_color(self, fill: str, border: str):
-        self.entry.configure(background=fill, readonlybackground=fill,
-                             disabledbackground=fill, highlightbackground=border)
+        self.entry.configure(background=fill, readonlybackground=fill, disabledbackground=fill, highlightbackground=border)
 
     def _on_keypress(self, event):
         if event.keysym in ("Return", "Tab"):
@@ -162,6 +160,12 @@ class RangeSlider(ttk.Frame):
     PAD = 14
     CANVAS_H = 42
 
+    def set_track_pads(self, left: int, right: int):
+        """Override the symmetric PAD with per-side values, e.g. to align with a plot's x-axis."""
+        self._left_pad = max(left, self.HANDLE_R + 2)
+        self._right_pad = max(right, self.HANDLE_R + 2)
+        self._redraw()
+
     def __init__(
         self, parent,
         vmin: float, vmax: float,
@@ -179,6 +183,8 @@ class RangeSlider(ttk.Frame):
         self._pos = [self._to_pos(lo), self._to_pos(hi)]
         self._drag = None
         self._hover = None
+        self._left_pad = self.PAD
+        self._right_pad = self.PAD
 
         self.canvas = tk.Canvas(
             self, height=self.CANVAS_H, highlightthickness=0,
@@ -231,11 +237,11 @@ class RangeSlider(ttk.Frame):
 
     def _track_x(self, pos: float) -> float:
         w = self.canvas.winfo_width()
-        return self.PAD + pos*(w - 2*self.PAD)
+        return self._left_pad + pos * (w - self._left_pad - self._right_pad)
 
     def _x_to_pos(self, x: float) -> float:
         w = self.canvas.winfo_width()
-        return (x - self.PAD) / max(w - 2*self.PAD, 1)
+        return (x - self._left_pad) / max(w - self._left_pad - self._right_pad, 1)
 
     def _redraw(self):
         c = self.canvas
@@ -246,8 +252,7 @@ class RangeSlider(ttk.Frame):
         ht = self.TRACK_H
 
         # background track with rounded caps
-        c.create_line(self.PAD, cy, w - self.PAD, cy,
-                      width=ht, fill=PALETTE["track"], capstyle="round")
+        c.create_line(self._left_pad, cy, w - self._right_pad, cy, width=ht, fill=PALETTE["track"], capstyle="round")
         # selected span
         x0, x1 = self._track_x(self._pos[0]), self._track_x(self._pos[1])
         c.create_line(x0, cy, x1, cy, width=ht, fill=PALETTE["accent"], capstyle="round")
@@ -260,17 +265,14 @@ class RangeSlider(ttk.Frame):
             ticks = [self._min + i*(self._max - self._min)/4 for i in range(5)]
         for t in ticks:
             x = self._track_x(self._to_pos(t))
-            c.create_text(x, cy + r + 7, text=self._fmt.format(t),
-                          font=FONTS["small"], fill=PALETTE["muted"])
+            c.create_text(x, cy + r + 7, text=self._fmt.format(t), font=FONTS["small"], fill=PALETTE["muted"])
 
         # circular handles, accent-filled with a white core and a hover ring
         for i, pos in enumerate(self._pos):
             x = self._track_x(pos)
             if self._hover == i or self._drag == i:
-                c.create_oval(x - r - 3, cy - r - 3, x + r + 3, cy + r + 3,
-                              fill=PALETTE["accent_soft"], outline="")
-            c.create_oval(x - r, cy - r, x + r, cy + r,
-                          fill=PALETTE["accent"], outline=PALETTE["surface"], width=2)
+                c.create_oval(x - r - 3, cy - r - 3, x + r + 3, cy + r + 3, fill=PALETTE["accent_soft"], outline="")
+            c.create_oval(x - r, cy - r, x + r, cy + r, fill=PALETTE["accent"], outline=PALETTE["surface"], width=2)
             c.create_oval(x - 2, cy - 2, x + 2, cy + 2, fill=PALETTE["surface"], outline="")
 
     def _nearest_handle(self, x: float) -> int:
