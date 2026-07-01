@@ -139,7 +139,7 @@ class settings:
         if qmax is not None:
             settings.set("qmax", str(qmax))
         if unit is not None:
-            settings.set("qunit", unit.lower())
+            settings.set("unit", unit.lower())
         if weighted_bins is not None:
             settings.set("weighted_bins", _b(weighted_bins))
         if bin_width is not None:

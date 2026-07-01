@@ -54,20 +54,13 @@ class EmFitterPane(FitterPane):
         grid.pack(fill="x", pady=(4, 0))
         grid.columnconfigure(1, weight=1)
 
-        ttk.Label(grid, text="q unit").grid(row=0, column=0, sticky="w", padx=(0, 8))
-        self.unit_var = tk.StringVar()
-        unit_box = ttk.Combobox(grid, textvariable=self.unit_var, values=["1/Å", "1/nm"],
-                                 state="readonly", width=12)
-        unit_box.set("1/Å")
-        unit_box.grid(row=0, column=1, sticky="ew", pady=2)
-
-        ttk.Label(grid, text="Fit evaluations").grid(row=1, column=0, sticky="w", padx=(0, 8))
+        ttk.Label(grid, text="Fit evaluations").grid(row=0, column=0, sticky="w", padx=(0, 8))
         self.iterations_var = tk.StringVar()
-        ttk.Entry(grid, textvariable=self.iterations_var, width=12).grid(row=1, column=1, sticky="ew", pady=2)
+        ttk.Entry(grid, textvariable=self.iterations_var, width=12).grid(row=0, column=1, sticky="ew", pady=2)
 
-        ttk.Label(grid, text="Sample frequency").grid(row=2, column=0, sticky="w", padx=(0, 8))
+        ttk.Label(grid, text="Sample frequency").grid(row=1, column=0, sticky="w", padx=(0, 8))
         self.frequency_var = tk.StringVar()
-        ttk.Entry(grid, textvariable=self.frequency_var, width=12).grid(row=2, column=1, sticky="ew", pady=2)
+        ttk.Entry(grid, textvariable=self.frequency_var, width=12).grid(row=1, column=1, sticky="ew", pady=2)
 
         self.hydrate_var = tk.BooleanVar(value=True)
         self.fixed_weights_var = tk.BooleanVar(value=True)
@@ -123,15 +116,17 @@ class EmFitterPane(FitterPane):
     def _build_command(self):
         if self._data_pane is not None:
             qmin, qmax = self._data_pane.qrange()
+            unit = self._data_pane.unit()
         else:
             qmin, qmax = QMIN, QMAX
+            unit = "A"
         amin, amax = self.alpha_slider.values()
         argv = [
             "em_fitter",
             self.map_field.get(), self.saxs_field.get(),
             "--output", _output_arg(self.output_field.get()),
             "saxs", "--qmin", f"{qmin:.6g}", "--qmax", f"{qmax:.6g}",
-            "--unit", "nm" if self.unit_var.get() == "1/nm" else "A",
+            "--unit", unit,
         ]
         argv += [
             "em", "--levelmin", f"{amin:.6g}", "--levelmax", f"{amax:.6g}",

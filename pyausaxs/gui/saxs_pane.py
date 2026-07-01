@@ -55,26 +55,19 @@ class SaxsFitterPane(FitterPane):
         grid.pack(fill="x")
         grid.columnconfigure(1, weight=1)
 
-        ttk.Label(grid, text="q unit").grid(row=0, column=0, sticky="w")
-        self.unit_var = tk.StringVar()
-        unit_box = ttk.Combobox(grid, textvariable=self.unit_var, values=["1/Å", "1/nm"],
-                                 state="readonly", width=12)
-        unit_box.set("1/Å")
-        unit_box.grid(row=0, column=1, sticky="ew", pady=2)
-
-        ttk.Label(grid, text="Hydration model").grid(row=1, column=0, sticky="w", padx=(0, 8))
+        ttk.Label(grid, text="Hydration model").grid(row=0, column=0, sticky="w", padx=(0, 8))
         self.hydration_var = tk.StringVar()
         hydration_box = ttk.Combobox(grid, textvariable=self.hydration_var,
                                       values=["radial", "none"], state="readonly", width=12)
         hydration_box.set("radial")
-        hydration_box.grid(row=1, column=1, sticky="ew", pady=2)
+        hydration_box.grid(row=0, column=1, sticky="ew", pady=2)
 
-        ttk.Label(grid, text="Excluded volume model").grid(row=2, column=0, sticky="w", padx=(0, 8))
+        ttk.Label(grid, text="Excluded volume model").grid(row=1, column=0, sticky="w", padx=(0, 8))
         self.exv_var = tk.StringVar()
         exv_box = ttk.Combobox(grid, textvariable=self.exv_var,
                                 values=["simple", "fraser", "grid"], state="readonly", width=12)
         exv_box.set("simple")
-        exv_box.grid(row=2, column=1, sticky="ew", pady=2)
+        exv_box.grid(row=1, column=1, sticky="ew", pady=2)
         exv_box.bind("<<ComboboxSelected>>", lambda _e: self._exv_changed())
 
         self.fit_exv_var = tk.BooleanVar(value=False)
@@ -144,14 +137,16 @@ class SaxsFitterPane(FitterPane):
     def _build_command(self):
         if self._data_pane is not None:
             qmin, qmax = self._data_pane.qrange()
+            unit = self._data_pane.unit()
         else:
             qmin, qmax = QMIN, QMAX
+            unit = "A"
         argv = [
             "saxs_fitter",
             self.structure_field.get(), self.saxs_field.get(),
             "--output", _output_arg(self.output_field.get()),
             "data", "--qmin", f"{qmin:.6g}", "--qmax", f"{qmax:.6g}",
-            "--unit", "nm" if self.unit_var.get() == "1/nm" else "A",
+            "--unit", unit,
         ]
         argv += ["exv", "--model", self.exv_var.get()]
         if self.fit_exv_var.get():
