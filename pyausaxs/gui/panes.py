@@ -12,7 +12,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from .plotting import fit_figure, plot_file_figure, pretty_plot_name
 from .runner import CliRunner
 from .theme import FONTS, PALETTE
-from .widgets import ConsolePane, FileField
+from .widgets import ConsolePane, FileField, enable_file_drop
 
 QMIN, QMAX = 1e-4, 1.0
 
@@ -228,6 +228,7 @@ class FitterPane(ttk.Frame):
 
         self._build_inputs(self.input_frame)
         self._build_settings(self.settings_frame)
+        enable_file_drop(self, self._input_fields(), on_unmatched=self._on_drop_unmatched)
 
     # ----- subclass interface -------------------------------------------------
     def _build_inputs(self, parent):
@@ -247,6 +248,10 @@ class FitterPane(ttk.Frame):
         raise NotImplementedError
 
     # ----- shared behavior ----------------------------------------------------
+    def _on_drop_unmatched(self, path: str):
+        """Called when a dropped file doesn't validate against any input field."""
+        self.console.append(f'Ignored dropped file (unrecognised type): "{path}"\n')
+
     def _autodetect_saxs(self, near_file: str, saxs_field: FileField):
         """Look for a SAXS data file next to the given input file, like the old GUI did."""
         if saxs_field.valid:

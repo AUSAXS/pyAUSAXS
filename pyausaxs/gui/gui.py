@@ -4,11 +4,12 @@
 """The AUSAXS graphical interface: SAXS and EM fitting in a single window."""
 
 import os
-import tkinter as tk
 from tkinter import ttk
 
 import matplotlib
 matplotlib.use("TkAgg")
+
+from tkinterdnd2 import TkinterDnD
 
 from .em_pane import EmFitterPane
 from .rigidbody_pane import RigidbodyPane
@@ -17,7 +18,7 @@ from .session import load_config, update_config
 from .theme import PALETTE, apply_theme
 
 
-class App(tk.Tk):
+class App(TkinterDnD.Tk):
     def __init__(self):
         super().__init__()
         from .. import __version__
