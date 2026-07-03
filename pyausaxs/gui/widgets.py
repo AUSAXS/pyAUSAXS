@@ -170,15 +170,32 @@ class _DropOverlay(tk.Frame):
         self.place_forget()
 
 
-def enable_file_drop(widget, fields: list[FileField], on_unmatched: Optional[Callable[[str], None]] = None):
+# Set once any <<Drop>> succeeds anywhere in the process. tkdnd has a known quirk (confirmed
+# via a live diagnostic, unrelated to this app's code) where the very first cross-process drag
+# of a session can silently resolve to a DropLeave with no file data instead of a Drop; every
+# attempt after that first one works normally. Tracked process-wide, not per-pane, since the
+# quirk is in the shared underlying XDND machinery, not any one widget.
+_drop_ever_succeeded = False
+
+
+def enable_file_drop(
+    widget,
+    fields: list[FileField],
+    on_unmatched: Optional[Callable[[str], None]] = None,
+    on_leave_without_drop: Optional[Callable[[], None]] = None,
+):
     """Register `widget` as a drag-and-drop target for files.
 
-    Each dropped path is routed to the first of `fields` whose validator accepts it, so a file lands in the right FileField no matter where 
-    over `widget` it was actually dropped (e.g. a SAXS file dropped on the structure field still ends up in the SAXS field). Paths that no 
+    Each dropped path is routed to the first of `fields` whose validator accepts it, so a file lands in the right FileField no matter where
+    over `widget` it was actually dropped (e.g. a SAXS file dropped on the structure field still ends up in the SAXS field). Paths that no
     field accepts are reported to `on_unmatched`, if given, and otherwise ignored.
 
-    While a file is dragged over `widget`, a hint overlay (see `_DropOverlay`) — a child of `widget`, so it can never disrupt `widget`'s own 
+    While a file is dragged over `widget`, a hint overlay (see `_DropOverlay`) — a child of `widget`, so it can never disrupt `widget`'s own
     drop-target resolution — is shown, and hidden again on drop or once the drag leaves.
+
+    `on_leave_without_drop`, if given, fires whenever a drag leaves without any Drop having
+    ever succeeded yet in this process (see `_drop_ever_succeeded`) — a cheap nudge to retry
+    for the known first-drop-of-the-session quirk described above.
     """
     overlay = _DropOverlay(widget)
 
@@ -188,8 +205,12 @@ def enable_file_drop(widget, fields: list[FileField], on_unmatched: Optional[Cal
 
     def handle_leave(_event):
         overlay.hide()
+        if not _drop_ever_succeeded and on_leave_without_drop:
+            on_leave_without_drop()
 
     def handle_drop(event):
+        global _drop_ever_succeeded
+        _drop_ever_succeeded = True
         overlay.hide(immediate=True)
         for path in _split_dropped_paths(event.data):
             if not any(field.accept_drop(path) for field in fields) and on_unmatched:

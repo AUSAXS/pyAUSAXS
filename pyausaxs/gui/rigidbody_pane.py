@@ -266,12 +266,20 @@ class RigidbodyPane(ttk.Frame):
         self.after(60, self._restore_split)
         self.after(80, self._update_structure_preview)
         self._autosave_job = self.after(self._AUTOSAVE_INTERVAL_MS, self._autosave_script)
-        enable_file_drop(self, [self.structure_field, self.saxs_field], on_unmatched=self._on_drop_unmatched)
+        enable_file_drop(
+            self, [self.structure_field, self.saxs_field],
+            on_unmatched=self._on_drop_unmatched,
+            on_leave_without_drop=self._on_drop_leave_without_drop,
+        )
 
     # ----- data pane management -----------------------------------------------
     def _on_drop_unmatched(self, path: str):
         """Called when a dropped file doesn't validate against either input field."""
         self.console.append(f'Ignored dropped file (unrecognised type): "{path}"\n')
+
+    def _on_drop_leave_without_drop(self):
+        """Called when a drag leaves before any drop has ever succeeded in this process."""
+        self.console.append("Drag-and-drop didn't register — please try dropping the file again.\n")
 
     def _refresh_view_btn(self):
         """Enable "View data" whenever the SAXS field is valid (driven by on_valid, so it
