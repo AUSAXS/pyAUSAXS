@@ -89,28 +89,19 @@ def add_text_tab(notebook: ttk.Notebook, content: str, title: str):
     notebook.add(frame, text=title)
 
 
-def _read_saxs_data(path: str) -> tuple[list, list, list] | None:
-    """Read a SAXS file, returning (q, I, sigma) lists skipping header/comment lines.
-    Only rows with q > 0 and I > 0 are included so log-scale plots work cleanly."""
-    qs, Is, sigs = [], [], []
+def _read_saxs_data(path: str, unit: str = "A") -> tuple[list, list, list] | None:
+    """Read a SAXS file through the bundled backend (Datafile), so the preview matches
+    exactly what a fit will see. `unit` ("A" or "nm") forces the backend's interpretation
+    of the file's q column, same as the --unit CLI flag; qmin/qmax are pushed to the full
+    axis range first so the reader's own q-range clamping doesn't drop any rows here."""
+    from ..wrapper.Datafile import Datafile
+    from ..wrapper.settings import settings as backend_settings
     try:
-        with open(path, errors="replace") as f:
-            for line in f:
-                words = line.split()
-                if len(words) < 2:
-                    continue
-                try:
-                    q, I_val = float(words[0]), float(words[1])
-                    sig = float(words[2]) if len(words) >= 3 else 0.0
-                    if q > 0 and I_val > 0:
-                        qs.append(q)
-                        Is.append(I_val)
-                        sigs.append(sig)
-                except ValueError:
-                    continue
-    except OSError:
+        backend_settings.histogram(qmin=QMIN, qmax=QMAX, unit=unit)
+        q, I, Ierr = Datafile(path).data()
+    except Exception:
         return None
-    return (qs, Is, sigs) if qs else None
+    return (q.tolist(), I.tolist(), Ierr.tolist()) if len(q) else None
 
 
 

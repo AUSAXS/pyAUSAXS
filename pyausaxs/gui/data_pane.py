@@ -17,8 +17,11 @@ from .theme import PALETTE
 class SaxsDataPane(ttk.Frame):
     """Interactive data-inspection pane for a single SAXS dataset."""
 
-    # factor that converts a raw q value in the selected unit to Å⁻¹
+    # relative scale between units, used only to carry the qmin/qmax selection across a
+    # unit change; the actual q-values always come from a fresh backend read
     UNIT_FACTORS = {"Å⁻¹": 1.0, "nm⁻¹": 0.1}
+    # backend `settings.histogram(unit=...)` / --unit token for each display unit
+    UNIT_TOKENS = {"Å⁻¹": "A", "nm⁻¹": "nm"}
     DEFAULT_UNIT = "Å⁻¹"
 
     DATA_RATIO = 8      # data-axes : slider-strip height ratio
@@ -32,12 +35,11 @@ class SaxsDataPane(ttk.Frame):
         super().__init__(parent)
         self.file_path = file_path
         self.title = "Dataset: " + os.path.splitext(os.path.basename(file_path))[0]
-        self._qs_raw = None                       # q as read from file (selected unit)
-        self._qs = self._Is = self._sigs = None   # q converted to Å⁻¹
+        self._qs = self._Is = self._sigs = None   # q always in Å⁻¹ (the backend's own unit)
         self._has_sigma = False
         self._data_artists: list = []
         self._unit_var = tk.StringVar(value=self.DEFAULT_UNIT)
-        self._unit_factor = self.UNIT_FACTORS[self.DEFAULT_UNIT]
+        self._unit = self.DEFAULT_UNIT
         self._drag = None                         # handle being dragged (0 / 1 / None)
         self._vline_top = None                    # cached slider-fraction of the plot top
         self._decade_labels: list = []
@@ -45,12 +47,12 @@ class SaxsDataPane(ttk.Frame):
         self._unit_anim_job = None                # pending end-of-transition callback
 
         # the axis (and slider track) span the data's own q-range, in Å⁻¹; the unit
-        # selector reinterprets the file's q and the range rescales with it
-        data = _read_saxs_data(file_path)
+        # selector forces the backend's interpretation of the file's q, and the range
+        # rescales with it
+        data = _read_saxs_data(file_path, self.UNIT_TOKENS[self._unit])
         if data:
             qs, _, _ = data
-            self._vmin = min(qs) * self._unit_factor
-            self._vmax = max(qs) * self._unit_factor
+            self._vmin, self._vmax = min(qs), max(qs)
         else:
             self._vmin, self._vmax = QMIN, QMAX
         self._qmin, self._qmax = self._vmin, self._vmax
@@ -105,6 +107,10 @@ class SaxsDataPane(ttk.Frame):
     def qrange(self) -> tuple[float, float]:
         return self._qmin, self._qmax
 
+    def unit(self) -> str:
+        """The backend --unit token ("A" / "nm") for the currently selected unit."""
+        return self.UNIT_TOKENS[self._unit]
+
     # ------------------------------------------------------------------
     def _draw_data(self, data):
         ax, p = self._ax, PALETTE
@@ -120,9 +126,7 @@ class SaxsDataPane(ttk.Frame):
 
         if data:
             qs, Is, sigs = data
-            self._qs_raw = qs
-            self._qs = [q * self._unit_factor for q in qs]
-            self._Is, self._sigs = Is, sigs
+            self._qs, self._Is, self._sigs = qs, Is, sigs
             self._has_sigma = any(s > 0 for s in sigs)
             ax.set_xscale("log")
             ax.set_yscale("log")
@@ -133,7 +137,7 @@ class SaxsDataPane(ttk.Frame):
             ax.set_xlim(self._vmin, self._vmax)
             ax.autoscale(enable=False)
         else:
-            self._qs_raw = self._qs = self._Is = self._sigs = None
+            self._qs = self._Is = self._sigs = None
             ax.text(0.5, 0.5, "Could not read data file", transform=ax.transAxes,
                     ha="center", va="center", color=p["muted"])
 
@@ -299,19 +303,26 @@ class SaxsDataPane(ttk.Frame):
         self._refresh()
 
     def _on_unit_changed(self):
-        """Reinterpret the file's q in the selected unit and convert to Å⁻¹. The data's
-        q-range — and so the axis, slider track and decade labels — rescales with it,
-        while the selection keeps its position relative to the data. A short transition
-        keeps the previous interpretation on screen so the shift is visible."""
-        if self._qs_raw is None:
+        """Reinterpret the file's q in the selected unit by re-reading it through the
+        backend with that unit forced (matching how the actual fit will parse it). The
+        data's q-range — and so the axis, slider track and decade labels — rescales with
+        it, while the selection keeps its position relative to the data. A short
+        transition keeps the previous interpretation on screen so the shift is visible."""
+        if self._qs is None:
             return
-        new_factor = self.UNIT_FACTORS[self._unit_var.get()]
-        if new_factor == self._unit_factor:
+        new_unit = self._unit_var.get()
+        if new_unit == self._unit:
             return
-        old_qs, old_lim = self._qs, (self._vmin, self._vmax)
-        ratio = new_factor / self._unit_factor
-        self._unit_factor = new_factor
-        self._qs = [q * new_factor for q in self._qs_raw]
+        data = _read_saxs_data(self.file_path, self.UNIT_TOKENS[new_unit])
+        if data is None:
+            self._unit_var.set(self._unit)  # revert: can't re-read what we already loaded
+            return
+
+        old_qs, old_Is, old_lim = self._qs, self._Is, (self._vmin, self._vmax)
+        ratio = self.UNIT_FACTORS[new_unit] / self.UNIT_FACTORS[self._unit]
+        self._unit = new_unit
+        self._qs, self._Is, self._sigs = data
+        self._has_sigma = any(s > 0 for s in self._sigs)
         self._vmin, self._vmax = min(self._qs), max(self._qs)
         self._qmin *= ratio
         self._qmax *= ratio
@@ -319,7 +330,7 @@ class SaxsDataPane(ttk.Frame):
         # ghost the previous interpretation at its old positions, and widen the axis to
         # span both ranges so the data is seen sliding across before the view settles
         self._clear_ghosts()
-        ghost, = self._ax.plot(old_qs, self._Is, ".", color=PALETTE["muted"], ms=3, alpha=0.35, zorder=0)
+        ghost, = self._ax.plot(old_qs, old_Is, ".", color=PALETTE["muted"], ms=3, alpha=0.35, zorder=0)
         self._ghost_artists = [ghost]
         self._track_line.set_xdata([self._vmin, self._vmax])
         self._draw_decade_labels()
