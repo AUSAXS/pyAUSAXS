@@ -640,3 +640,53 @@ class RigidbodyHighlighter:
                     return n
                 stack -= 1
         return None
+
+
+class ScrollableFrame(ttk.Frame):
+    """A vertically scrolling container. Pack/grid children into `.body`; the scrollbar
+    appears only when the content overflows. Suited to lists that can grow long (e.g. the
+    per-body rows of a badly-split structure). Mouse-wheel scrolling is active while the
+    pointer is over the frame."""
+
+    def __init__(self, parent, **kwargs):
+        super().__init__(parent, **kwargs)
+        self._canvas = tk.Canvas(self, background=PALETTE["surface"], highlightthickness=0, bd=0)
+        self._scroll = ttk.Scrollbar(self, orient="vertical", command=self._canvas.yview)
+        self._canvas.configure(yscrollcommand=self._on_scroll_set)
+        self.body = ttk.Frame(self._canvas)
+        self._window = self._canvas.create_window((0, 0), window=self.body, anchor="nw")
+
+        self._canvas.grid(row=0, column=0, sticky="nsew")
+        self._scroll.grid(row=0, column=1, sticky="ns")
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+
+        self.body.bind("<Configure>", lambda _e: self._canvas.configure(scrollregion=self._canvas.bbox("all")))
+        self._canvas.bind("<Configure>", lambda e: self._canvas.itemconfigure(self._window, width=e.width))
+        # only scroll while the pointer is inside, so wheel events elsewhere are untouched
+        self._canvas.bind("<Enter>", lambda _e: self._bind_wheel())
+        self._canvas.bind("<Leave>", lambda _e: self._unbind_wheel())
+
+    def _on_scroll_set(self, lo, hi):
+        # hide the scrollbar entirely when everything fits
+        if float(lo) <= 0.0 and float(hi) >= 1.0:
+            self._scroll.grid_remove()
+        else:
+            self._scroll.grid()
+        self._scroll.set(lo, hi)
+
+    def _bind_wheel(self):
+        self._canvas.bind_all("<MouseWheel>", self._on_wheel)      # Windows / macOS
+        self._canvas.bind_all("<Button-4>", self._on_wheel)        # X11 scroll up
+        self._canvas.bind_all("<Button-5>", self._on_wheel)        # X11 scroll down
+
+    def _unbind_wheel(self):
+        self._canvas.unbind_all("<MouseWheel>")
+        self._canvas.unbind_all("<Button-4>")
+        self._canvas.unbind_all("<Button-5>")
+
+    def _on_wheel(self, event):
+        if event.num == 5 or event.delta < 0:
+            self._canvas.yview_scroll(1, "units")
+        elif event.num == 4 or event.delta > 0:
+            self._canvas.yview_scroll(-1, "units")

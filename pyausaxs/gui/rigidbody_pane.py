@@ -18,6 +18,7 @@ from .panes import (
 )
 from .plotting import draw_structure, fit_figure_from_curves
 from .runner import RigidbodyRunner
+from .structure_pane import StructurePane
 from .theme import FONTS, PALETTE
 from .widgets import ConsolePane, FileField, RigidbodyHighlighter, Tooltip, enable_file_drop
 
@@ -99,6 +100,7 @@ class RigidbodyPane(ttk.Frame):
         self._script_file_path = None    # last file the user manually saved to / loaded from
         self._autosave_job = None        # pending periodic autosave
         self._data_pane = None           # SaxsDataPane tab for inspecting the SAXS data, or None
+        self._structure_pane = None      # StructurePane tab for inspecting/managing bodies, or None
 
         # three panes: controls | script editor | results. The editor can expand over the results pane (and collapses again
         # when a refinement is launched).
@@ -118,6 +120,7 @@ class RigidbodyPane(ttk.Frame):
         self.structure_field = FileField(
             input_frame, "Structure",
             validator=_make_validator(STRUCTURE_EXTENSIONS, "_is_pdb_file"),
+            on_valid=lambda _p: self._refresh_view_struct_btn(),
             on_commit=lambda p: self._on_load_structure(p),
             filetypes=[("Structure", "*.pdb *.ent *.cif *.xyz")],
         )
@@ -141,6 +144,12 @@ class RigidbodyPane(ttk.Frame):
             side="right", padx=(0, 8))
         self._on_load_structure = make_on_load_structure(self._set_load_directive, self.saxs_field)
         self._on_load_saxs = make_on_load_saxs(self._set_load_directive, self.structure_field)
+
+        struct_row = ttk.Frame(input_frame)
+        struct_row.pack(fill="x", pady=(6, 0))
+        self._view_struct_btn = ttk.Button(
+            struct_row, text="View / manage structure", command=self._open_structure_pane, state="disabled")
+        self._view_struct_btn.pack(side="right")
 
         splits_row = ttk.Frame(input_frame)
         splits_row.pack(fill="x", pady=(6, 0))
@@ -311,6 +320,51 @@ class RigidbodyPane(ttk.Frame):
             pass
         self._data_pane.destroy()
         self._data_pane = None
+
+    # ----- structure pane management ------------------------------------------
+    def _refresh_view_struct_btn(self):
+        """Enable "View / manage structure" whenever the structure field is valid."""
+        if hasattr(self, "_view_struct_btn"):
+            self._view_struct_btn.configure(
+                state="normal" if self.structure_field.valid else "disabled")
+
+    def _open_structure_pane(self):
+        """Open (or focus) the structure-management tab for the current PDB. It reads the live
+        script as its base and writes confirmed body changes back into the editor."""
+        path = self.structure_field.get() or (self._load_value("pdb") or "")
+        if not path:
+            return
+        if self._structure_pane is not None and self._structure_pane.pdb_path != path:
+            self._close_structure_pane()
+        if self._structure_pane is None:
+            notebook = self.master
+            self._structure_pane = StructurePane(
+                notebook, path,
+                splits=self.splits_var.get(),
+                base_script=lambda: self.editor.get("1.0", "end-1c"),
+                on_apply_script=self._apply_structure_script,
+            )
+            notebook.add(self._structure_pane, text=self._structure_pane.title)
+        self.master.select(self._structure_pane)
+
+    def _close_structure_pane(self):
+        if self._structure_pane is None:
+            return
+        try:
+            self.master.forget(self._structure_pane)
+        except Exception:
+            pass
+        self._structure_pane.destroy()
+        self._structure_pane = None
+
+    def _apply_structure_script(self, new_script: str):
+        """Replace the editor's script with one carrying the structure pane's body changes, then
+        refresh highlighting and the preview and switch focus back to this pane."""
+        self.editor.delete("1.0", "end")
+        self.editor.insert("1.0", new_script)
+        self.highlighter.highlight()
+        self._schedule_preview_update()
+        self.master.select(self)
 
     def _send_to_saxs_fitter(self):
         """Populate the SAXS fitter pane with the current structure and SAXS fields and switch to it."""

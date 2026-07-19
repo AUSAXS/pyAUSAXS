@@ -84,6 +84,19 @@ register({
         ],
         None
     ),
+    # TODO(backend): rigidbody_get_body_names is required by the structure-management pane but
+    # not yet implemented in libausaxs. It must return the names of the bodies that remain after
+    # the setup elements (merge/delete/convert_to_symmetry) have been applied, in the same order
+    # as the body indices reported by rigidbody_get_preview_structure.
+    "rigidbody_get_body_names": (
+        [
+            ct.c_int,                            # rigidbody id
+            ct.POINTER(ct.POINTER(ct.c_char_p)), # names (output)
+            ct.POINTER(ct.c_int),                # size (output)
+            ct.POINTER(ct.c_int)                 # status (0 = success)
+        ],
+        None
+    ),
 })
 
 class Rigidbody(BackendObject):
@@ -149,6 +162,20 @@ class Rigidbody(BackendObject):
         }
         ausaxs.deallocate(temp_id)
         return result
+
+    def body_names(self) -> list[str]:
+        """Names of the bodies currently in the setup, after any merge/delete/convert_to_symmetry
+        elements have collapsed or removed bodies. The order matches the body indices reported by
+        preview_structure(), so body index i corresponds to body_names()[i]."""
+        ausaxs = AUSAXS()
+        names = ct.POINTER(ct.c_char_p)()
+        size = ct.c_int()
+        status = ct.c_int()
+        ausaxs.lib().functions.rigidbody_get_body_names(
+            self._get_id(), ct.byref(names), ct.byref(size), ct.byref(status)
+        )
+        _check_error_code(status, "rigidbody_get_body_names")
+        return _ptr_to_str_list(names, size.value)
 
     @staticmethod
     def set_live_consumer(connected: bool) -> None:
