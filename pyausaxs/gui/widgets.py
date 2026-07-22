@@ -672,15 +672,73 @@ class RigidbodyHighlighter:
         return None
 
 
+class CollapsibleSection(ttk.Frame):
+    """A titled section that collapses to just its header when its header is clicked.
+
+    Add content to `.body`. The header shows a chevron (▾ open / ▸ closed) and the title;
+    clicking anywhere on it toggles the section. Stacking several of these gives an accordion
+    that keeps a tall control column inside a small pane — the user opens only what they need.
+    on_toggle(section) fires after each toggle, e.g. so the container can react to the change.
+    """
+
+    def __init__(self, parent, title: str, *, expanded: bool = True,
+                 on_toggle: Optional[Callable[["CollapsibleSection"], None]] = None):
+        super().__init__(parent)
+        self._expanded = expanded
+        self._on_toggle = on_toggle
+
+        self.header = tk.Frame(self, background=PALETTE["surface_alt"], cursor="hand2")
+        self.header.pack(fill="x")
+        self._chevron = tk.Label(
+            self.header, background=PALETTE["surface_alt"], foreground=PALETTE["muted"],
+            font=FONTS["base"], width=2)
+        self._chevron.pack(side="left", padx=(6, 0), pady=6)
+        self._title = tk.Label(
+            self.header, text=title, background=PALETTE["surface_alt"],
+            foreground=PALETTE["text"], font=FONTS["heading"])
+        self._title.pack(side="left", pady=6)
+
+        # the content area, matching the flat labelframe body it replaces (default bg background,
+        # so child checkbuttons/entries/labels sit on the same colour they did before)
+        self.body = ttk.Frame(self, padding=(10, 8))
+
+        for w in (self.header, self._chevron, self._title):
+            w.bind("<Button-1>", lambda _e: self.toggle())
+        self._render()
+
+    def toggle(self):
+        self._expanded = not self._expanded
+        self._render()
+        if self._on_toggle is not None:
+            self._on_toggle(self)
+
+    def set_expanded(self, expanded: bool):
+        if expanded != self._expanded:
+            self.toggle()
+
+    @property
+    def expanded(self) -> bool:
+        return self._expanded
+
+    def _render(self):
+        self._chevron.configure(text="▾" if self._expanded else "▸")
+        if self._expanded:
+            self.body.pack(fill="both", expand=True)
+        else:
+            self.body.pack_forget()
+
+
 class ScrollableFrame(ttk.Frame):
     """A vertically scrolling container. Pack/grid children into `.body`; the scrollbar
     appears only when the content overflows. Suited to lists that can grow long (e.g. the
     per-body rows of a badly-split structure). Mouse-wheel scrolling is active while the
-    pointer is over the frame."""
+    pointer is over the frame. `height` bounds the viewport so a long list scrolls instead
+    of stretching its parent."""
 
-    def __init__(self, parent, **kwargs):
+    def __init__(self, parent, height: Optional[int] = None, **kwargs):
         super().__init__(parent, **kwargs)
-        self._canvas = tk.Canvas(self, background=PALETTE["surface"], highlightthickness=0, bd=0)
+        canvas_kwargs = {"height": height} if height is not None else {}
+        self._canvas = tk.Canvas(self, background=PALETTE["surface"], highlightthickness=0, bd=0, **canvas_kwargs)
         self._scroll = ttk.Scrollbar(self, orient="vertical", command=self._canvas.yview)
         self._canvas.configure(yscrollcommand=self._on_scroll_set)
         self.body = ttk.Frame(self._canvas)

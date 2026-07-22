@@ -28,7 +28,7 @@ from matplotlib.figure import Figure
 
 from .plotting import draw_structure, _BODY_COLORS
 from .theme import FONTS, PALETTE
-from .widgets import ScrollableFrame
+from .widgets import CollapsibleSection, ScrollableFrame
 
 # the load block whose bodies we manage; setup elements are inserted just after it
 _LOAD_BLOCK_RE = re.compile(r"load\s*\{.*?\}", re.DOTALL)
@@ -117,57 +117,73 @@ class StructurePane(ttk.Frame):
         self._canvas.get_tk_widget().pack(fill="both", expand=True)
 
     def _build_controls(self, parent):
+        self._merge_var = tk.StringVar()
+        self._delete_var = tk.StringVar()
+        self._sym_type_var = tk.StringVar()
+        self._sym_bodies_var = tk.StringVar()
+
+        # The applied-elements list, status line, and Send button stay pinned to the bottom so
+        # they're visible no matter which sections are open; packed first with side="bottom" so
+        # the collapsible sections above can grow and shrink freely without displacing them.
+        if self._on_apply_script is not None:
+            ttk.Button(parent, text="Send to script…", style="Accent.TButton",
+                       command=self._send_to_script).pack(side="bottom", fill="x", pady=(8, 0))
+        self._status = ttk.Label(parent, text="", style="Muted.TLabel", wraplength=290, justify="left")
+        self._status.pack(side="bottom", fill="x", pady=(6, 0))
+        self._applied = ttk.Frame(parent)
+        self._applied.pack(side="bottom", fill="x", pady=(10, 0))
+
+        # --- collapsible control sections, run as an accordion (one open at a time) so every
+        # section header stays visible and the column fits a small pane ---
+        self._sections: list[CollapsibleSection] = []
+
         # --- display toggles ---
-        display = ttk.Labelframe(parent, text="Display", padding=10)
-        display.pack(fill="x")
+        display = self._section(parent, "Display", expanded=False)
         for text, var in (
             ("Atomic detail", self._show_atoms),
             ("Symmetry copies", self._show_copies),
             ("Constraints", self._show_constraints),
             ("Colour by symmetry copy", self._colour_by_copy),
         ):
-            ttk.Checkbutton(display, text=text, variable=var, command=self._redraw).pack(anchor="w")
+            ttk.Checkbutton(display.body, text=text, variable=var, command=self._redraw).pack(anchor="w")
 
-        # --- body list (the part that grows; scrolls when long) ---
-        bodies = ttk.Labelframe(parent, text="Bodies", padding=(6, 6))
-        bodies.pack(fill="both", expand=True, pady=(10, 0))
-        self._body_list = ScrollableFrame(bodies)
+        # --- body list (scrolls when long, so the section keeps a bounded height) ---
+        bodies = self._section(parent, "Bodies", expanded=True)
+        self._body_list = ScrollableFrame(bodies.body, height=220)
         self._body_list.pack(fill="both", expand=True)
 
-        # --- setup actions ---
-        actions = ttk.Labelframe(parent, text="Manage bodies", padding=10)
-        actions.pack(fill="x", pady=(10, 0))
+        # --- merge / delete ---
+        actions = self._section(parent, "Manage bodies", expanded=False)
+        self._action_row(actions.body, "Merge", self._merge_var, "first others…", self._apply_merge)
+        self._action_row(actions.body, "Delete", self._delete_var, "bodies…", self._apply_delete)
 
-        self._merge_var = tk.StringVar()
-        self._delete_var = tk.StringVar()
-        self._sym_type_var = tk.StringVar()
-        self._sym_bodies_var = tk.StringVar()
-
-        self._action_row(actions, "Merge", self._merge_var, "first others…", self._apply_merge)
-        self._action_row(actions, "Delete", self._delete_var, "bodies…", self._apply_delete)
-
-        sym = ttk.Frame(actions)
-        sym.pack(fill="x", pady=(8, 0))
-        ttk.Label(sym, text="Symmetry", style="Muted.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
+        # --- convert a set of bodies to a symmetry ---
+        sym_section = self._section(parent, "Symmetry", expanded=False)
+        sym = sym_section.body
         type_entry = ttk.Entry(sym, textvariable=self._sym_type_var, width=10)
-        type_entry.grid(row=1, column=0, sticky="ew", padx=(0, 6))
-        ttk.Button(sym, text="Convert", style="Icon.TButton", command=self._apply_symmetry).grid(row=1, column=1)
+        type_entry.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ttk.Button(sym, text="Convert", style="Icon.TButton", command=self._apply_symmetry).grid(row=0, column=1)
         bodies_entry = ttk.Entry(sym, textvariable=self._sym_bodies_var)
-        bodies_entry.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        bodies_entry.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(4, 0))
         bodies_entry.bind("<Return>", lambda _e: self._apply_symmetry())
         sym.columnconfigure(0, weight=1)
-        self._hint(sym, "type e.g. c4 or p2-c2; bodies optional (blank = all)", row=3)
+        self._hint(sym, "type e.g. c4 or p2-c2; bodies optional (blank = all)", row=2)
 
-        # --- applied elements + status + send ---
-        self._applied = ttk.Frame(parent)
-        self._applied.pack(fill="x", pady=(10, 0))
+    def _section(self, parent, title, *, expanded: bool) -> CollapsibleSection:
+        """A collapsible controls section, spaced from the one above it and wired into the accordion."""
+        section = CollapsibleSection(parent, title, expanded=expanded, on_toggle=self._accordion)
+        section.pack(fill="x", pady=(0, 6))
+        self._sections.append(section)
+        return section
 
-        self._status = ttk.Label(parent, text="", style="Muted.TLabel", wraplength=290, justify="left")
-        self._status.pack(fill="x", pady=(6, 0))
-
-        if self._on_apply_script is not None:
-            ttk.Button(parent, text="Send to script…", style="Accent.TButton",
-                       command=self._send_to_script).pack(fill="x", pady=(8, 0))
+    def _accordion(self, opened: CollapsibleSection):
+        """Keep the sections mutually exclusive: expanding one collapses the rest, so the header
+        bars are always in view. Collapsing a section leaves the others untouched."""
+        if not opened.expanded:
+            return
+        for section in self._sections:
+            if section is not opened and section.expanded:
+                section.set_expanded(False)
 
     def _action_row(self, parent, label, var, hint, command):
         row = ttk.Frame(parent)
