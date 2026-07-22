@@ -84,10 +84,6 @@ register({
         ],
         None
     ),
-    # TODO(backend): rigidbody_get_body_names is required by the structure-management pane but
-    # not yet implemented in libausaxs. It must return the names of the bodies that remain after
-    # the setup elements (merge/delete/convert_to_symmetry) have been applied, in the same order
-    # as the body indices reported by rigidbody_get_preview_structure.
     "rigidbody_get_body_names": (
         [
             ct.c_int,                            # rigidbody id
