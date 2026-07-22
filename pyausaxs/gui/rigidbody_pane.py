@@ -138,39 +138,31 @@ class RigidbodyPane(ttk.Frame):
         input_frame = ttk.Labelframe(controls, text="Input", padding=12)
         input_frame.pack(fill="x")
 
+        # each field carries its own inspection button: the structure opens the manage-structure
+        # tab, the SAXS field opens the data tab. Both light up only once the path is valid.
         self.structure_field = FileField(
             input_frame, "Structure",
             validator=_make_validator(STRUCTURE_EXTENSIONS, "_is_pdb_file"),
-            on_valid=lambda _p: self._refresh_view_struct_btn(),
             on_commit=lambda p: self._on_load_structure(p),
             filetypes=[("Structure", "*.pdb *.ent *.cif *.xyz")],
+            on_view=self._open_structure_pane, view_tooltip="View / manage structure",
         )
         self.saxs_field = FileField(
             input_frame, "SAXS data",
             validator=_make_validator(SAXS_EXTENSIONS, "_is_saxs_data_file"),
-            on_valid=lambda _p: self._refresh_view_btn(),
             on_commit=lambda p: self._on_load_saxs(p),
             filetypes=[("SAXS data", "*.dat *.rsr *.xvg")],
+            on_view=self._open_data_pane, view_tooltip="View data",
         )
         self.structure_field.pack(fill="x")
         self.saxs_field.pack(fill="x", pady=(6, 0))
-        # actions that act on the inputs as a whole rather than a single field, grouped to
-        # the right: hand the inputs to the SAXS fitter, or open a data-inspection tab
+        # the one input-wide action left in this block: hand both inputs to the SAXS fitter
         button_row = ttk.Frame(input_frame)
         button_row.pack(fill="x", pady=(8, 0))
-        self._view_btn = ttk.Button(button_row, text="View data", command=self._open_data_pane,
-                                    state="disabled")
-        self._view_btn.pack(side="right")
         ttk.Button(button_row, text="Send to SAXS fitter", command=self._send_to_saxs_fitter).pack(
-            side="right", padx=(0, 8))
+            side="right")
         self._on_load_structure = make_on_load_structure(self._set_load_directive, self.saxs_field)
         self._on_load_saxs = make_on_load_saxs(self._set_load_directive, self.structure_field)
-
-        struct_row = ttk.Frame(input_frame)
-        struct_row.pack(fill="x", pady=(6, 0))
-        self._view_struct_btn = ttk.Button(
-            struct_row, text="View / manage structure", command=self._open_structure_pane, state="disabled")
-        self._view_struct_btn.pack(side="right")
 
         splits_row = ttk.Frame(input_frame)
         splits_row.pack(fill="x", pady=(6, 0))
@@ -343,12 +335,6 @@ class RigidbodyPane(ttk.Frame):
         self._data_pane = None
 
     # ----- structure pane management ------------------------------------------
-    def _refresh_view_struct_btn(self):
-        """Enable "View / manage structure" whenever the structure field is valid."""
-        if hasattr(self, "_view_struct_btn"):
-            self._view_struct_btn.configure(
-                state="normal" if self.structure_field.valid else "disabled")
-
     def _open_structure_pane(self):
         """Open (or focus) the structure-management tab for the current PDB. It reads the live
         script as its base and writes confirmed body changes back into the editor."""

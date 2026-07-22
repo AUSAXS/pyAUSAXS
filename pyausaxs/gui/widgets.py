@@ -20,7 +20,14 @@ class FileField(ttk.Frame):
     so it is suited to passive reactions like coloring or autodetection). on_commit fires
     only on explicit user commits — pressing Enter or picking a file via Browse — and is
     suited to actions that should not be re-triggered by merely tabbing away.
+
+    If on_view is given, a small view button sits beside the folder (browse) button; it is
+    enabled only while the field holds a valid path, and clicking it calls on_view() — used
+    to open an inspection tab for the chosen file.
     """
+
+    _BROWSE_GLYPH = "🗁"
+    _VIEW_GLYPH = "👁"
 
     def __init__(
         self, parent,
@@ -30,6 +37,8 @@ class FileField(ttk.Frame):
         on_commit: Optional[Callable[[str], None]] = None,
         filetypes: Optional[list[tuple[str, str]]] = None,
         directory: bool = False,
+        on_view: Optional[Callable[[], None]] = None,
+        view_tooltip: str = "View",
     ):
         super().__init__(parent)
         self._validator = validator
@@ -37,6 +46,7 @@ class FileField(ttk.Frame):
         self._on_commit = on_commit
         self._filetypes = filetypes or []
         self._directory = directory
+        self._on_view = on_view
         self.valid = False
         self.touched = False  # whether the user has manually edited the field
 
@@ -51,7 +61,19 @@ class FileField(ttk.Frame):
             highlightbackground=PALETTE["border"], highlightcolor=PALETTE["accent"],
         )
         self.entry.grid(row=1, column=0, sticky="ew", ipady=4)
-        ttk.Button(self, text="Browse", style="Icon.TButton", command=self._browse).grid(row=1, column=1, padx=(6, 0))
+
+        browse = ttk.Button(self, text=self._BROWSE_GLYPH, style="Icon.TButton", width=2, command=self._browse)
+        browse.grid(row=1, column=1, padx=(6, 0))
+        Tooltip(browse, "Browse…")
+
+        self._view_btn = None
+        if on_view is not None:
+            self._view_btn = ttk.Button(
+                self, text=self._VIEW_GLYPH, style="Icon.TButton", width=2,
+                command=on_view, state="disabled")
+            self._view_btn.grid(row=1, column=2, padx=(4, 0))
+            Tooltip(self._view_btn, view_tooltip)
+
         self.columnconfigure(0, weight=1)
 
         self.entry.bind("<Return>", lambda _e: self._commit())
@@ -61,12 +83,18 @@ class FileField(ttk.Frame):
     def _set_state_color(self, fill: str, border: str):
         self.entry.configure(background=fill, readonlybackground=fill, disabledbackground=fill, highlightbackground=border)
 
+    def _sync_view_state(self):
+        """Keep the inline view button clickable only while the field holds a valid path."""
+        if self._view_btn is not None:
+            self._view_btn.configure(state="normal" if self.valid else "disabled")
+
     def _on_keypress(self, event):
         if event.keysym in ("Return", "Tab"):
             return
         self.touched = True
         self.valid = False
         self._set_state_color(PALETTE["surface"], PALETTE["border"])
+        self._sync_view_state()
 
     def _browse(self):
         if self._directory:
@@ -95,12 +123,14 @@ class FileField(ttk.Frame):
         if not path:
             self.valid = False
             self._set_state_color(PALETTE["surface"], PALETTE["border"])
+            self._sync_view_state()
             return False
         self.valid = bool(self._validator(path))
         if self.valid:
             self._set_state_color(PALETTE["ok"], PALETTE["ok_border"])
         else:
             self._set_state_color(PALETTE["bad"], PALETTE["bad_border"])
+        self._sync_view_state()
         if self.valid and self._on_valid:
             self._on_valid(path)
         return self.valid
