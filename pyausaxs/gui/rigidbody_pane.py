@@ -53,21 +53,42 @@ loop
 end
 save final_state.pdb
 """
+# ── regex building blocks ──────────────────────────────────────────────────
+# one or more spaces/tabs — separates a directive from its argument
+_TABS_OR_SPACES = r"[ \t]+"
+# a brace block `{ ... }` (non-greedy; spans newlines under re.DOTALL)
+_MANDATORY_BLOCK_FORMAT = r"\s*\{.*?\}"
+# a directive body that is either a brace block or a single inline line
+_OPTIONAL_BLOCK_FORMAT = r"(?:\s*\{.*?\}|[^\n]*)"
+# start of a line, skipping any leading indentation (needs re.MULTILINE)
+_LINE_START = r"^[ \t]*"
 
-_LOAD_BLOCK_RE = re.compile(r"load\s*\{.*?\}", re.DOTALL)
+# `load { ... }` — the mandatory brace block listing the bodies to refine
+_LOAD_BLOCK_RE = re.compile(f"load{_MANDATORY_BLOCK_FORMAT}", re.DOTALL)
 # a 'symmetry' element: either a brace block (symmetry { ... }) or a single inline line
 # (symmetry c6 / symmetry b1 c6), anchored to the first token on a line
-_SYMMETRY_RE = re.compile(r"(?m)^[ \t]*symmetry\b\s*(?:\{.*?\}|[^\n]*)", re.DOTALL)
+_SYMMETRY_RE = re.compile(
+    rf"{_LINE_START}symmetry\b{_OPTIONAL_BLOCK_FORMAT}", re.MULTILINE | re.DOTALL
+)
 # a constraint element — autoconstrain/autoconstraints (inline) or constrain/constraint
 # (inline or a brace block) — anchored to the first token on a line. The whole { ... } block
 # is captured so edits to its arguments (type, bodies, …) refresh the preview too.
-_CONSTRAINT_RE = re.compile(r"(?m)^[ \t]*(?:auto)?constrain(?:ts?)?\b\s*(?:\{.*?\}|[^\n]*)", re.DOTALL)
+_CONSTRAINT_RE = re.compile(
+    rf"{_LINE_START}(?:auto)?constrain(?:ts?)?\b{_OPTIONAL_BLOCK_FORMAT}",
+    re.MULTILINE | re.DOTALL,
+)
 # an 'update' element (e.g. `update structure`) as the first token on a line; its presence makes
 # the GUI poll the backend for the live structure during a run
-_UPDATE_RE = re.compile(r"(?m)^[ \t]*update\b")
+_UPDATE_RE = re.compile(rf"{_LINE_START}update\b", re.MULTILINE)
 # the top-level 'output' directive (output <dir>), captured as (prefix, path) so the path can be
 # rewritten to an absolute one at boot
-_OUTPUT_RE = re.compile(r"(?m)^([ \t]*output[ \t]+)(\S+)")
+_OUTPUT_RE = re.compile(rf"({_LINE_START}output{_TABS_OR_SPACES})(\S+)", re.MULTILINE)
+# structurally relevant elements: the load block, symmetry block, constraint blocks, and delete element. 
+# Used to determine whether a script edit should trigger a preview redraw.
+_DELETE_RE = re.compile(rf"{_LINE_START}delete\b{_OPTIONAL_BLOCK_FORMAT}", re.MULTILINE | re.DOTALL)
+_STRUCTURALLY_RELEVANT_RE = re.compile(
+    rf"(?:{_LOAD_BLOCK_RE.pattern}|{_SYMMETRY_RE.pattern}|{_CONSTRAINT_RE.pattern}|{_DELETE_RE.pattern})", re.MULTILINE | re.DOTALL
+)
 
 
 class RigidbodyPane(ttk.Frame):
@@ -703,13 +724,10 @@ class RigidbodyPane(ttk.Frame):
 
     @staticmethod
     def _structural_signature(script: str) -> tuple:
-        """Distil the parts of the script that affect the preview — the load block, any symmetry elements, and any
-        constraint lines — so edits to unrelated lines (iterations, print, save, ...) don't trigger a redraw or a
-        backend rebuild."""
-        load = _LOAD_BLOCK_RE.search(script)
-        return (load.group(0) if load else "",
-                tuple(m.group(0) for m in _SYMMETRY_RE.finditer(script)),
-                tuple(m.group(0) for m in _CONSTRAINT_RE.finditer(script)))
+        """Distil the parts of the script that affect the preview — the load block, any symmetry elements,
+        constraint lines, and delete elements — so edits to unrelated lines (iterations, print, save, ...)
+        don't trigger a redraw or a backend rebuild."""
+        return tuple(m.group(0) for m in _STRUCTURALLY_RELEVANT_RE.finditer(script))
 
     def _preview_data(self, script: str, sig: tuple):
         """Build the rigid body from the current script and return its preview structure
