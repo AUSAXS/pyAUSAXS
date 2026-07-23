@@ -414,7 +414,8 @@ class StructurePane(ttk.Frame):
         row.pack(fill="x")
 
         # a fold chevron for bodies that have replicas, or a matching-width spacer for those that don't
-        # so the swatches line up. The chevron toggles the fold without changing the highlight.
+        # so the swatches line up. The chevron toggles the fold without
+        # changing the highlight.
         if replicas:
             chevron = tk.Label(
                 row, text="▾" if b["index"] in self._expanded_bodies else "▸",
@@ -422,7 +423,7 @@ class StructurePane(ttk.Frame):
             chevron.pack(side="left")
             chevron.bind("<Button-1>", lambda _e, i=b["index"]: self._toggle_body_expand(i))
         else:
-            tk.Frame(row, background=PALETTE["surface"], width=20).pack(side="left")
+            tk.Label(row, text="", background=PALETTE["surface"], font=FONTS["small"], width=2).pack(side="left")
 
         swatch = tk.Frame(row, background=b["colour"], width=12, height=12)
         swatch.pack(side="left", padx=(0, 6), pady=4)
@@ -595,8 +596,8 @@ class StructurePane(ttk.Frame):
     def _apply_splits(self):
         """Re-split the structure at the residue numbers in the splits field and rebuild the view. The split lives in the load block, so it is 
         applied by recomposing (see _with_split); on a bad value the field is reverted so it always mirrors the splits actually in force."""
-        new = _norm_splits(self._splits_var.get())
-        if new == _norm_splits(self._splits):
+        new = self._splits_var.get().strip()
+        if _norm_splits(new) == _norm_splits(self._splits):
             self._splits_var.set(new)
             return
         prev = self._splits
@@ -714,12 +715,12 @@ class StructurePane(ttk.Frame):
 
     # ----- send to script -----------------------------------------------------
     def _send_to_script(self):
-        if not self._elements:
-            self._set_status("No changes to send.", ok=False)
-            return
         base = self._base_script() if self._base_script else _synth_load_block(self.pdb_path, self._splits)
         new_base = _with_split(base, self._splits) if _LOAD_BLOCK_RE.search(base) else base
         new = _insert_elements(new_base, self._elements)
+        if new == base:  # neither the splits nor the staged elements actually differ from the base
+            self._set_status("No changes to send.", ok=False)
+            return
         ScriptDiffDialog(self, base, new, on_confirm=lambda: self._confirm_send(new))
 
     def _confirm_send(self, new: str):
