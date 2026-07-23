@@ -288,6 +288,9 @@ class RigidbodyPane(ttk.Frame):
         self.after(60, self._restore_split)
         self.after(80, self._update_structure_preview)
         self._autosave_job = self.after(self._AUTOSAVE_INTERVAL_MS, self._autosave_script)
+        # carry the preview camera to/from the structure pane as the user switches top-level tabs;
+        # add="+" so we don't clobber the tab-persistence binding the main window installs
+        self.master.bind("<<NotebookTabChanged>>", self._on_toplevel_tab_changed, add="+")
         enable_file_drop(
             self, [self.structure_field, self.saxs_field],
             on_unmatched=self._on_drop_unmatched,
@@ -350,8 +353,10 @@ class RigidbodyPane(ttk.Frame):
                 splits=self.splits_var.get(),
                 base_script=lambda: self.editor.get("1.0", "end-1c"),
                 on_apply_script=self._apply_structure_script,
+                base_signature=self._structural_signature,
             )
             notebook.add(self._structure_pane, text=self._structure_pane.title)
+        # selecting fires <<NotebookTabChanged>>, which re-checks staleness and syncs the camera
         self.master.select(self._structure_pane)
 
     def _close_structure_pane(self):
@@ -751,6 +756,7 @@ class RigidbodyPane(ttk.Frame):
         data = self._preview_data(script, sig)
 
         ax = self._struct_ax
+        view = self._preview_orientation()
         ax.clear()
         ax.set_axis_off()
         if data is None:
@@ -762,13 +768,47 @@ class RigidbodyPane(ttk.Frame):
             draw_structure(ax, data, splits)
             if self._update_structure_preview_first_draw:
                 self._update_structure_preview_first_draw = False
-            elif self._last_valid_lims is not None:
-                ax.set_xlim(self._last_valid_lims[0])
-                ax.set_ylim(self._last_valid_lims[1])
-                ax.set_zlim(self._last_valid_lims[2])
+            else:
+                if self._last_valid_lims is not None:
+                    ax.set_xlim(self._last_valid_lims[0])
+                    ax.set_ylim(self._last_valid_lims[1])
+                    ax.set_zlim(self._last_valid_lims[2])
+                self._set_preview_orientation(view)  # keep the camera angle across redraws
             self._last_valid_lims = [ax.get_xlim(), ax.get_ylim(), ax.get_zlim()]
         self._struct_fig.set_layout_engine("tight")
         self._struct_canvas.draw_idle()
+
+    # ----- camera sync with the structure pane --------------------------------
+    # The structure pane shows the same structure in its own figure. Rather than truly sync the two, each adopts the other's 
+    # camera angle when the user switches to it (see _on_toplevel_tab_changed), which reads as continuous. Only the orientation 
+    # is carried, not the zoom, since after a merge/delete the two structures can diverge and shared limits would clip.
+    def _preview_orientation(self) -> tuple:
+        ax = self._struct_ax
+        return (ax.elev, ax.azim, getattr(ax, "roll", 0.0))
+
+    def _set_preview_orientation(self, cam):
+        if cam is None:
+            return
+        elev, azim, roll = cam
+        try:
+            self._struct_ax.view_init(elev=elev, azim=azim, roll=roll)
+        except TypeError:  # matplotlib < 3.5 has no roll
+            self._struct_ax.view_init(elev=elev, azim=azim)
+
+    def _on_toplevel_tab_changed(self, _event=None):
+        """When the user switches to the structure pane, hand it this preview's camera angle; when
+        they switch back here, adopt the structure pane's. Gives the illusion of a shared camera
+        without keeping the two figures in lock-step."""
+        if self._structure_pane is None:
+            return
+        selected = self.master.select()
+        current = self.master.nametowidget(selected) if selected else None
+        if current is self._structure_pane:
+            self._structure_pane.set_camera_orientation(self._preview_orientation())
+            self._structure_pane.check_stale()  # flag the refresh bar if the script changed meanwhile
+        elif current is self:
+            self._set_preview_orientation(self._structure_pane.get_camera_orientation())
+            self._struct_canvas.draw_idle()
 
     def _home_preview(self):
         """Reset the structure preview to the auto-fit default view."""

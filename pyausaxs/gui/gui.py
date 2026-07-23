@@ -50,9 +50,12 @@ class App(TkinterDnD.Tk):
         # remember where we were launched from (so the rigid-body pane can resolve relative
         # script paths next boot) and keep the active panel persisted as the user switches
         update_config(last_launch_directory=os.path.abspath(os.getcwd()))
+        # add="+" so this doesn't clobber tab-change listeners the panes install on the same notebook
+        # (e.g. the rigid-body pane's camera hand-off to the structure pane)
         notebook.bind(
             "<<NotebookTabChanged>>",
             lambda _e: update_config(last_panel=notebook.tab(notebook.select(), "text")),
+            add="+",
         )
 
         footer = ttk.Frame(self, padding=(20, 6, 20, 10))

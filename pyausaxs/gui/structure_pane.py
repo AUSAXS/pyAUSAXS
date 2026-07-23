@@ -20,7 +20,7 @@ disappear from the list (and the plot) exactly as it will at run time.
 import re
 import difflib
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 from typing import Callable, Optional
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
@@ -62,13 +62,17 @@ class StructurePane(ttk.Frame):
         splits: str = "",
         base_script: Optional[Callable[[], str]] = None,
         on_apply_script: Optional[Callable[[str], None]] = None,
+        base_signature: Optional[Callable[[str], object]] = None,
     ):
         super().__init__(parent)
-        print(f"path is \"{pdb_path}\"")
         self.pdb_path = pdb_path
         self._splits = splits
         self._base_script = base_script          # target script to diff/patch, or None
         self._on_apply_script = on_apply_script   # apply a confirmed new script, or None
+        # reduce the base script to a structural fingerprint, so a later edit to the same body/split
+        # setup is detected as "stale". Defaults to the raw string (any edit counts) when not given.
+        self._base_signature = base_signature or (lambda s: s)
+        self._built_sig = None                    # base fingerprint the current view was built from
         self.title = "Structure: " + pdb_path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
 
         self._elements: list[str] = []            # setup elements the user has applied, in order
@@ -134,6 +138,10 @@ class StructurePane(ttk.Frame):
         self._applied = ttk.Frame(parent)
         self._applied.pack(side="bottom", fill="x", pady=(10, 0))
 
+        # An amber action bar styled like a section header, but it triggers a refresh instead of
+        # expanding. It is packed above the sections only while the view is stale (see _set_stale).
+        self._build_refresh_bar(parent)
+
         # --- collapsible control sections, run as an accordion (one open at a time) so every
         # section header stays visible and the column fits a small pane ---
         self._sections: list[CollapsibleSection] = []
@@ -182,6 +190,23 @@ class StructurePane(ttk.Frame):
             if section is not opened and section.expanded:
                 section.set_expanded(False)
 
+    # amber "the script changed" attention colours, distinct from the neutral section headers
+    _WARN_BG = "#f0ad4e"
+    _WARN_FG = "#4a3208"
+
+    def _build_refresh_bar(self, parent):
+        bar = tk.Frame(parent, background=self._WARN_BG, cursor="hand2")
+        # the reload glyph only exists in the regular weight of this font, not the bold heading one
+        icon = tk.Label(bar, text="↻", background=self._WARN_BG, foreground=self._WARN_FG,
+                        font=(FONTS["base"][0], 14), width=2)
+        icon.pack(side="left", padx=(6, 0), pady=6)
+        title = tk.Label(bar, text="Script changed - refresh", background=self._WARN_BG,
+                         foreground=self._WARN_FG, font=FONTS["heading"])
+        title.pack(side="left", pady=6)
+        for w in (bar, icon, title):
+            w.bind("<Button-1>", lambda _e: self._do_refresh())
+        self._refresh_bar = bar  # created unpacked; _set_stale packs it above the sections
+
     def _action_row(self, parent, label, var, hint, command, button="Apply"):
         row = ttk.Frame(parent)
         row.pack(fill="x", pady=(0, 2))
@@ -224,7 +249,44 @@ class StructurePane(ttk.Frame):
             self._highlight = None  # the highlighted body was merged/deleted away
         self._rebuild_body_list()
         self._redraw()
+        # the view now matches this base, so it is no longer stale
+        self._built_sig = self._base_sig()
+        self._set_stale(False)
         return True, ""
+
+    # ----- staleness / refresh ------------------------------------------------
+    def _base_sig(self):
+        base = self._base_script() if self._base_script else _synth_load_block(self.pdb_path, self._splits)
+        return self._base_signature(base)
+
+    def check_stale(self):
+        """Flag the view as stale when the base script has changed since it was built (e.g. the user
+        edited the load block in the main editor). Called when the pane is switched back to."""
+        self._set_stale(self._built_sig is not None and self._base_sig() != self._built_sig)
+
+    def _set_stale(self, stale: bool):
+        if not hasattr(self, "_refresh_bar") or not self._sections:
+            return
+        if stale and not self._refresh_bar.winfo_ismapped():
+            self._refresh_bar.pack(fill="x", pady=(0, 6), before=self._sections[0])
+        elif not stale and self._refresh_bar.winfo_ismapped():
+            self._refresh_bar.pack_forget()
+
+    def _do_refresh(self):
+        """Reload the view from the current script, discarding all staged edits (they are the only
+        thing lost, so confirm only when there are any)."""
+        if self._elements:
+            n = len(self._elements)
+            if not messagebox.askyesno(
+                "Refresh from script",
+                f"Discard {n} staged change{'' if n == 1 else 's'} and reload from the current script?",
+                parent=self):
+                return
+        self._elements = []
+        self._rebuild_applied_list()
+        ok, msg = self._rebuild(self._elements)
+        self._set_status("Reloaded from the current script." if ok
+                         else f"Could not reload from the script: {msg}", ok=ok)
 
     def _compute_bodies(self):
         import numpy as np
@@ -327,6 +389,7 @@ class StructurePane(ttk.Frame):
     # ----- drawing ------------------------------------------------------------
     def _redraw(self):
         ax = self._ax
+        view = self._get_orientation()
         lims = (ax.get_xlim(), ax.get_ylim(), ax.get_zlim()) if self._data is not None else None
         ax.clear()
         ax.set_axis_off()
@@ -344,11 +407,37 @@ class StructurePane(ttk.Frame):
             )
             if lims is not None and self._preserve_view:
                 ax.set_xlim(lims[0]); ax.set_ylim(lims[1]); ax.set_zlim(lims[2])
+        if self._preserve_view:  # keep the camera angle across redraws, not just the zoom
+            self._set_orientation(view)
         self._preserve_view = True
         self._fig.set_layout_engine("tight")
         self._canvas.draw_idle()
 
     _preserve_view = False
+
+    # ----- camera --------------------------------------------------------------
+    # The rigid-body pane and this pane show the same structure in two separate figures; rather than truly sync them, each 
+    # adopts the other's camera angle when the user switches to it, which is enough to feel continuous. Only the orientation 
+    # is carried, not the zoom, since the two structures can diverge (after a merge/delete) and shared limits would then clip.
+    def get_camera_orientation(self) -> tuple:
+        return self._get_orientation()
+
+    def set_camera_orientation(self, cam: Optional[tuple]):
+        if cam is None:
+            return
+        self._set_orientation(cam)
+        self._canvas.draw_idle()
+
+    def _get_orientation(self) -> tuple:
+        ax = self._ax
+        return (ax.elev, ax.azim, getattr(ax, "roll", 0.0))
+
+    def _set_orientation(self, cam: tuple):
+        elev, azim, roll = cam
+        try:
+            self._ax.view_init(elev=elev, azim=azim, roll=roll)
+        except TypeError:  # matplotlib < 3.5 has no roll
+            self._ax.view_init(elev=elev, azim=azim)
 
     def _parse_splits(self) -> list[int]:
         return [int(t) for t in re.split(r"[,\s]+", self._splits.strip()) if t.isdigit()]
@@ -440,7 +529,15 @@ class StructurePane(ttk.Frame):
             return
         base = self._base_script() if self._base_script else _synth_load_block(self.pdb_path, self._splits)
         new = _insert_elements(base, self._elements)
-        ScriptDiffDialog(self, base, new, on_confirm=lambda: self._on_apply_script(new))
+        ScriptDiffDialog(self, base, new, on_confirm=lambda: self._confirm_send(new))
+
+    def _confirm_send(self, new: str):
+        """Write the composed script back to the editor, then drop the staged edits: they now live
+        in the base, so keeping them staged would double-apply them on the next rebuild."""
+        self._on_apply_script(new)
+        self._elements = []
+        self._rebuild_applied_list()
+        self._rebuild(self._elements)  # rebuild from the new base, re-recording its fingerprint
 
 
 class ScriptDiffDialog(tk.Toplevel):
