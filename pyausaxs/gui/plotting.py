@@ -308,9 +308,25 @@ def draw_structure(ax, data: dict, split_residues: list[int], *,
             ax.plot(pts[:, 0], pts[:, 1], pts[:, 2], color=_colour(b, c), lw=lw, alpha=alpha, zorder=z)
 
     # bodies with no Cα atoms at all (e.g. a non-protein hetero group) draw nothing in the trace above
-    # and would otherwise be completely invisible; mark each with a labeled centroid dot instead.
+    # and would otherwise be completely invisible; mark each with a small sphere at the centroid
+    # instead. The sphere is real geometry sized in data units (Angstrom), not a screen-space
+    # scatter marker, so it pans/zooms consistently with the rest of the structure instead of
+    # visually dominating once the view zooms out.
     ca_bodies = set(body[is_ca].tolist())
-    for b in sorted(set(body.tolist()) - ca_bodies):
+    no_ca_bodies = sorted(set(body.tolist()) - ca_bodies)
+    MIN_RADIUS = 25  # floor so single-atom bodies (Rg=0) stay visible
+    for b in no_ca_bodies:
+        pts0 = coords[(body == b) & (copy == 0)]
+        if len(pts0) > 1:
+            rg = float(np.sqrt(np.mean(np.sum((pts0 - pts0.mean(axis=0)) ** 2, axis=1))))
+        else:
+            rg = 0.0
+        # approximate the group's physical extent from its Rg, treating it as a solid sphere
+        # (Rg = sqrt(3/5)*R  =>  R = sqrt(5/3)*Rg)
+        radius = 0.1*max(rg * np.sqrt(5 / 3), MIN_RADIUS)
+        u, v = np.meshgrid(np.linspace(0, 2 * np.pi, 10), np.linspace(0, np.pi, 6))
+        sx, sy, sz = np.cos(u) * np.sin(v), np.sin(u) * np.sin(v), np.cos(v)
+
         for c in sorted(set(copy[body == b].tolist())):
             if not show_copies and c != 0:
                 continue
@@ -320,12 +336,14 @@ def draw_structure(ax, data: dict, split_residues: list[int], *,
             centroid = pts.mean(axis=0)
             original = (c == 0)
             if _dimmed(b, c):
-                alpha, size = 0.15, 40
+                alpha = 0.15
             else:
-                alpha, size = (1.0, 90) if original else (0.65, 60)
+                alpha = 1.0 if original else 0.65
             colour = _colour(b, c)
-            ax.scatter(*centroid, s=size, color=colour, alpha=alpha, edgecolors="black",
-                      linewidths=0.6, depthshade=False, zorder=2)
+            ax.plot_surface(
+                centroid[0] + radius * sx, centroid[1] + radius * sy, centroid[2] + radius * sz,
+                color=colour, alpha=alpha, linewidth=0, shade=True, zorder=2
+            )
             if original:
                 label = body_names.get(b, f"b{b + 1}")
                 ax.text(*centroid, f" {label}", color=colour, alpha=alpha, fontsize=7, zorder=2)
