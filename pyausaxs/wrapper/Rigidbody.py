@@ -93,6 +93,20 @@ register({
         ],
         None
     ),
+    "rigidbody_get_symmetry_layout": (
+        [
+            ct.c_int,                            # rigidbody id
+            ct.POINTER(ct.POINTER(ct.c_int)),    # body vector (output)
+            ct.POINTER(ct.POINTER(ct.c_int)),    # copy vector (output)
+            ct.POINTER(ct.POINTER(ct.c_int)),    # symmetry vector (output)
+            ct.POINTER(ct.POINTER(ct.c_int)),    # replica vector (output)
+            ct.POINTER(ct.POINTER(ct.c_char_p)), # type vector (output)
+            ct.POINTER(ct.POINTER(ct.c_char_p)), # name vector (output)
+            ct.POINTER(ct.c_int),                # n_replicas (output)
+            ct.POINTER(ct.c_int)                 # status (0 = success)
+        ],
+        ct.c_int                                 # return data id
+    ),
 })
 
 class Rigidbody(BackendObject):
@@ -172,6 +186,44 @@ class Rigidbody(BackendObject):
         )
         _check_error_code(status, "rigidbody_get_body_names")
         return _ptr_to_str_list(names, size.value)
+
+    def symmetry_layout(self) -> dict:
+        """Get the symmetry-replica layout of the current structure, one row per replica (copy > 0),
+        keyed to preview_structure()'s (body, copy) pairs so the GUI never has to guess the
+        copy -> symmetry mapping. Returns a dict with:
+            body     : (R,) int       — body index (matches preview_structure's body)
+            copy     : (R,) int       — symmetry copy index (matches preview_structure's copy)
+            symmetry : (R,) int       — 0-based symmetry index within the body
+            replica  : (R,) int       — replica index within the symmetry
+            type     : (R,) list[str] — symmetry type (e.g. "c4", "p2")
+            name     : (R,) list[str] — addressable default name (e.g. "b1s1r1")"""
+        ausaxs = AUSAXS()
+        body = ct.POINTER(ct.c_int)()
+        copy = ct.POINTER(ct.c_int)()
+        symmetry = ct.POINTER(ct.c_int)()
+        replica = ct.POINTER(ct.c_int)()
+        type_ = ct.POINTER(ct.c_char_p)()
+        name = ct.POINTER(ct.c_char_p)()
+        n_replicas = ct.c_int()
+        status = ct.c_int()
+        temp_id = ausaxs.lib().functions.rigidbody_get_symmetry_layout(
+            self._get_id(),
+            ct.byref(body), ct.byref(copy), ct.byref(symmetry), ct.byref(replica),
+            ct.byref(type_), ct.byref(name),
+            ct.byref(n_replicas), ct.byref(status)
+        )
+        _check_error_code(status, "rigidbody_get_symmetry_layout")
+        n = n_replicas.value
+        result = {
+            "body": _ptr_to_array(body, n, dtype=int),
+            "copy": _ptr_to_array(copy, n, dtype=int),
+            "symmetry": _ptr_to_array(symmetry, n, dtype=int),
+            "replica": _ptr_to_array(replica, n, dtype=int),
+            "type": _ptr_to_str_list(type_, n),
+            "name": _ptr_to_str_list(name, n),
+        }
+        ausaxs.deallocate(temp_id)
+        return result
 
     @staticmethod
     def set_live_consumer(connected: bool) -> None:

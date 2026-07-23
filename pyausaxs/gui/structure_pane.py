@@ -142,6 +142,7 @@ class StructurePane(ttk.Frame):
         self._data: dict | None = None            # last good preview-structure dict
         self._names: list[str] = []               # body names aligned to body indices
         self._bodies: list[dict] = []             # per-body summary rows (index/name/atoms/res/copies)
+        self._replica_info: dict[tuple[int, int], dict] = {}  # (body, copy) -> {"type", "name"}
         # the view selection isolated in the plot, as a (body, copy) pair: copy None highlights the
         # whole body (all its symmetry copies), an int highlights just that one replica. None = nothing.
         self._highlight: tuple[int, int | None] | None = None
@@ -315,10 +316,15 @@ class StructurePane(ttk.Frame):
             if not len(data["coords"]):
                 return False, "the structure is empty"
             names = rb.body_names()
+            layout = rb.symmetry_layout()
         except Exception as e:
             return False, str(e)
 
         self._data, self._names = data, names
+        self._replica_info = {
+            (int(body), int(copy)): {"type": t, "name": nm}
+            for body, copy, t, nm in zip(layout["body"], layout["copy"], layout["type"], layout["name"])
+        }
         self._compute_bodies()
         valid = {(b["index"], None) for b in self._bodies}
         valid |= {(b["index"], c) for b in self._bodies for c in b["copies"]}
@@ -439,22 +445,24 @@ class StructurePane(ttk.Frame):
         self._rows.append(((b["index"], None), (row, label, meta)))
 
     def _build_replica_row(self, b: dict, copy: int):
-        """A single symmetry-replica child row, indented under its base body. Clicking it isolates
-        just that replica in the view. Its name follows the backend's convention (b<body>s1r<copy>);
-        the symmetry index is assumed to be 1 until the backend exposes the real layout (see plan)."""
+        """A single symmetry-replica child row, indented under its base body. Clicking it isolates just that replica in the view. Name and
+        type badge come straight from the backend's symmetry layout, keyed to this (body, copy) pair."""
+        info = self._replica_info[(b["index"], copy)]
         row = tk.Frame(self._body_list.body, background=PALETTE["surface"], cursor="hand2")
         row.pack(fill="x")
         tk.Frame(row, background=PALETTE["surface"], width=28).pack(side="left")  # indent past the chevron
         swatch = tk.Frame(row, background=b["colour"], width=8, height=8)
         swatch.pack(side="left", padx=(0, 6))
         swatch.pack_propagate(False)
-        name = f"{b['name']}s1r{copy}" if b["name"].startswith("b") else f"b{b['index'] + 1}s1r{copy}"
-        label = tk.Label(row, text=name, foreground=PALETTE["muted"], font=FONTS["small"], anchor="w")
+        label = tk.Label(row, text=info["name"], foreground=PALETTE["muted"], font=FONTS["small"], anchor="w")
         label.pack(side="left")
-        for w in (row, swatch, label):
+        badge = tk.Label(row, text=f"[{info['type']}]", foreground=PALETTE["accent"], font=FONTS["small"], anchor="w")
+        badge.pack(side="left", padx=(4, 0))
+        widgets = [row, swatch, label, badge]
+        for w in widgets:
             w.bind("<Button-1>", lambda _e, i=b["index"], c=copy: self._toggle_highlight(i, c))
         self._row_frames.append(row)
-        self._rows.append(((b["index"], copy), (row, label)))
+        self._rows.append(((b["index"], copy), tuple(widgets)))
 
     def _refresh_row_highlight(self):
         """Recolour the rows to reflect the highlighted body/replica, in place — so a click doesn't
