@@ -463,7 +463,7 @@ class StructurePane(ttk.Frame):
         for w in (row, swatch, label, meta):  # click anywhere on the row highlights the whole body
             w.bind("<Button-1>", lambda _e, i=b["index"]: self._toggle_highlight(i, None))
         for w in (row, label):  # double-click the name (or the row) to rename the body
-            w.bind("<Double-Button-1>", lambda _e, nm=b["name"], lbl=label: self._start_rename(lbl, nm))
+            w.bind("<Double-Button-1>", lambda _e, i=b["index"], nm=b["name"], lbl=label: self._start_rename(lbl, nm, i, None))
         self._row_frames.append(row)
         self._rows.append(((b["index"], None), (row, label, meta)))
         self._body_row_frames[b["index"]] = row
@@ -491,7 +491,7 @@ class StructurePane(ttk.Frame):
         for w in widgets:
             w.bind("<Button-1>", lambda _e, i=b["index"], c=copy: self._toggle_highlight(i, c))
         for w in (row, label):  # double-click the name (or the row) to rename the replica, same as a base body
-            w.bind("<Double-Button-1>", lambda _e, nm=info["name"], lbl=label: self._start_rename(lbl, nm))
+            w.bind("<Double-Button-1>", lambda _e, i=b["index"], c=copy, nm=info["name"], lbl=label: self._start_rename(lbl, nm, i, c))
         self._row_frames.append(row)
         self._rows.append(((b["index"], copy), tuple(widgets)))
         return row
@@ -542,10 +542,15 @@ class StructurePane(ttk.Frame):
         self._refresh_row_highlight()
         self._schedule_redraw()
 
-    def _start_rename(self, label: tk.Label, old: str):
+    def _start_rename(self, label: tk.Label, old: str, body: int, copy: int | None):
         """Replace a body or replica name label with an inline entry so the user can rename it in place. Committing applies a 
         `rename <old> <new>` element; the backend keeps the default name too, so a rename can always be undone by renaming back. Works the 
         same for a base body's name and a replica's addressable name (e.g. "b1s1r1"), since both are just names the backend accepts."""
+        # Tk only fires <Button-1> for a double-click's first (leading) press, not its second — the second press fires
+        # <Double-Button-1> instead. So the leading click already toggled this row's highlight via <Button-1>; re-invoke the
+        # same toggle here (called only once per double-click) to flip it right back, cancelling that highlight out exactly
+        # as if the row had never been clicked, before opening the rename editor.
+        self._toggle_highlight(body, copy)
         # match the label's own font (replica labels use a smaller font than base bodies), and take the label's spot in the 
         # row's left-to-right pack order so a sibling packed after it (e.g. the replica's type badge) doesn't visually jump 
         # to its left while the entry is showing
