@@ -70,8 +70,8 @@ def _synth_load_block(pdb_path: str, splits: str) -> str:
 
 
 def _norm_splits(value: str) -> str:
-    """Normalise a splits string to a canonical space-separated form, so equal splits written with
-    different spacing/commas compare equal (and don't churn the load block)."""
+    """Normalise a splits string to a canonical space-separated form, so equal splits written with different spacing/commas compare equal 
+    (and don't churn the load block)."""
     return " ".join(t for t in re.split(r"[,\s]+", value.strip()) if t)
 
 
@@ -227,12 +227,12 @@ class StructurePane(ttk.Frame):
         self._status = ttk.Label(parent, text="", style="Muted.TLabel", wraplength=290, justify="left")
         self._status.pack(side="bottom", fill="x", pady=(6, 0))
 
-        # An amber action bar styled like a section header, but it triggers a refresh instead of
-        # expanding. It is packed above the sections only while the view is stale (see _set_stale).
+        # An amber action bar styled like a section header, but it triggers a refresh instead of expanding. It is packed above the sections 
+        # only while the view is stale (see _set_stale).
         self._build_refresh_bar(parent)
 
-        # --- collapsible control sections; each opens and closes independently, so the body list
-        # can stay open for reference (e.g. body names) while another section is in use
+        # --- collapsible control sections; each opens and closes independently, so the body list can stay open for reference (e.g. body names) 
+        # while another section is in use
         self._sections: list[CollapsibleSection] = []
 
         # --- display toggles ---
@@ -245,8 +245,8 @@ class StructurePane(ttk.Frame):
         ):
             ttk.Checkbutton(display.body, text=text, variable=var, command=self._redraw).pack(anchor="w")
 
-        # --- body list (scrolls when long, so the section keeps a bounded height), with a splits
-        # editor above it so the structure can be re-split here without leaving the pane ---
+        # --- body list (scrolls when long, so the section keeps a bounded height), with a splits editor above it so the structure can be 
+        # re-split here without leaving the pane ---
         bodies = self._section(parent, "Bodies", expanded=True)
         splits_row = ttk.Frame(bodies.body)
         splits_row.pack(fill="x", pady=(0, 6))
@@ -263,9 +263,16 @@ class StructurePane(ttk.Frame):
 
         # --- merge / delete ---
         actions = self._section(parent, "Manage bodies", expanded=False)
-        self._rename_entry = self._action_row(actions.body, "Rename", "old new", self._apply_rename, button="Rename")
-        # Merge/Delete take only body identifiers, so a selection in the Bodies list can stand in for a typed one: with the field empty, 
-        # clicking Apply falls back to the current whole-body selection if it satisfies the arity (>=2 for merge, >=1 for delete). The 
+        # Rename's "old" half can come from the current selection instead of being typed: with exactly one row (body or replica) selected, 
+        # typing just the new name (one token) is enough. Two typed tokens are always taken literally (old new), regardless of any selection 
+        # — typed content wins over the selection.
+        self._rename_entry = self._action_row(
+            actions.body, "Rename", "old new", self._apply_rename, button="Rename",
+            ready_check=lambda entry: len(entry.get().split()) == 2
+                or (len(entry.get().split()) == 1 and self._selected_single_name() is not None),
+        )
+        # Merge/Delete take only body identifiers, so a selection in the Bodies list can stand in for a typed one: with the field empty,
+        # clicking Apply falls back to the current whole-body selection if it satisfies the arity (>=2 for merge, >=1 for delete). The
         # button lights up green whenever that would work, so the possibility is discoverable without ever silently prefilling the field.
         self._merge_entry = self._action_row(
             actions.body, "Merge", "first others...", self._apply_merge,
@@ -296,8 +303,8 @@ class StructurePane(ttk.Frame):
             con, "Constrain two bodies", "body1 body2 type", self._apply_add_constraint, button="Add"
         )
 
-        # --- staged elements: kept as its own accordion section, always last, so it can be collapsed
-        # like any other section when the user needs more room for e.g. Bodies + Constraints at once
+        # --- staged elements: kept as its own accordion section, always last, so it can be collapsed like any other section when the user 
+        # needs more room for e.g. Bodies + Constraints at once
         self._applied = self._section(parent, "Applied elements", expanded=True).body
         self._rebuild_applied_list()  # seed the initial "no changes" placeholder
 
@@ -363,8 +370,8 @@ class StructurePane(ttk.Frame):
         return _insert_elements(base, elements)
 
     def _rebuild(self, elements: list[str]) -> tuple[bool, str]:
-        """Load the composed setup script through the backend and refresh the view/body list
-        from the bodies that remain. Returns (ok, message); on failure nothing is mutated."""
+        """Load the composed setup script through the backend and refresh the view/body list from the bodies that remain. 
+        Returns (ok, message); on failure nothing is mutated."""
         script = self._compose(elements)
         try:
             from ..wrapper.Rigidbody import Rigidbody
@@ -402,8 +409,8 @@ class StructurePane(ttk.Frame):
         return self._base_signature(base)
 
     def check_stale(self):
-        """Flag the view as stale when the base script has changed since it was built (e.g. the user
-        edited the load block in the main editor). Called when the pane is switched back to."""
+        """Flag the view as stale when the base script has changed since it was built (e.g. the user edited the load block in the main editor). 
+        Called when the pane is switched back to."""
         self._set_stale(self._built_sig is not None and self._base_sig() != self._built_sig)
 
     def _set_stale(self, stale: bool):
@@ -415,8 +422,8 @@ class StructurePane(ttk.Frame):
             self._refresh_bar.pack_forget()
 
     def _do_refresh(self):
-        """Reload the view from the current script, discarding all staged edits (they are the only
-        thing lost, so confirm only when there are any)."""
+        """Reload the view from the current script, discarding all staged edits 
+        (they are the only thing lost, so confirm only when there are any)."""
         if self._elements:
             n = len(self._elements)
             if not messagebox.askyesno(
@@ -478,9 +485,8 @@ class StructurePane(ttk.Frame):
         row = tk.Frame(self._body_list.body, background=PALETTE["surface"], cursor="hand2")
         row.pack(fill="x")
 
-        # a fold chevron for bodies that have replicas, or a matching-width spacer for those that don't
-        # so the swatches line up. The chevron toggles the fold without
-        # changing the highlight.
+        # a fold chevron for bodies that have replicas, or a matching-width spacer for those that don't so the swatches line up. 
+        # The chevron toggles the fold without changing the highlight.
         if replicas:
             chevron = tk.Label(
                 row, text="▾" if b["index"] in self._expanded_bodies else "▸",
@@ -625,15 +631,50 @@ class StructurePane(ttk.Frame):
         self._schedule_redraw()
 
     def _selected_body_names(self) -> list[str]:
-        """Names of the whole bodies (copy=None) currently selected in the Bodies list, ordered by
-        body index. Replica-only selections don't count — merge/delete operate on whole bodies."""
+        """Names of the whole bodies (copy=None) currently selected in the Bodies list, ordered by body index. Replica-only selections 
+        don't count — merge/delete operate on whole bodies."""
         names_by_index = {b["index"]: b["name"] for b in self._bodies}
         return [names_by_index[i] for i, c in sorted(self._highlighted) if c is None and i in names_by_index]
 
+    def _known_names(self) -> set[str]:
+        """Every body/replica display name currently known, used to tell whether a field's first token is already a body identifier the 
+        user typed themselves."""
+        names = {b["name"] for b in self._bodies}
+        names |= {info["name"] for info in self._replica_info.values()}
+        return names
+
+    def _with_selected_bodies(self, entry: PlaceholderEntry, *, exact: int | None = None, minimum: int = 1) -> list[str]:
+        """Tokens for an action whose field is a leading run of body identifiers followed by other arguments (a symmetry type, a constraint 
+        type/distance, ...). If the field's first token is already a recognized body/replica name, it's taken literally — the user typed the 
+        bodies themselves, so the selection is left out of it entirely. Otherwise, if the Bodies-list selection satisfies the requirement 
+        (exactly `exact` whole bodies if given, else at least `minimum`), the selected bodies' names are prepended to whatever's already 
+        typed — so e.g. selecting two bodies and typing just "cm" is enough for a constraint. Falls back to the typed tokens as-is when 
+        neither applies, so the existing per-action validation reports the real problem (e.g. "needs a body and a type") rather than 
+        silently doing nothing."""
+        tokens = entry.get().split()
+        if tokens and tokens[0] in self._known_names():
+            return tokens
+        selected = self._selected_body_names()
+        satisfied = len(selected) == exact if exact is not None else len(selected) >= minimum
+        if not satisfied:
+            return tokens
+        return selected + tokens
+
+    def _selected_single_name(self) -> str | None:
+        """Display name of the one currently selected row — a whole body or a single replica — or None unless exactly one is selected. Used 
+        to let Rename infer "old" from a click instead of typing it, which (unlike merge/delete) makes sense for a replica selection too."""
+        if len(self._highlighted) != 1:
+            return None
+        body, copy = next(iter(self._highlighted))
+        if copy is None:
+            return next((b["name"] for b in self._bodies if b["index"] == body), None)
+        info = self._replica_info.get((body, copy))
+        return info["name"] if info else None
+
     def _start_rename(self, label: tk.Label, old: str, body: int, copy: int | None):
         """Replace a body or replica name label with an inline entry so the user can rename it in place. Committing applies a 
-        `rename <old> <new>` element; the backend keeps the default name too, so a rename can always be undone by renaming back. Works the 
-        same for a base body's name and a replica's addressable name (e.g. "b1s1r1"), since both are just names the backend accepts."""
+        `rename <old> <new>` element; the backend keeps the default name too, so a rename can always be undone by renaming back. Works 
+        the same for a base body's name and a replica's addressable name (e.g. "b1s1r1"), since both are just names the backend accepts."""
         # Tk only fires <Button-1> for a double-click's first (leading) press, not its second — the second press fires <Double-Button-1> instead. 
         # So the leading click already toggled this row's highlight via <Button-1>; re-invoke the same toggle here (called only once per double-click) 
         # to flip it right back, cancelling that highlight out exactly as if the row had never been clicked, before opening the rename editor.
@@ -684,8 +725,8 @@ class StructurePane(ttk.Frame):
         entry.bind("<Return>", lambda _e: finish(True))
         entry.bind("<FocusOut>", lambda _e: finish(True))
         entry.bind("<Escape>", lambda _e: finish(False))
-        # bound on the toplevel (not just this row) so a click anywhere in the window is caught, added
-        # after the entry is focused so it doesn't fire for the double-click that opened it
+        # bound on the toplevel (not just this row) so a click anywhere in the window is caught, added after the entry is focused so it 
+        # doesn't fire for the double-click that opened it
         toplevel = self.winfo_toplevel()
         click_id = toplevel.bind("<Button-1>", click_outside, add="+")
 
@@ -786,22 +827,26 @@ class StructurePane(ttk.Frame):
             self._set_status(f"Could not re-split: {msg}", ok=False)
 
     def _apply_rename(self):
-        """Rename a body: `rename <old> <new>`, the same element the inline double-click-to-rename
-        (see _start_rename) applies, just entered as two tokens instead of typed in place."""
+        """Rename a body: `rename <old> <new>`, the same element the inline double-click-to-rename (see _start_rename) applies. Either typed 
+        as two tokens (old new), or — with exactly one row selected in the Bodies list — as just the new name, taking "old" from that selection."""
         tokens = self._rename_entry.get().split()
-        if len(tokens) != 2:
+        if len(tokens) == 2:
+            old, new = tokens
+        elif len(tokens) == 1 and self._selected_single_name() is not None:
+            old, new = self._selected_single_name(), tokens[0]
+        else:
             self._set_status("Rename needs the current name and the new name, e.g. b1 core.", ok=False)
             return
-        old, new = tokens
         if old == new:
             self._set_status("The new name is the same as the current one.", ok=False)
             return
         self._apply_element(f"rename {old} {new}")
         self._rename_entry.clear()
+        self._refresh_action_readiness()
 
     def _apply_merge(self):
-        # an empty field falls back to the Bodies-list selection, so a shift-clicked group of bodies
-        # can be merged without typing every name out (see _selected_body_names)
+        # an empty field falls back to the Bodies-list selection, so a shift-clicked group of bodies can be merged without typing every name 
+        # out (see _selected_body_names)
         tokens = self._merge_entry.get().split() or self._selected_body_names()
         if len(tokens) < 2:
             self._set_status("Merge needs a target body and at least one other.", ok=False)
@@ -820,9 +865,9 @@ class StructurePane(ttk.Frame):
         self._refresh_action_readiness()
 
     def _apply_add_symmetry(self):
-        """Add a symmetry to a single body: `symmetry <body> <type>` (e.g. b1 c4). A lone type is
-        allowed for a single-body system, where the backend infers the body."""
-        tokens = self._sym_add_entry.get().split()
+        """Add a symmetry to a single body: `symmetry <body> <type>` (e.g. b1 c4). A lone type is allowed for a single-body system (the backend 
+        infers the body), or — with exactly one whole body selected in the Bodies list — for any system, taking the body from that selection."""
+        tokens = self._with_selected_bodies(self._sym_add_entry, exact=1)
         if not tokens:
             self._set_status("Add symmetry needs a body and a type, e.g. b1 c4.", ok=False)
             return
@@ -833,9 +878,10 @@ class StructurePane(ttk.Frame):
         self._sym_add_entry.clear()
 
     def _apply_convert_symmetry(self):
-        """Decompose several bodies into one shared symmetry, collapsing the copies into the first
-        body plus a fitted symmetry: `convert_to_symmetry { type <type> bodies <b…> }`."""
-        tokens = self._sym_convert_entry.get().split()
+        """Decompose several bodies into one shared symmetry, collapsing the copies into the first body plus a fitted symmetry: 
+        `convert_to_symmetry { type <type> bodies <b…> }`. Typing just the type is enough when two or more whole bodies are selected 
+        in the Bodies list."""
+        tokens = self._with_selected_bodies(self._sym_convert_entry, minimum=2)
         if len(tokens) < 3:
             self._set_status("Decomposing needs at least two bodies and a type, e.g. b1 b2 c2.", ok=False)
             return
@@ -845,16 +891,17 @@ class StructurePane(ttk.Frame):
         self._sym_convert_entry.clear()
 
     def _apply_autoconstrain(self):
-        """Auto-generate a set of constraints: `autoconstrain <backbone|none>`. Defaults to
-        backbone, the usual choice; `none` clears any auto-generated set."""
+        """Auto-generate a set of constraints: `autoconstrain <backbone|none>`. Defaults to backbone, the usual choice; `none` clears 
+        any auto-generated set."""
         choice = self._autoconstrain_entry.get().strip() or "backbone"
         self._apply_element(f"autoconstrain {choice}")
         self._autoconstrain_entry.clear()
 
     def _apply_add_constraint(self):
-        """Add a distance constraint between two bodies: `<body1> <body2> <type> [distance]`. `bond` and `cm` need only the two bodies; 
-        `attract` and `repel` also take a target distance (e.g. b1 b2 attract 30). Built as a `constrain { … }` block for the backend."""
-        tokens = self._constraint_entry.get().split()
+        """Add a distance constraint between two bodies: `<body1> <body2> <type> [distance]`. `bond` and `cm` need only the two bodies;
+        `attract` and `repel` also take a target distance (e.g. b1 b2 attract 30). Built as a `constrain { … }` block for the backend.
+        Typing just the type (and distance, if needed) is enough when exactly two whole bodies are selected in the Bodies list."""
+        tokens = self._with_selected_bodies(self._constraint_entry, exact=2)
         if len(tokens) < 3:
             self._set_status("A constraint needs two bodies and a type, e.g. b1 b2 cm.", ok=False)
             return
@@ -883,8 +930,8 @@ class StructurePane(ttk.Frame):
         for i, element in enumerate(self._elements):
             row = ttk.Frame(scroll.body)
             row.pack(fill="x", pady=1)
-            # the delete button is packed first at side=right so it always keeps its full size; the summary then fills whatever width is left and 
-            # is ellipsized to it, so a wide element (e.g. a constrain block collapsed to one line) can never push the button out of reach
+            # the delete button is packed first at side=right so it always keeps its full size; the summary then fills whatever width is left 
+            # and is ellipsized to it, so a wide element (e.g. a constrain block collapsed to one line) can never push the button out of reach
             ttk.Button(row, text="✕", width=2, style="Icon.TButton", command=lambda i=i: self._remove_element(i)).pack(side="right", padx=(4, 0))
             summary = ttk.Label(row, font=FONTS["mono"], anchor="w")
             summary.pack(side="left", fill="x", expand=True)
@@ -915,8 +962,8 @@ class StructurePane(ttk.Frame):
         ScriptDiffDialog(self, base, new, on_confirm=lambda: self._confirm_send(new))
 
     def _confirm_send(self, new: str):
-        """Write the composed script back to the editor, then drop the staged edits: they now live
-        in the base, so keeping them staged would double-apply them on the next rebuild."""
+        """Write the composed script back to the editor, then drop the staged edits: they now live in the base, so keeping them staged would 
+        double-apply them on the next rebuild."""
         self._on_apply_script(new)
         self._elements = []
         self._rebuild_applied_list()
@@ -924,8 +971,8 @@ class StructurePane(ttk.Frame):
 
 
 class ScriptDiffDialog(tk.Toplevel):
-    """A modal side-by-side diff: the original script on the left with removed lines tinted red,
-    the new script on the right with added lines tinted green. Confirm applies the change."""
+    """A modal side-by-side diff: the original script on the left with removed lines tinted red, the new script on the right with added lines 
+    tinted green. Confirm applies the change."""
 
     def __init__(self, parent, old: str, new: str, on_confirm: Callable[[], None]):
         super().__init__(parent)
@@ -949,8 +996,7 @@ class ScriptDiffDialog(tk.Toplevel):
         buttons = ttk.Frame(self, padding=(10, 0, 10, 10))
         buttons.pack(fill="x")
         ttk.Button(buttons, text="Cancel", command=self.destroy).pack(side="right")
-        ttk.Button(buttons, text="Apply changes", style="Accent.TButton",
-                   command=self._confirm).pack(side="right", padx=(0, 8))
+        ttk.Button(buttons, text="Apply changes", style="Accent.TButton", command=self._confirm).pack(side="right", padx=(0, 8))
 
         self.geometry("820x520")
         self.grab_set()
@@ -961,7 +1007,8 @@ class ScriptDiffDialog(tk.Toplevel):
         text = tk.Text(
             frame, wrap="none", font=FONTS["mono"], relief="flat", borderwidth=0,
             background=PALETTE["surface"], foreground=PALETTE["text"],
-            padx=8, pady=6, height=24, width=48)
+            padx=8, pady=6, height=24, width=48
+        )
         scroll = ttk.Scrollbar(frame, command=text.yview)
         text.configure(yscrollcommand=scroll.set)
         text.grid(row=1, column=0, sticky="nsew")
