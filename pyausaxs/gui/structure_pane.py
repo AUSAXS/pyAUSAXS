@@ -149,6 +149,7 @@ class StructurePane(ttk.Frame):
         self._expanded_bodies: set[int] = set()   # body indices whose replica children are unfolded
         self._row_frames: list[tk.Widget] = []
         self._rows: list[tuple] = []              # ((body, copy) selector, recolourable row widgets)
+        self._redraw_job: Optional[str] = None    # pending after_idle handle for a deferred _redraw()
 
         self._show_atoms = tk.BooleanVar(value=False)
         self._show_copies = tk.BooleanVar(value=True)
@@ -168,6 +169,13 @@ class StructurePane(ttk.Frame):
         if not ok:
             self._set_status(f"Could not load the structure: {msg}", ok=False)
             self._redraw()
+
+    def destroy(self):
+        # cancel a pending deferred redraw so it doesn't fire against a torn-down figure/canvas
+        if self._redraw_job is not None:
+            self.after_cancel(self._redraw_job)
+            self._redraw_job = None
+        super().destroy()
 
     # ----- layout -------------------------------------------------------------
     def _build_plot(self, paned):
@@ -196,8 +204,6 @@ class StructurePane(ttk.Frame):
                        command=self._send_to_script).pack(side="bottom", fill="x", pady=(8, 0))
         self._status = ttk.Label(parent, text="", style="Muted.TLabel", wraplength=290, justify="left")
         self._status.pack(side="bottom", fill="x", pady=(6, 0))
-        self._applied = ttk.Frame(parent)
-        self._applied.pack(side="bottom", fill="x", pady=(10, 0))
 
         # An amber action bar styled like a section header, but it triggers a refresh instead of
         # expanding. It is packed above the sections only while the view is stale (see _set_stale).
@@ -230,7 +236,7 @@ class StructurePane(ttk.Frame):
         ttk.Button(splits_row, text="Apply", style="Icon.TButton", command=self._apply_splits).grid(row=1, column=1)
         splits_row.columnconfigure(0, weight=1)
         splits_entry.bind("<Return>", lambda _e: self._apply_splits())
-        self._body_list = ScrollableFrame(bodies.body, height=220)
+        self._body_list = ScrollableFrame(bodies.body, max_height=220)
         self._body_list.pack(fill="both", expand=True)
 
         # --- merge / delete ---
@@ -257,6 +263,11 @@ class StructurePane(ttk.Frame):
         self._constraint_entry = self._action_row(
             con, "Constrain two bodies", "body1 body2 type", self._apply_add_constraint, button="Add"
         )
+
+        # --- staged elements: kept as its own accordion section, always last, so it can be collapsed
+        # like any other section when the user needs more room for e.g. Bodies + Constraints at once
+        self._applied = self._section(parent, "Applied elements", expanded=True).body
+        self._rebuild_applied_list()  # seed the initial "no changes" placeholder
 
     def _section(self, parent, title, *, expanded: bool) -> CollapsibleSection:
         """A collapsible controls section, spaced from the one above it. Sections are independent,
@@ -331,7 +342,7 @@ class StructurePane(ttk.Frame):
         if self._highlight is not None and self._highlight not in valid:
             self._highlight = None  # the highlighted body/replica was merged/deleted/de-symmetrised away
         self._rebuild_body_list()
-        self._redraw()
+        self._schedule_redraw()
         # the view now matches this base, so it is no longer stale
         self._built_sig = self._base_sig()
         self._set_stale(False)
@@ -487,7 +498,7 @@ class StructurePane(ttk.Frame):
         if copy not in (None, 0) and self._highlight is not None and not self._show_copies.get():
             self._show_copies.set(True)
         self._refresh_row_highlight()
-        self._redraw()
+        self._schedule_redraw()
 
     def _start_rename(self, label: tk.Label, b: dict):
         """Replace a body's name label with an inline entry so the user can rename it. Committing
@@ -526,6 +537,16 @@ class StructurePane(ttk.Frame):
         entry.bind("<Escape>", lambda _e: finish(False))
 
     # ----- drawing ------------------------------------------------------------
+    def _schedule_redraw(self):
+        """Defer the actual (comparatively expensive) matplotlib redraw to the next idle pass of the Tk event loop, instead of running it inline. """
+        if self._redraw_job is not None:
+            self.after_cancel(self._redraw_job)
+        self._redraw_job = self.after_idle(self._run_scheduled_redraw)
+
+    def _run_scheduled_redraw(self):
+        self._redraw_job = None
+        self._redraw()
+
     def _redraw(self):
         ax = self._ax
         view = self._get_orientation()
@@ -684,9 +705,9 @@ class StructurePane(ttk.Frame):
         for w in self._applied.winfo_children():
             w.destroy()
         if not self._elements:
+            ttk.Label(self._applied, text="No changes staged yet.", style="Muted.TLabel").pack(anchor="w")
             return
-        ttk.Label(self._applied, text="Applied elements", style="Muted.TLabel").pack(anchor="w")
-        # bounded and scrollable, so a long list of edits never grows up into the accordion headers
+        # bounded and scrollable, so a long list of edits never grows past the section's own space
         scroll = ScrollableFrame(self._applied, max_height=150)
         scroll.pack(fill="x")
         for i, element in enumerate(self._elements):
