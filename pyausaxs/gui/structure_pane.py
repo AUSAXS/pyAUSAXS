@@ -46,6 +46,14 @@ _STALE_RE = re.compile(
     re.DOTALL,
 )
 
+# Setup elements are emitted in declaration order by the backend. Newly staged structure-pane elements must therefore be appended after existing
+# setup elements rather than blindly inserted immediately after `load`; otherwise a staged rename can precede an existing symmetry declaration.
+_SETUP_RE = re.compile(
+    r"(?m)^[ \t]*(?:merge|delete|rename|convert_to_symmetry|symmetry|constraint|constrain"
+    r"|autoconstraints|autoconstrain|copy_body|copy)\b" + _STALE_TAIL,
+    re.DOTALL,
+)
+
 
 def _structure_signature(script: str) -> tuple:
     """A fingerprint of the parts of `script` the structure pane cares about, so staleness is flagged when — and only when — one of them 
@@ -104,7 +112,11 @@ def _with_split(base: str, splits: str) -> str:
 
 
 def _insert_elements(base: str, elements: list[str]) -> str:
-    """Return `base` with the setup elements inserted right after its load block."""
+    """Return `base` with staged setup elements appended to the existing setup declarations.
+
+    The staged list itself remains in the order in which the user applied its elements. Existing setup declarations are left untouched, and
+    the new block is placed after the last one so the resulting script preserves declaration order across the base and staged portions.
+    """
     if not elements:
         return base
     block = "".join(f"{e}\n" for e in elements)
@@ -112,6 +124,9 @@ def _insert_elements(base: str, elements: list[str]) -> str:
     if match is None:  # no load block to anchor to: prepend
         return block + base
     end = match.end()
+    existing_setup = list(_SETUP_RE.finditer(base, match.end()))
+    if existing_setup:
+        end = existing_setup[-1].end()
     sep = "" if base[:end].endswith("\n") else "\n"
     return base[:end] + sep + block + base[end:]
 

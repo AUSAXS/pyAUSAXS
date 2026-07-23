@@ -196,7 +196,7 @@ class Rigidbody(BackendObject):
             symmetry : (R,) int       — 0-based symmetry index within the body
             replica  : (R,) int       — replica index within the symmetry
             type     : (R,) list[str] — symmetry type (e.g. "c4", "p2")
-            name     : (R,) list[str] — addressable default name (e.g. "b1s1r1")"""
+            name     : (R,) list[str] — current addressable name, including a rename alias when present (e.g. "b1s1r1" or "my_replica")"""
         ausaxs = AUSAXS()
         body = ct.POINTER(ct.c_int)()
         copy = ct.POINTER(ct.c_int)()
