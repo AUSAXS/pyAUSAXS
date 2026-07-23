@@ -149,6 +149,9 @@ class StructurePane(ttk.Frame):
         self._expanded_bodies: set[int] = set()   # body indices whose replica children are unfolded
         self._row_frames: list[tk.Widget] = []
         self._rows: list[tuple] = []              # ((body, copy) selector, recolourable row widgets)
+        self._body_row_frames: dict[int, tk.Frame] = {}       # body index -> its row (anchor to pack replicas after)
+        self._body_chevrons: dict[int, tk.Label] = {}         # body index -> its fold chevron, flipped in place
+        self._replica_row_frames: dict[int, list[tk.Frame]] = {}  # body index -> its currently-built replica rows
         self._redraw_job: Optional[str] = None    # pending after_idle handle for a deferred _redraw()
 
         self._show_atoms = tk.BooleanVar(value=False)
@@ -407,16 +410,22 @@ class StructurePane(ttk.Frame):
 
     # ----- body list ----------------------------------------------------------
     def _rebuild_body_list(self):
+        """Full teardown and rebuild of every row. Used only when the underlying body data itself changes (a backend rebuild) or a 
+        renamed row's inline entry needs restoring — those are the only cases where every row actually needs replacing. """
         for w in self._row_frames:
             w.destroy()
         self._row_frames = []
         self._rows = []  # ((body, copy) selector, [widgets to recolour on highlight])
+        self._body_row_frames = {}
+        self._body_chevrons = {}
+        self._replica_row_frames = {}
         for b in self._bodies:
             self._build_body_row(b)
             # symmetry replicas (copy > 0), foldable beneath the base body they belong to
             if b["index"] in self._expanded_bodies:
-                for c in b["copies"][1:]:
-                    self._build_replica_row(b, c)
+                self._replica_row_frames[b["index"]] = [
+                    self._build_replica_row(b, c) for c in b["copies"][1:]
+                ]
         self._refresh_row_highlight()
 
     def _build_body_row(self, b: dict):
@@ -433,6 +442,7 @@ class StructurePane(ttk.Frame):
                 background=PALETTE["surface"], foreground=PALETTE["muted"], font=FONTS["small"], width=2)
             chevron.pack(side="left")
             chevron.bind("<Button-1>", lambda _e, i=b["index"]: self._toggle_body_expand(i))
+            self._body_chevrons[b["index"]] = chevron
         else:
             tk.Label(row, text="", background=PALETTE["surface"], font=FONTS["small"], width=2).pack(side="left")
 
@@ -455,13 +465,19 @@ class StructurePane(ttk.Frame):
             w.bind("<Double-Button-1>", lambda _e, bb=b, lbl=label: self._start_rename(lbl, bb))
         self._row_frames.append(row)
         self._rows.append(((b["index"], None), (row, label, meta)))
+        self._body_row_frames[b["index"]] = row
 
-    def _build_replica_row(self, b: dict, copy: int):
+    def _build_replica_row(self, b: dict, copy: int, *, after: tk.Widget | None = None) -> tk.Frame:
         """A single symmetry-replica child row, indented under its base body. Clicking it isolates just that replica in the view. Name and
-        type badge come straight from the backend's symmetry layout, keyed to this (body, copy) pair."""
+        type badge come straight from the backend's symmetry layout, keyed to this (body, copy) pair. Packed right after `after` (an
+        existing row) when given, so a single body's replicas can be spliced into their exact spot in the list without disturbing any
+        other row — see _toggle_body_expand."""
         info = self._replica_info[(b["index"], copy)]
         row = tk.Frame(self._body_list.body, background=PALETTE["surface"], cursor="hand2")
-        row.pack(fill="x")
+        if after is not None:
+            row.pack(fill="x", after=after)
+        else:
+            row.pack(fill="x")
         tk.Frame(row, background=PALETTE["surface"], width=28).pack(side="left")  # indent past the chevron
         swatch = tk.Frame(row, background=b["colour"], width=8, height=8)
         swatch.pack(side="left", padx=(0, 6))
@@ -475,6 +491,7 @@ class StructurePane(ttk.Frame):
             w.bind("<Button-1>", lambda _e, i=b["index"], c=copy: self._toggle_highlight(i, c))
         self._row_frames.append(row)
         self._rows.append(((b["index"], copy), tuple(widgets)))
+        return row
 
     def _refresh_row_highlight(self):
         """Recolour the rows to reflect the highlighted body/replica, in place — so a click doesn't
@@ -485,11 +502,33 @@ class StructurePane(ttk.Frame):
                 w.configure(background=bg)
 
     def _toggle_body_expand(self, body: int):
-        if body in self._expanded_bodies:
-            self._expanded_bodies.discard(body)
-        else:
+        """Fold/unfold a body's symmetry-replica rows in place: splice its replica rows in or out
+        right after its own row, and flip its chevron — without touching any other row. """
+        expanding = body not in self._expanded_bodies
+        if expanding:
             self._expanded_bodies.add(body)
-        self._rebuild_body_list()
+        else:
+            self._expanded_bodies.discard(body)
+        chevron = self._body_chevrons.get(body)
+        if chevron is not None:
+            chevron.configure(text="▾" if expanding else "▸")
+
+        if expanding:
+            b = next(bb for bb in self._bodies if bb["index"] == body)
+            after = self._body_row_frames[body]
+            rows = []
+            for c in b["copies"][1:]:
+                after = self._build_replica_row(b, c, after=after)
+                rows.append(after)
+            self._replica_row_frames[body] = rows
+        else:
+            stale = set(self._replica_row_frames.pop(body, []))
+            if stale:
+                self._rows = [(sel, widgets) for sel, widgets in self._rows if widgets[0] not in stale]
+                self._row_frames = [w for w in self._row_frames if w not in stale]
+                for row in stale:
+                    row.destroy()
+        self._refresh_row_highlight()
 
     def _toggle_highlight(self, body: int, copy: int | None):
         selector = (body, copy)
