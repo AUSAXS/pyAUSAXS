@@ -158,25 +158,28 @@ class StructurePane(ttk.Frame):
 
         # --- merge / delete ---
         actions = self._section(parent, "Manage bodies", expanded=False)
-        self._merge_entry = self._action_row(actions.body, "Merge", "first others…", self._apply_merge)
-        self._delete_entry = self._action_row(actions.body, "Delete", "bodies…", self._apply_delete)
+        self._merge_entry = self._action_row(actions.body, "Merge", "first others...", self._apply_merge)
+        self._delete_entry = self._action_row(actions.body, "Delete", "body", self._apply_delete)
 
         # --- symmetry: two distinct operations, the more common one (adding a symmetry to a single body) on top, decomposing several bodies 
         # into a shared symmetry below
         sym = self._section(parent, "Symmetry", expanded=False).body
-        self._sym_add_entry = self._action_row(sym, "Add symmetry to a body",
-                         "a body then a type, e.g. b1 c4", self._apply_add_symmetry, button="Apply")
-        self._sym_convert_entry = self._action_row(sym, "Decompose bodies into a symmetry",
-                         "bodies then a type, e.g. b1 b2 b3 b4 c4", self._apply_convert_symmetry, button="Convert")
+        self._sym_add_entry = self._action_row(
+            sym, "Add symmetry to a body", "body type", self._apply_add_symmetry, button="Apply"
+        )
+        self._sym_convert_entry = self._action_row(
+            sym, "Decompose bodies into a symmetry", "bodies... type", self._apply_convert_symmetry, button="Convert"
+        )
 
         # --- constraints: auto-generate a set (backbone) on top, then add an individual constraint between two bodies below. Existing constraints
         # are edited by removing/re-adding via the applied-elements list, and shown in the view via the "Constraints" display toggle.
         con = self._section(parent, "Constraints", expanded=False).body
-        self._autoconstrain_entry = self._action_row(con, "Auto-generate constraints",
-                         "backbone or none", self._apply_autoconstrain, button="Generate")
-        self._constraint_entry = self._action_row(con, "Constrain two bodies",
-                         "two bodies then a type, e.g. b1 b2 cm; attract/repel add a distance",
-                         self._apply_add_constraint, button="Add")
+        self._autoconstrain_entry = self._action_row(
+            con, "Auto-generate constraints", "backbone", self._apply_autoconstrain, button="Generate"
+        )
+        self._constraint_entry = self._action_row(
+            con, "Constrain two bodies", "body1 body2 type", self._apply_add_constraint, button="Add"
+        )
 
     def _section(self, parent, title, *, expanded: bool) -> CollapsibleSection:
         """A collapsible controls section, spaced from the one above it and wired into the accordion."""
@@ -212,9 +215,8 @@ class StructurePane(ttk.Frame):
         self._refresh_bar = bar  # created unpacked; _set_stale packs it above the sections
 
     def _action_row(self, parent, label, hint, command, button="Apply") -> PlaceholderEntry:
-        """An action row: a short label, a text entry whose greyed placeholder carries the format
-        hint (so no separate hint line is needed), and a button. Returns the entry so the caller
-        can read it with .get() and reset it with .clear()."""
+        """An action row: a short label, a text entry whose greyed placeholder carries the format hint (so no separate hint line is needed),
+        and a button. Returns the entry so the caller can read it with .get() and reset it with .clear()."""
         row = ttk.Frame(parent)
         row.pack(fill="x", pady=(0, 6))
         ttk.Label(row, text=label, style="Muted.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
