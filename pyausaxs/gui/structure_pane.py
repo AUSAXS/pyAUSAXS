@@ -175,6 +175,7 @@ class StructurePane(ttk.Frame):
 
         self._show_atoms = tk.BooleanVar(value=False)
         self._show_copies = tk.BooleanVar(value=True)
+        self._show_backbone = tk.BooleanVar(value=True)
         self._show_constraints = tk.BooleanVar(value=True)
         self._colour_by_copy = tk.BooleanVar(value=False)
 
@@ -240,6 +241,7 @@ class StructurePane(ttk.Frame):
         for text, var in (
             ("Atomic detail", self._show_atoms),
             ("Symmetry copies", self._show_copies),
+            ("Backbone trace", self._show_backbone),
             ("Constraints", self._show_constraints),
             ("Colour by symmetry copy", self._colour_by_copy),
         ):
@@ -755,6 +757,7 @@ class StructurePane(ttk.Frame):
                 ax, self._data, self._parse_splits(),
                 show_atoms=self._show_atoms.get(),
                 show_copies=self._show_copies.get(),
+                show_backbone=self._show_backbone.get(),
                 show_constraints=self._show_constraints.get(),
                 highlight=self._highlighted,
                 color_by="copy" if self._colour_by_copy.get() else "body",
