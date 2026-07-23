@@ -371,9 +371,12 @@ class StructurePane(ttk.Frame):
             base = _with_split(base, self._splits)
         return _insert_elements(base, elements)
 
-    def _rebuild(self, elements: list[str]) -> tuple[bool, str]:
-        """Load the composed setup script through the backend and refresh the view/body list from the bodies that remain. 
-        Returns (ok, message); on failure nothing is mutated."""
+    def _rebuild(self, elements: list[str], *, rebuild_widgets: bool = True) -> tuple[bool, str]:
+        """Load the composed setup script through the backend and refresh the view/body list from the bodies that remain.
+        Returns (ok, message); on failure nothing is mutated.
+
+        rebuild_widgets=False skips the Tk body-list teardown/rebuild (self._bodies etc. are still refreshed from the
+        backend) — for a rename, which changes nothing else, the caller patches the one affected label in place instead."""
         script = self._compose(elements)
         try:
             from ..wrapper.Rigidbody import Rigidbody
@@ -397,7 +400,8 @@ class StructurePane(ttk.Frame):
         self._highlighted &= valid  # drop any selector merged/deleted/de-symmetrised away
         if self._select_anchor is not None and self._select_anchor not in valid:
             self._select_anchor = None
-        self._rebuild_body_list()
+        if rebuild_widgets:
+            self._rebuild_body_list()
         self._refresh_action_readiness()
         self._schedule_redraw()
         # the view now matches this base, so it is no longer stale
@@ -464,8 +468,9 @@ class StructurePane(ttk.Frame):
 
     # ----- body list ----------------------------------------------------------
     def _rebuild_body_list(self):
-        """Full teardown and rebuild of every row. Used only when the underlying body data itself changes (a backend rebuild) or a 
-        renamed row's inline entry needs restoring — those are the only cases where every row actually needs replacing. """
+        """Full teardown and rebuild of every row. Used when the underlying body data itself changes (a backend rebuild
+        that adds, removes, or reorders bodies/copies) — a plain rename patches its one label in place instead, see
+        _start_rename, since nothing else about the body list changes."""
         for w in self._row_frames:
             w.destroy()
         self._row_frames = []
@@ -515,7 +520,7 @@ class StructurePane(ttk.Frame):
         for w in (row, swatch, label, meta):  # click anywhere on the row highlights the whole body; shift-click adds/removes it from the selection
             w.bind("<Button-1>", lambda e, i=b["index"]: self._toggle_highlight(i, None, shift=self._is_shift(e), ctrl=self._is_ctrl(e)))
         for w in (row, label):  # double-click the name (or the row) to rename the body
-            w.bind("<Double-Button-1>", lambda _e, i=b["index"], nm=b["name"], lbl=label: self._start_rename(lbl, nm, i, None))
+            w.bind("<Double-Button-1>", lambda _e, i=b["index"], lbl=label: self._start_rename(lbl, self._name_of(i, None), i, None))
         self._row_frames.append(row)
         self._rows.append(((b["index"], None), (row, label, meta)))
         self._body_row_frames[b["index"]] = row
@@ -543,7 +548,7 @@ class StructurePane(ttk.Frame):
         for w in widgets:
             w.bind("<Button-1>", lambda e, i=b["index"], c=copy: self._toggle_highlight(i, c, shift=self._is_shift(e), ctrl=self._is_ctrl(e)))
         for w in (row, label):  # double-click the name (or the row) to rename the replica, same as a base body
-            w.bind("<Double-Button-1>", lambda _e, i=b["index"], c=copy, nm=info["name"], lbl=label: self._start_rename(lbl, nm, i, c))
+            w.bind("<Double-Button-1>", lambda _e, i=b["index"], c=copy, lbl=label: self._start_rename(lbl, self._name_of(i, c), i, c))
         self._row_frames.append(row)
         self._rows.append(((b["index"], copy), tuple(widgets)))
         return row
@@ -662,16 +667,21 @@ class StructurePane(ttk.Frame):
             return tokens
         return selected + tokens
 
-    def _selected_single_name(self) -> str | None:
-        """Display name of the one currently selected row — a whole body or a single replica — or None unless exactly one is selected. Used 
-        to let Rename infer "old" from a click instead of typing it, which (unlike merge/delete) makes sense for a replica selection too."""
-        if len(self._highlighted) != 1:
-            return None
-        body, copy = next(iter(self._highlighted))
+    def _name_of(self, body: int, copy: int | None) -> str | None:
+        """Current display name of a body or replica, read fresh from state rather than a value captured at row-build time —
+        matters after an in-place rename (see _start_rename), which patches this state without rebuilding the row widgets."""
         if copy is None:
             return next((b["name"] for b in self._bodies if b["index"] == body), None)
         info = self._replica_info.get((body, copy))
         return info["name"] if info else None
+
+    def _selected_single_name(self) -> str | None:
+        """Display name of the one currently selected row — a whole body or a single replica — or None unless exactly one is selected. Used
+        to let Rename infer "old" from a click instead of typing it, which (unlike merge/delete) makes sense for a replica selection too."""
+        if len(self._highlighted) != 1:
+            return None
+        body, copy = next(iter(self._highlighted))
+        return self._name_of(body, copy)
 
     def _start_rename(self, label: tk.Label, old: str, body: int, copy: int | None):
         """Replace a body or replica name label with an inline entry so the user can rename it in place. Committing applies a 
@@ -702,6 +712,14 @@ class StructurePane(ttk.Frame):
 
         state = {"done": False}
 
+        def restore_label():
+            # put the label back in its old spot instead of rebuilding the whole body list, which
+            # would otherwise visibly redraw every row just to close one inline entry
+            if before is not None:
+                label.pack(side="left", before=before)
+            else:
+                label.pack(side="left")
+
         def finish(apply: bool):
             if state["done"]:
                 return
@@ -709,13 +727,18 @@ class StructurePane(ttk.Frame):
             toplevel.unbind("<Button-1>", click_id)
             new = var.get().strip()
             entry.destroy()
-            self._rebuild_body_list()  # restore the row to its normal label state
             if not apply or not new or new == old:
+                restore_label()
                 return
             if any(c.isspace() for c in new):
                 self._set_status("A name cannot contain spaces.", ok=False)
+                restore_label()
                 return
-            self._apply_element(f"rename {old} {new}")
+            # a rename changes nothing else about the structure (no body/copy is added, removed, or reshuffled), so the backend call still 
+            # validates and persists it, but the Tk body list doesn't need a full teardown/rebuild — just this one label's text needs to change.
+            if self._apply_element(f"rename {old} {new}", rebuild_widgets=False):
+                label.config(text=self._name_of(body, copy))
+            restore_label()
 
         def click_outside(event):
             # most row widgets (labels/frames) never take keyboard focus, so clicking them doesn't fire <FocusOut> on the entry
@@ -801,15 +824,16 @@ class StructurePane(ttk.Frame):
         return [int(t) for t in re.split(r"[,\s]+", self._splits.strip()) if t.isdigit()]
 
     # ----- setup actions ------------------------------------------------------
-    def _apply_element(self, element: str):
+    def _apply_element(self, element: str, *, rebuild_widgets: bool = True) -> bool:
         candidate = self._elements + [element]
-        ok, msg = self._rebuild(candidate)
+        ok, msg = self._rebuild(candidate, rebuild_widgets=rebuild_widgets)
         if ok:
             self._elements = candidate
             self._rebuild_applied_list()
             self._set_status(f"Applied: {element}", ok=True)
         else:
             self._set_status(f"Rejected “{element}”: {msg}", ok=False)
+        return ok
 
     def _apply_splits(self):
         """Re-split the structure at the residue numbers in the splits field and rebuild the view. The split lives in the load block, so it is 
