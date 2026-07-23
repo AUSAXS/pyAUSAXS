@@ -24,6 +24,8 @@ PALETTE = {
     "accent_soft":  "#e4eefb",  # accent tint
     "ok":           "#e8f4ec",  # valid input tint
     "ok_border":    "#7fbf95",
+    "ready":        "#3fa360",  # action button: enough info to click (typed text or a usable selection)
+    "ready_hover":  "#358a52",
     "bad":          "#fdeceb",  # invalid input tint
     "bad_border":   "#e0a4a0",
     "danger":       "#cc3b3b",  # destructive-action icon (the reset cross)
@@ -134,6 +136,11 @@ def apply_theme(root):
 
     # icon-sized browse button
     style.configure("Icon.TButton", padding=(8, 6))
+
+    # an action-row button that has enough input to click (typed text, or a usable selection):
+    # solid green, otherwise identical in shape to Icon.TButton so it doesn't shift layout
+    style.configure("Ready.TButton", background=p["ready"], foreground="#ffffff", padding=(8, 6), relief="flat", borderwidth=0)
+    style.map("Ready.TButton", background=[("active", p["ready_hover"]), ("pressed", p["ready_hover"])])
 
     style.configure("TNotebook", background=p["bg"], borderwidth=0, tabmargins=(6, 6, 6, 0))
     style.configure("TNotebook.Tab", background=p["bg"], foreground=p["muted"], font=base, padding=(20, 9), borderwidth=0)

@@ -246,8 +246,8 @@ _BODY_COLORS = ["#4a7dbd", "#e89a3c", "#46a86c", "#9467bd", "#17becf", "#8c564b"
 
 def draw_structure(ax, data: dict, split_residues: list[int], *,
                    show_atoms: bool = False, show_copies: bool = True,
-                   show_constraints: bool = True, highlight_body: int | None = None,
-                   highlight_copy: int | None = None, color_by: str = "body"):
+                   show_constraints: bool = True, highlight: set[tuple[int, int | None]] | None = None,
+                   color_by: str = "body", body_names: dict[int, str] | None = None):
     """Draw a rigid-body structure preview on a 3D axis from a backend preview-structure dict (see Rigidbody.preview_structure).
     The Cα backbone is drawn per body (one colour each) with symmetry copies faded, and the split residues marked in red.
     Authoritative body/Cα/residue metadata comes from the backend, so it works for wildcards, multi-file loads and symmetry alike.
@@ -256,22 +256,25 @@ def draw_structure(ax, data: dict, split_residues: list[int], *,
         show_atoms       — also draw every atom as a faint cloud (atomic detail), not just the Cα trace
         show_copies      — draw symmetry copies (copy > 0); when False only the originals are shown
         show_constraints — draw the constraint tethers / attractor-repulsor arrows
-        highlight_body   — if set, all bodies except this one are dimmed so it stands out
-        highlight_copy   — if set alongside highlight_body, only that one symmetry copy of the body stays lit
-                           (every other copy of it is dimmed too); ignored when highlight_body is None
+        highlight         — a set of (body, copy) selectors to keep lit while everything else is dimmed
+                           (copy=None selects the whole body, i.e. every one of its copies); empty/None
+                           means nothing is dimmed
         color_by         — "body" (a colour per body) or "copy" (a colour per symmetry copy)
+        body_names       — body index -> display name, used to label bodies with no Cα atoms (falls back
+                           to "b{index+1}" for any body missing from the mapping)
     """
+    body_names = body_names or {}
+    highlight = highlight or set()
     coords = data["coords"]
     body, copy, res, is_ca = data["body"], data["copy"], data["residue_seq"], data["is_ca"]
     splits = sorted({int(s) for s in split_residues})
 
     def _dimmed(b: int, c: int | None = None) -> bool:
-        if highlight_body is None:
+        if not highlight:
             return False
-        if b != highlight_body:
-            return True
-        # a specific copy is isolated: dim the body's other copies too (c=None means "the whole body")
-        return highlight_copy is not None and c is not None and c != highlight_copy
+        if c is None:  # copy-agnostic check (e.g. the all-atom cloud): lit if any selector names this body
+            return not any(bb == b for bb, _cc in highlight)
+        return (b, None) not in highlight and (b, c) not in highlight
 
     def _colour(b: int, c: int) -> str:
         idx = c if color_by == "copy" else b
@@ -303,6 +306,29 @@ def draw_structure(ax, data: dict, split_residues: list[int], *,
             else:
                 lw, alpha, z = (1.0, 1.0, 2) if original else (0.8, 0.65, 1)
             ax.plot(pts[:, 0], pts[:, 1], pts[:, 2], color=_colour(b, c), lw=lw, alpha=alpha, zorder=z)
+
+    # bodies with no Cα atoms at all (e.g. a non-protein hetero group) draw nothing in the trace above
+    # and would otherwise be completely invisible; mark each with a labeled centroid dot instead.
+    ca_bodies = set(body[is_ca].tolist())
+    for b in sorted(set(body.tolist()) - ca_bodies):
+        for c in sorted(set(copy[body == b].tolist())):
+            if not show_copies and c != 0:
+                continue
+            pts = coords[(body == b) & (copy == c)]
+            if len(pts) == 0:
+                continue
+            centroid = pts.mean(axis=0)
+            original = (c == 0)
+            if _dimmed(b, c):
+                alpha, size = 0.15, 40
+            else:
+                alpha, size = (1.0, 90) if original else (0.65, 60)
+            colour = _colour(b, c)
+            ax.scatter(*centroid, s=size, color=colour, alpha=alpha, edgecolors="black",
+                      linewidths=0.6, depthshade=False, zorder=2)
+            if original:
+                label = body_names.get(b, f"b{b + 1}")
+                ax.text(*centroid, f" {label}", color=colour, alpha=alpha, fontsize=7, zorder=2)
 
     # split-residue markers on the originals, in red
     highlight = is_ca & (copy == 0) & np.isin(res, splits)

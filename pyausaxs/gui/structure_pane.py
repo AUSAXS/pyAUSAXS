@@ -146,9 +146,8 @@ class StructurePane(ttk.Frame):
         self._splits = splits
         self._base_script = base_script          # target script to diff/patch, or None
         self._on_apply_script = on_apply_script   # apply a confirmed new script, or None
-        # reduce the base script to a structural fingerprint, so a later edit to the same body/split
-        # setup is detected as "stale". Defaults to the structure-pane signature, which covers every
-        # element this pane reads or writes (rename/merge/split/symmetry/constraint/...).
+        # reduce the base script to a structural fingerprint, so a later edit to the same body/split setup is detected as "stale". Defaults to
+        # the structure-pane signature, which covers every element this pane reads or writes (rename/merge/split/symmetry/constraint/...).
         self._base_signature = base_signature or _structure_signature
         self._built_sig = None                    # base fingerprint the current view was built from
         self.title = "Structure: " + pdb_path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
@@ -158,9 +157,14 @@ class StructurePane(ttk.Frame):
         self._names: list[str] = []               # body names aligned to body indices
         self._bodies: list[dict] = []             # per-body summary rows (index/name/atoms/res/copies)
         self._replica_info: dict[tuple[int, int], dict] = {}  # (body, copy) -> {"type", "name"}
-        # the view selection isolated in the plot, as a (body, copy) pair: copy None highlights the
-        # whole body (all its symmetry copies), an int highlights just that one replica. None = nothing.
-        self._highlight: tuple[int, int | None] | None = None
+        # the view selection isolated in the plot, as a set of (body, copy) selectors: copy None selects the whole body (all its symmetry copies), 
+        # an int selects just that one replica. Empty = nothing selected. Plain click replaces the whole set with just the clicked row. Ctrl-click 
+        # toggles that row's membership without touching the rest (matching the OS convention for adding single items to a selection). Shift-click 
+        # selects every row between the last clicked row (the "anchor", see _select_anchor) and the one just clicked, in list order — the OS 
+        # convention for range-selecting. Together these let several bodies be selected at once (e.g. to merge them) without typing every name out.
+        self._highlighted: set[tuple[int, int | None]] = set()
+        self._select_anchor: tuple[int, int | None] | None = None  # last plain/ctrl-clicked row, the shift-click range's fixed end
+        self._ready_checks: list[tuple[ttk.Button, PlaceholderEntry, Callable]] = []  # action buttons that light up green
         self._expanded_bodies: set[int] = set()   # body indices whose replica children are unfolded
         self._row_frames: list[tk.Widget] = []
         self._rows: list[tuple] = []              # ((body, copy) selector, recolourable row widgets)
@@ -260,8 +264,17 @@ class StructurePane(ttk.Frame):
         # --- merge / delete ---
         actions = self._section(parent, "Manage bodies", expanded=False)
         self._rename_entry = self._action_row(actions.body, "Rename", "old new", self._apply_rename, button="Rename")
-        self._merge_entry = self._action_row(actions.body, "Merge", "first others...", self._apply_merge)
-        self._delete_entry = self._action_row(actions.body, "Delete", "body", self._apply_delete)
+        # Merge/Delete take only body identifiers, so a selection in the Bodies list can stand in for a typed one: with the field empty, 
+        # clicking Apply falls back to the current whole-body selection if it satisfies the arity (>=2 for merge, >=1 for delete). The 
+        # button lights up green whenever that would work, so the possibility is discoverable without ever silently prefilling the field.
+        self._merge_entry = self._action_row(
+            actions.body, "Merge", "first others...", self._apply_merge,
+            ready_check=lambda entry: bool(entry.get()) or len(self._selected_body_names()) >= 2,
+        )
+        self._delete_entry = self._action_row(
+            actions.body, "Delete", "body", self._apply_delete,
+            ready_check=lambda entry: bool(entry.get()) or len(self._selected_body_names()) >= 1,
+        )
 
         # --- symmetry: two distinct operations, the more common one (adding a symmetry to a single body) on top, decomposing several bodies 
         # into a shared symmetry below
@@ -313,18 +326,32 @@ class StructurePane(ttk.Frame):
             w.bind("<Button-1>", lambda _e: self._do_refresh())
         self._refresh_bar = bar  # created unpacked; _set_stale packs it above the sections
 
-    def _action_row(self, parent, label, hint, command, button="Apply") -> PlaceholderEntry:
+    def _action_row(self, parent, label, hint, command, button="Apply", ready_check=None) -> PlaceholderEntry:
         """An action row: a short label, a text entry whose greyed placeholder carries the format hint (so no separate hint line is needed),
-        and a button. Returns the entry so the caller can read it with .get() and reset it with .clear()."""
+        and a button. Returns the entry so the caller can read it with .get() and reset it with .clear().
+
+        `ready_check(entry) -> bool`, if given, is re-evaluated on every keystroke and on every Bodies-list selection change 
+        (see _refresh_action_readiness); the button turns solid green while it returns True, so the user can tell at a glance that clicking 
+        it will actually do something."""
         row = ttk.Frame(parent)
         row.pack(fill="x", pady=(0, 6))
         ttk.Label(row, text=label, style="Muted.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
         entry = PlaceholderEntry(row, hint)
         entry.grid(row=1, column=0, sticky="ew", padx=(0, 6))
-        ttk.Button(row, text=button, style="Icon.TButton", command=command).grid(row=1, column=1)
+        btn = ttk.Button(row, text=button, style="Icon.TButton", command=command)
+        btn.grid(row=1, column=1)
         row.columnconfigure(0, weight=1)
         entry.bind("<Return>", lambda _e: command())
+        if ready_check is not None:
+            self._ready_checks.append((btn, entry, ready_check))
+            entry.bind("<KeyRelease>", lambda _e: self._refresh_action_readiness(), add="+")
         return entry
+
+    def _refresh_action_readiness(self):
+        """Recolour every action button registered via _action_row's ready_check: green while its check
+        passes (there's either typed text or a selection it can use instead), grey otherwise."""
+        for btn, entry, check in self._ready_checks:
+            btn.configure(style="Ready.TButton" if check(entry) else "Icon.TButton")
 
     # ----- backend rebuild ----------------------------------------------------
     def _compose(self, elements: list[str]) -> str:
@@ -358,9 +385,11 @@ class StructurePane(ttk.Frame):
         self._compute_bodies()
         valid = {(b["index"], None) for b in self._bodies}
         valid |= {(b["index"], c) for b in self._bodies for c in b["copies"]}
-        if self._highlight is not None and self._highlight not in valid:
-            self._highlight = None  # the highlighted body/replica was merged/deleted/de-symmetrised away
+        self._highlighted &= valid  # drop any selector merged/deleted/de-symmetrised away
+        if self._select_anchor is not None and self._select_anchor not in valid:
+            self._select_anchor = None
         self._rebuild_body_list()
+        self._refresh_action_readiness()
         self._schedule_redraw()
         # the view now matches this base, so it is no longer stale
         self._built_sig = self._base_sig()
@@ -475,8 +504,8 @@ class StructurePane(ttk.Frame):
             font=FONTS["small"], anchor="e")
         meta.pack(side="right", padx=(0, 4))
 
-        for w in (row, swatch, label, meta):  # click anywhere on the row highlights the whole body
-            w.bind("<Button-1>", lambda _e, i=b["index"]: self._toggle_highlight(i, None))
+        for w in (row, swatch, label, meta):  # click anywhere on the row highlights the whole body; shift-click adds/removes it from the selection
+            w.bind("<Button-1>", lambda e, i=b["index"]: self._toggle_highlight(i, None, shift=self._is_shift(e), ctrl=self._is_ctrl(e)))
         for w in (row, label):  # double-click the name (or the row) to rename the body
             w.bind("<Double-Button-1>", lambda _e, i=b["index"], nm=b["name"], lbl=label: self._start_rename(lbl, nm, i, None))
         self._row_frames.append(row)
@@ -504,7 +533,7 @@ class StructurePane(ttk.Frame):
         badge.pack(side="left", padx=(4, 0))
         widgets = [row, swatch, label, badge]
         for w in widgets:
-            w.bind("<Button-1>", lambda _e, i=b["index"], c=copy: self._toggle_highlight(i, c))
+            w.bind("<Button-1>", lambda e, i=b["index"], c=copy: self._toggle_highlight(i, c, shift=self._is_shift(e), ctrl=self._is_ctrl(e)))
         for w in (row, label):  # double-click the name (or the row) to rename the replica, same as a base body
             w.bind("<Double-Button-1>", lambda _e, i=b["index"], c=copy, nm=info["name"], lbl=label: self._start_rename(lbl, nm, i, c))
         self._row_frames.append(row)
@@ -512,10 +541,10 @@ class StructurePane(ttk.Frame):
         return row
 
     def _refresh_row_highlight(self):
-        """Recolour the rows to reflect the highlighted body/replica, in place — so a click doesn't
+        """Recolour the rows to reflect the highlighted bodies/replicas, in place — so a click doesn't
         tear down the row widgets (which would make double-click-to-rename impossible)."""
         for selector, widgets in self._rows:
-            bg = PALETTE["accent_soft"] if selector == self._highlight else PALETTE["surface"]
+            bg = PALETTE["accent_soft"] if selector in self._highlighted else PALETTE["surface"]
             for w in widgets:
                 w.configure(background=bg)
 
@@ -548,27 +577,69 @@ class StructurePane(ttk.Frame):
                     row.destroy()
         self._refresh_row_highlight()
 
-    def _toggle_highlight(self, body: int, copy: int | None):
+    @staticmethod
+    def _is_shift(event) -> bool:
+        return bool(event.state & 0x1)
+
+    @staticmethod
+    def _is_ctrl(event) -> bool:
+        return bool(event.state & 0x4)
+
+    def _row_order(self) -> list[tuple[int, int | None]]:
+        """Selectors in the order their rows currently appear in the Bodies list (base bodies with
+        any expanded replicas folded in beneath them), needed to resolve a shift-click range."""
+        return [selector for selector, _widgets in self._rows]
+
+    def _range_between(self, anchor: tuple[int, int | None], selector: tuple[int, int | None]) -> set:
+        """Every selector between `anchor` and `selector` in current list order, inclusive. Falls back to just `selector` 
+        if either endpoint isn't currently shown (e.g. its body was folded away since the anchor was set)."""
+        order = self._row_order()
+        if anchor not in order or selector not in order:
+            return {selector}
+        i, j = order.index(anchor), order.index(selector)
+        lo, hi = min(i, j), max(i, j)
+        return set(order[lo:hi + 1])
+
+    def _toggle_highlight(self, body: int, copy: int | None, *, shift: bool = False, ctrl: bool = False):
+        """Plain click: select just this row, or deselect it if it was the only one already selected — and become the anchor for a future 
+        shift-click range. Ctrl-click: add/remove this row from the current selection without touching the rest (also becomes the new anchor), 
+        so several bodies can be picked one at a time (e.g. to merge them — see _selected_body_names). Shift-click: select every row between 
+        the anchor and this one, replacing the current selection, without moving the anchor."""
         selector = (body, copy)
-        self._highlight = None if self._highlight == selector else selector
+        if shift and self._select_anchor is not None:
+            self._highlighted = self._range_between(self._select_anchor, selector)
+        elif ctrl:
+            if selector in self._highlighted:
+                self._highlighted.discard(selector)
+            else:
+                self._highlighted.add(selector)
+            self._select_anchor = selector
+        else:
+            self._highlighted = set() if self._highlighted == {selector} else {selector}
+            self._select_anchor = selector
         # isolating a specific replica is pointless while copies are hidden, so reveal them
-        if copy not in (None, 0) and self._highlight is not None and not self._show_copies.get():
+        if copy not in (None, 0) and selector in self._highlighted and not self._show_copies.get():
             self._show_copies.set(True)
         self._refresh_row_highlight()
+        self._refresh_action_readiness()
         self._schedule_redraw()
+
+    def _selected_body_names(self) -> list[str]:
+        """Names of the whole bodies (copy=None) currently selected in the Bodies list, ordered by
+        body index. Replica-only selections don't count — merge/delete operate on whole bodies."""
+        names_by_index = {b["index"]: b["name"] for b in self._bodies}
+        return [names_by_index[i] for i, c in sorted(self._highlighted) if c is None and i in names_by_index]
 
     def _start_rename(self, label: tk.Label, old: str, body: int, copy: int | None):
         """Replace a body or replica name label with an inline entry so the user can rename it in place. Committing applies a 
         `rename <old> <new>` element; the backend keeps the default name too, so a rename can always be undone by renaming back. Works the 
         same for a base body's name and a replica's addressable name (e.g. "b1s1r1"), since both are just names the backend accepts."""
-        # Tk only fires <Button-1> for a double-click's first (leading) press, not its second — the second press fires
-        # <Double-Button-1> instead. So the leading click already toggled this row's highlight via <Button-1>; re-invoke the
-        # same toggle here (called only once per double-click) to flip it right back, cancelling that highlight out exactly
-        # as if the row had never been clicked, before opening the rename editor.
+        # Tk only fires <Button-1> for a double-click's first (leading) press, not its second — the second press fires <Double-Button-1> instead. 
+        # So the leading click already toggled this row's highlight via <Button-1>; re-invoke the same toggle here (called only once per double-click) 
+        # to flip it right back, cancelling that highlight out exactly as if the row had never been clicked, before opening the rename editor.
         self._toggle_highlight(body, copy)
-        # match the label's own font (replica labels use a smaller font than base bodies), and take the label's spot in the 
-        # row's left-to-right pack order so a sibling packed after it (e.g. the replica's type badge) doesn't visually jump 
-        # to its left while the entry is showing
+        # match the label's own font (replica labels use a smaller font than base bodies), and take the label's spot in the row's left-to-right 
+        # pack order so a sibling packed after it (e.g. the replica's type badge) doesn't visually jump to its left while the entry is showing
         siblings = label.master.pack_slaves()
         after_idx = siblings.index(label) + 1
         before = siblings[after_idx] if after_idx < len(siblings) else None
@@ -644,9 +715,9 @@ class StructurePane(ttk.Frame):
                 show_atoms=self._show_atoms.get(),
                 show_copies=self._show_copies.get(),
                 show_constraints=self._show_constraints.get(),
-                highlight_body=self._highlight[0] if self._highlight else None,
-                highlight_copy=self._highlight[1] if self._highlight else None,
+                highlight=self._highlighted,
                 color_by="copy" if self._colour_by_copy.get() else "body",
+                body_names={b["index"]: b["name"] for b in self._bodies},
             )
             if lims is not None and self._preserve_view:
                 ax.set_xlim(lims[0]); ax.set_ylim(lims[1]); ax.set_zlim(lims[2])
@@ -729,20 +800,24 @@ class StructurePane(ttk.Frame):
         self._rename_entry.clear()
 
     def _apply_merge(self):
-        tokens = self._merge_entry.get().split()
+        # an empty field falls back to the Bodies-list selection, so a shift-clicked group of bodies
+        # can be merged without typing every name out (see _selected_body_names)
+        tokens = self._merge_entry.get().split() or self._selected_body_names()
         if len(tokens) < 2:
             self._set_status("Merge needs a target body and at least one other.", ok=False)
             return
         self._apply_element("merge " + " ".join(tokens))
         self._merge_entry.clear()
+        self._refresh_action_readiness()
 
     def _apply_delete(self):
-        tokens = self._delete_entry.get().split()
+        tokens = self._delete_entry.get().split() or self._selected_body_names()
         if not tokens:
             self._set_status("Delete needs at least one body.", ok=False)
             return
         self._apply_element("delete " + " ".join(tokens))
         self._delete_entry.clear()
+        self._refresh_action_readiness()
 
     def _apply_add_symmetry(self):
         """Add a symmetry to a single body: `symmetry <body> <type>` (e.g. b1 c4). A lone type is
@@ -777,9 +852,8 @@ class StructurePane(ttk.Frame):
         self._autoconstrain_entry.clear()
 
     def _apply_add_constraint(self):
-        """Add a distance constraint between two bodies: `<body1> <body2> <type> [distance]`.
-        `bond` and `cm` need only the two bodies; `attract` and `repel` also take a target
-        distance (e.g. b1 b2 attract 30). Built as a `constrain { … }` block for the backend."""
+        """Add a distance constraint between two bodies: `<body1> <body2> <type> [distance]`. `bond` and `cm` need only the two bodies; 
+        `attract` and `repel` also take a target distance (e.g. b1 b2 attract 30). Built as a `constrain { … }` block for the backend."""
         tokens = self._constraint_entry.get().split()
         if len(tokens) < 3:
             self._set_status("A constraint needs two bodies and a type, e.g. b1 b2 cm.", ok=False)
