@@ -353,7 +353,6 @@ class RigidbodyPane(ttk.Frame):
                 splits=self.splits_var.get(),
                 base_script=lambda: self.editor.get("1.0", "end-1c"),
                 on_apply_script=self._apply_structure_script,
-                base_signature=self._structural_signature,
             )
             notebook.add(self._structure_pane, text=self._structure_pane.title)
         # selecting fires <<NotebookTabChanged>>, which re-checks staleness and syncs the camera

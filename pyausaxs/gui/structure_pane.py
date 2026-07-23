@@ -7,7 +7,8 @@ Opened from a "View structure" button once a PDB is loaded. It shows a large 3D 
 structure and lets the user inspect and re-organise its bodies without touching the run:
 
   * toggle atomic detail (all-atom cloud), symmetry copies, and constraints;
-  * see and highlight the individual bodies via a scrolling, backend-fed list;
+  * re-split the structure, and see/highlight the individual bodies via a scrolling, backend-fed
+    list; symmetry replicas fold out beneath their base body and can be highlighted one at a time;
   * merge or delete bodies, convert a set of bodies to a symmetry, and add constraints between
     bodies, by adding the corresponding setup elements (`merge` / `delete` /
     `convert_to_symmetry` / `constrain` / `autoconstrain`);
@@ -34,12 +35,72 @@ from .widgets import CollapsibleSection, PlaceholderEntry, ScrollableFrame, elli
 # the load block whose bodies we manage; setup elements are inserted just after it
 _LOAD_BLOCK_RE = re.compile(r"load\s*\{.*?\}", re.DOTALL)
 
+# Every element the structure pane reads or writes, so that an external edit to any of them (in the main editor) marks the view stale: the
+# load block plus all body-affecting setup elements. The tail captures either a whole brace block or the rest of the inline line, so an edit 
+# inside a symmetry/constraint block counts too. Longer keywords precede the prefixes they contain.
+_STALE_TAIL = r"(?:[ \t]*\{.*?\}|[^\n]*)"
+_STALE_RE = re.compile(
+    r"(?m)^[ \t]*(?:load[ \t]*\{.*?\}|"
+    r"(?:merge|delete|rename|convert_to_symmetry|symmetry|constraint|constrain"
+    r"|autoconstraints|autoconstrain|copy_body|copy)\b" + _STALE_TAIL + r")",
+    re.DOTALL,
+)
+
+
+def _structure_signature(script: str) -> tuple:
+    """A fingerprint of the parts of `script` the structure pane cares about, so staleness is flagged when — and only when — one of them 
+    changes in the main editor. Broader than the rigid-body pane's preview signature: it also covers rename/merge/copy, which change the 
+    body list this pane shows even when they leave the drawn geometry untouched."""
+    return tuple(m.group(0) for m in _STALE_RE.finditer(script))
+
 
 def _synth_load_block(pdb_path: str, splits: str) -> str:
     inner = [f"    pdb {pdb_path}"]
     if splits.strip():
         inner.append(f"    split {splits.strip()}")
     return "load {\n" + "\n".join(inner) + "\n}"
+
+
+def _norm_splits(value: str) -> str:
+    """Normalise a splits string to a canonical space-separated form, so equal splits written with
+    different spacing/commas compare equal (and don't churn the load block)."""
+    return " ".join(t for t in re.split(r"[,\s]+", value.strip()) if t)
+
+
+def _load_split(base: str) -> str:
+    """The split directive currently in the base script's load block, as a raw string ("" if none)."""
+    match = _LOAD_BLOCK_RE.search(base)
+    if not match:
+        return ""
+    inner = re.match(r"load\s*\{(.*)\}", match.group(0), re.DOTALL)
+    for line in (inner.group(1).splitlines() if inner else []):
+        tokens = line.split(None, 1)
+        if tokens and tokens[0] == "split":
+            return tokens[1].strip() if len(tokens) == 2 else ""
+    return ""
+
+
+def _with_split(base: str, splits: str) -> str:
+    """Return `base` with its load block's split directive set to `splits` (added if missing, removed if empty), touching only the split line so 
+    unrelated formatting is preserved. A no-op when the split is already `splits`, so a diff shows a change only when the user actually re-split."""
+    match = _LOAD_BLOCK_RE.search(base)
+    if not match or _norm_splits(_load_split(base)) == _norm_splits(splits):
+        return base
+    block = match.group(0)
+    splits = splits.strip()
+    line_re = re.compile(r"^([ \t]*)split\b[^\n]*", re.MULTILINE)
+    if line_re.search(block):
+        if splits:
+            new_block = line_re.sub(lambda m: f"{m.group(1)}split {splits}", block, count=1)
+        else:  # drop the split line (and its own line break) entirely
+            new_block = re.sub(r"[ \t]*split\b[^\n]*\n?", "", block, count=1)
+    elif splits:  # insert a split line before the closing brace, matching pdb's indentation
+        pm = re.search(r"^([ \t]*)pdb\b", block, re.MULTILINE)
+        indent = pm.group(1) if pm else "    "
+        new_block = re.sub(r"\n?\}$", f"\n{indent}split {splits}\n}}", block, count=1)
+    else:
+        return base
+    return base[:match.start()] + new_block + base[match.end():]
 
 
 def _insert_elements(base: str, elements: list[str]) -> str:
@@ -71,18 +132,22 @@ class StructurePane(ttk.Frame):
         self._base_script = base_script          # target script to diff/patch, or None
         self._on_apply_script = on_apply_script   # apply a confirmed new script, or None
         # reduce the base script to a structural fingerprint, so a later edit to the same body/split
-        # setup is detected as "stale". Defaults to the raw string (any edit counts) when not given.
-        self._base_signature = base_signature or (lambda s: s)
+        # setup is detected as "stale". Defaults to the structure-pane signature, which covers every
+        # element this pane reads or writes (rename/merge/split/symmetry/constraint/...).
+        self._base_signature = base_signature or _structure_signature
         self._built_sig = None                    # base fingerprint the current view was built from
         self.title = "Structure: " + pdb_path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
 
         self._elements: list[str] = []            # setup elements the user has applied, in order
         self._data: dict | None = None            # last good preview-structure dict
         self._names: list[str] = []               # body names aligned to body indices
-        self._bodies: list[dict] = []             # per-body summary rows (index/name/atoms/res)
-        self._highlight: int | None = None        # body index isolated in the view, or None
+        self._bodies: list[dict] = []             # per-body summary rows (index/name/atoms/res/copies)
+        # the view selection isolated in the plot, as a (body, copy) pair: copy None highlights the
+        # whole body (all its symmetry copies), an int highlights just that one replica. None = nothing.
+        self._highlight: tuple[int, int | None] | None = None
+        self._expanded_bodies: set[int] = set()   # body indices whose replica children are unfolded
         self._row_frames: list[tk.Widget] = []
-        self._rows: list[tuple] = []              # (body index, recolourable row widgets)
+        self._rows: list[tuple] = []              # ((body, copy) selector, recolourable row widgets)
 
         self._show_atoms = tk.BooleanVar(value=False)
         self._show_copies = tk.BooleanVar(value=True)
@@ -137,8 +202,8 @@ class StructurePane(ttk.Frame):
         # expanding. It is packed above the sections only while the view is stale (see _set_stale).
         self._build_refresh_bar(parent)
 
-        # --- collapsible control sections, run as an accordion (one open at a time) so every
-        # section header stays visible and the column fits a small pane
+        # --- collapsible control sections; each opens and closes independently, so the body list
+        # can stay open for reference (e.g. body names) while another section is in use
         self._sections: list[CollapsibleSection] = []
 
         # --- display toggles ---
@@ -151,8 +216,19 @@ class StructurePane(ttk.Frame):
         ):
             ttk.Checkbutton(display.body, text=text, variable=var, command=self._redraw).pack(anchor="w")
 
-        # --- body list (scrolls when long, so the section keeps a bounded height) ---
+        # --- body list (scrolls when long, so the section keeps a bounded height), with a splits
+        # editor above it so the structure can be re-split here without leaving the pane ---
         bodies = self._section(parent, "Bodies", expanded=True)
+        splits_row = ttk.Frame(bodies.body)
+        splits_row.pack(fill="x", pady=(0, 6))
+        ttk.Label(splits_row, text="Split at residues", style="Muted.TLabel").grid(
+            row=0, column=0, columnspan=2, sticky="w")
+        self._splits_var = tk.StringVar(value=self._splits)
+        splits_entry = ttk.Entry(splits_row, textvariable=self._splits_var)
+        splits_entry.grid(row=1, column=0, sticky="ew", padx=(0, 6))
+        ttk.Button(splits_row, text="Apply", style="Icon.TButton", command=self._apply_splits).grid(row=1, column=1)
+        splits_row.columnconfigure(0, weight=1)
+        splits_entry.bind("<Return>", lambda _e: self._apply_splits())
         self._body_list = ScrollableFrame(bodies.body, height=220)
         self._body_list.pack(fill="both", expand=True)
 
@@ -182,20 +258,12 @@ class StructurePane(ttk.Frame):
         )
 
     def _section(self, parent, title, *, expanded: bool) -> CollapsibleSection:
-        """A collapsible controls section, spaced from the one above it and wired into the accordion."""
-        section = CollapsibleSection(parent, title, expanded=expanded, on_toggle=self._accordion)
+        """A collapsible controls section, spaced from the one above it. Sections are independent,
+        so any number can be open at once."""
+        section = CollapsibleSection(parent, title, expanded=expanded)
         section.pack(fill="x", pady=(0, 6))
         self._sections.append(section)
         return section
-
-    def _accordion(self, opened: CollapsibleSection):
-        """Keep the sections mutually exclusive: expanding one collapses the rest, so the header
-        bars are always in view. Collapsing a section leaves the others untouched."""
-        if not opened.expanded:
-            return
-        for section in self._sections:
-            if section is not opened and section.expanded:
-                section.set_expanded(False)
 
     # amber "the script changed" attention colours, distinct from the neutral section headers
     _WARN_BG = "#f0ad4e"
@@ -232,6 +300,8 @@ class StructurePane(ttk.Frame):
         base = self._base_script() if self._base_script else _synth_load_block(self.pdb_path, self._splits)
         if _LOAD_BLOCK_RE.search(base) is None:  # target has no load block: fall back to a synthetic one
             base = _synth_load_block(self.pdb_path, self._splits)
+        else:  # honour the pane's (possibly edited) splits over whatever the base load block carries
+            base = _with_split(base, self._splits)
         return _insert_elements(base, elements)
 
     def _rebuild(self, elements: list[str]) -> tuple[bool, str]:
@@ -250,8 +320,10 @@ class StructurePane(ttk.Frame):
 
         self._data, self._names = data, names
         self._compute_bodies()
-        if self._highlight is not None and self._highlight not in {b["index"] for b in self._bodies}:
-            self._highlight = None  # the highlighted body was merged/deleted away
+        valid = {(b["index"], None) for b in self._bodies}
+        valid |= {(b["index"], c) for b in self._bodies for c in b["copies"]}
+        if self._highlight is not None and self._highlight not in valid:
+            self._highlight = None  # the highlighted body/replica was merged/deleted/de-symmetrised away
         self._rebuild_body_list()
         self._redraw()
         # the view now matches this base, so it is no longer stale
@@ -289,6 +361,11 @@ class StructurePane(ttk.Frame):
                 return
         self._elements = []
         self._rebuild_applied_list()
+        # re-read the splits from the (possibly re-edited) script, so the field mirrors it again
+        base = self._base_script() if self._base_script else ""
+        if _LOAD_BLOCK_RE.search(base):
+            self._splits = _load_split(base)
+            self._splits_var.set(self._splits)
         ok, msg = self._rebuild(self._elements)
         self._set_status("Reloaded from the current script." if ok
                          else f"Could not reload from the script: {msg}", ok=ok)
@@ -307,6 +384,8 @@ class StructurePane(ttk.Frame):
                 "atoms": int(orig.sum()),
                 "res": (int(resids.min()), int(resids.max())) if len(resids) else None,
                 "colour": _BODY_COLORS[idx % len(_BODY_COLORS)],
+                # every copy index present for this body; copy 0 is the base, >0 are symmetry replicas
+                "copies": sorted(set(copy[body == idx].tolist())),
             })
 
     # ----- body list ----------------------------------------------------------
@@ -314,44 +393,90 @@ class StructurePane(ttk.Frame):
         for w in self._row_frames:
             w.destroy()
         self._row_frames = []
-        self._rows = []  # (index, [widgets to recolour on highlight])
+        self._rows = []  # ((body, copy) selector, [widgets to recolour on highlight])
         for b in self._bodies:
-            row = tk.Frame(self._body_list.body, background=PALETTE["surface"], cursor="hand2")
-            row.pack(fill="x")
-
-            swatch = tk.Frame(row, background=b["colour"], width=12, height=12)
-            swatch.pack(side="left", padx=(2, 6), pady=4)
-            swatch.pack_propagate(False)
-
-            res = f"res {b['res'][0]}–{b['res'][1]}" if b["res"] else "no residues"
-            label = tk.Label(
-                row, text=f"{b['name']}", foreground=PALETTE["text"],
-                font=FONTS["base"], anchor="w")
-            label.pack(side="left")
-            meta = tk.Label(
-                row, text=f"{b['atoms']} atoms · {res}", foreground=PALETTE["muted"],
-                font=FONTS["small"], anchor="e")
-            meta.pack(side="right", padx=(0, 4))
-
-            for w in (row, swatch, label, meta):
-                w.bind("<Button-1>", lambda _e, i=b["index"]: self._toggle_highlight(i))
-            # double-click the name (or the row) to rename the body
-            for w in (row, label):
-                w.bind("<Double-Button-1>", lambda _e, bb=b, lbl=label: self._start_rename(lbl, bb))
-            self._row_frames.append(row)
-            self._rows.append((b["index"], (row, label, meta)))
+            self._build_body_row(b)
+            # symmetry replicas (copy > 0), foldable beneath the base body they belong to
+            if b["index"] in self._expanded_bodies:
+                for c in b["copies"][1:]:
+                    self._build_replica_row(b, c)
         self._refresh_row_highlight()
 
+    def _build_body_row(self, b: dict):
+        replicas = b["copies"][1:]
+        row = tk.Frame(self._body_list.body, background=PALETTE["surface"], cursor="hand2")
+        row.pack(fill="x")
+
+        # a fold chevron for bodies that have replicas, or a matching-width spacer for those that don't
+        # so the swatches line up. The chevron toggles the fold without changing the highlight.
+        if replicas:
+            chevron = tk.Label(
+                row, text="▾" if b["index"] in self._expanded_bodies else "▸",
+                background=PALETTE["surface"], foreground=PALETTE["muted"], font=FONTS["small"], width=2)
+            chevron.pack(side="left")
+            chevron.bind("<Button-1>", lambda _e, i=b["index"]: self._toggle_body_expand(i))
+        else:
+            tk.Frame(row, background=PALETTE["surface"], width=20).pack(side="left")
+
+        swatch = tk.Frame(row, background=b["colour"], width=12, height=12)
+        swatch.pack(side="left", padx=(0, 6), pady=4)
+        swatch.pack_propagate(False)
+
+        res = f"res {b['res'][0]}–{b['res'][1]}" if b["res"] else "no residues"
+        label = tk.Label(row, text=b["name"], foreground=PALETTE["text"], font=FONTS["base"], anchor="w")
+        label.pack(side="left")
+        extra = f" · {len(replicas)} copies" if replicas else ""
+        meta = tk.Label(
+            row, text=f"{b['atoms']} atoms · {res}{extra}", foreground=PALETTE["muted"],
+            font=FONTS["small"], anchor="e")
+        meta.pack(side="right", padx=(0, 4))
+
+        for w in (row, swatch, label, meta):  # click anywhere on the row highlights the whole body
+            w.bind("<Button-1>", lambda _e, i=b["index"]: self._toggle_highlight(i, None))
+        for w in (row, label):  # double-click the name (or the row) to rename the body
+            w.bind("<Double-Button-1>", lambda _e, bb=b, lbl=label: self._start_rename(lbl, bb))
+        self._row_frames.append(row)
+        self._rows.append(((b["index"], None), (row, label, meta)))
+
+    def _build_replica_row(self, b: dict, copy: int):
+        """A single symmetry-replica child row, indented under its base body. Clicking it isolates
+        just that replica in the view. Its name follows the backend's convention (b<body>s1r<copy>);
+        the symmetry index is assumed to be 1 until the backend exposes the real layout (see plan)."""
+        row = tk.Frame(self._body_list.body, background=PALETTE["surface"], cursor="hand2")
+        row.pack(fill="x")
+        tk.Frame(row, background=PALETTE["surface"], width=28).pack(side="left")  # indent past the chevron
+        swatch = tk.Frame(row, background=b["colour"], width=8, height=8)
+        swatch.pack(side="left", padx=(0, 6))
+        swatch.pack_propagate(False)
+        name = f"{b['name']}s1r{copy}" if b["name"].startswith("b") else f"b{b['index'] + 1}s1r{copy}"
+        label = tk.Label(row, text=name, foreground=PALETTE["muted"], font=FONTS["small"], anchor="w")
+        label.pack(side="left")
+        for w in (row, swatch, label):
+            w.bind("<Button-1>", lambda _e, i=b["index"], c=copy: self._toggle_highlight(i, c))
+        self._row_frames.append(row)
+        self._rows.append(((b["index"], copy), (row, label)))
+
     def _refresh_row_highlight(self):
-        """Recolour the rows to reflect the highlighted body, in place — so a click doesn't tear
-        down the row widgets (which would make double-click-to-rename impossible)."""
-        for index, widgets in self._rows:
-            bg = PALETTE["accent_soft"] if index == self._highlight else PALETTE["surface"]
+        """Recolour the rows to reflect the highlighted body/replica, in place — so a click doesn't
+        tear down the row widgets (which would make double-click-to-rename impossible)."""
+        for selector, widgets in self._rows:
+            bg = PALETTE["accent_soft"] if selector == self._highlight else PALETTE["surface"]
             for w in widgets:
                 w.configure(background=bg)
 
-    def _toggle_highlight(self, index: int):
-        self._highlight = None if self._highlight == index else index
+    def _toggle_body_expand(self, body: int):
+        if body in self._expanded_bodies:
+            self._expanded_bodies.discard(body)
+        else:
+            self._expanded_bodies.add(body)
+        self._rebuild_body_list()
+
+    def _toggle_highlight(self, body: int, copy: int | None):
+        selector = (body, copy)
+        self._highlight = None if self._highlight == selector else selector
+        # isolating a specific replica is pointless while copies are hidden, so reveal them
+        if copy not in (None, 0) and self._highlight is not None and not self._show_copies.get():
+            self._show_copies.set(True)
         self._refresh_row_highlight()
         self._redraw()
 
@@ -407,7 +532,8 @@ class StructurePane(ttk.Frame):
                 show_atoms=self._show_atoms.get(),
                 show_copies=self._show_copies.get(),
                 show_constraints=self._show_constraints.get(),
-                highlight_body=self._highlight,
+                highlight_body=self._highlight[0] if self._highlight else None,
+                highlight_copy=self._highlight[1] if self._highlight else None,
                 color_by="copy" if self._colour_by_copy.get() else "body",
             )
             if lims is not None and self._preserve_view:
@@ -457,6 +583,24 @@ class StructurePane(ttk.Frame):
             self._set_status(f"Applied: {element}", ok=True)
         else:
             self._set_status(f"Rejected “{element}”: {msg}", ok=False)
+
+    def _apply_splits(self):
+        """Re-split the structure at the residue numbers in the splits field and rebuild the view. The split lives in the load block, so it is 
+        applied by recomposing (see _with_split); on a bad value the field is reverted so it always mirrors the splits actually in force."""
+        new = _norm_splits(self._splits_var.get())
+        if new == _norm_splits(self._splits):
+            self._splits_var.set(new)
+            return
+        prev = self._splits
+        self._splits = new
+        ok, msg = self._rebuild(self._elements)
+        if ok:
+            self._splits_var.set(new)
+            self._set_status(f"Re-split at {new}." if new else "Removed all splits.", ok=True)
+        else:
+            self._splits = prev
+            self._splits_var.set(prev)
+            self._set_status(f"Could not re-split: {msg}", ok=False)
 
     def _apply_merge(self):
         tokens = self._merge_entry.get().split()
@@ -566,7 +710,8 @@ class StructurePane(ttk.Frame):
             self._set_status("No changes to send.", ok=False)
             return
         base = self._base_script() if self._base_script else _synth_load_block(self.pdb_path, self._splits)
-        new = _insert_elements(base, self._elements)
+        new_base = _with_split(base, self._splits) if _LOAD_BLOCK_RE.search(base) else base
+        new = _insert_elements(new_base, self._elements)
         ScriptDiffDialog(self, base, new, on_confirm=lambda: self._confirm_send(new))
 
     def _confirm_send(self, new: str):

@@ -247,7 +247,7 @@ _BODY_COLORS = ["#4a7dbd", "#e89a3c", "#46a86c", "#9467bd", "#17becf", "#8c564b"
 def draw_structure(ax, data: dict, split_residues: list[int], *,
                    show_atoms: bool = False, show_copies: bool = True,
                    show_constraints: bool = True, highlight_body: int | None = None,
-                   color_by: str = "body"):
+                   highlight_copy: int | None = None, color_by: str = "body"):
     """Draw a rigid-body structure preview on a 3D axis from a backend preview-structure dict (see Rigidbody.preview_structure).
     The Cα backbone is drawn per body (one colour each) with symmetry copies faded, and the split residues marked in red.
     Authoritative body/Cα/residue metadata comes from the backend, so it works for wildcards, multi-file loads and symmetry alike.
@@ -257,14 +257,21 @@ def draw_structure(ax, data: dict, split_residues: list[int], *,
         show_copies      — draw symmetry copies (copy > 0); when False only the originals are shown
         show_constraints — draw the constraint tethers / attractor-repulsor arrows
         highlight_body   — if set, all bodies except this one are dimmed so it stands out
+        highlight_copy   — if set alongside highlight_body, only that one symmetry copy of the body stays lit
+                           (every other copy of it is dimmed too); ignored when highlight_body is None
         color_by         — "body" (a colour per body) or "copy" (a colour per symmetry copy)
     """
     coords = data["coords"]
     body, copy, res, is_ca = data["body"], data["copy"], data["residue_seq"], data["is_ca"]
     splits = sorted({int(s) for s in split_residues})
 
-    def _dimmed(b: int) -> bool:
-        return highlight_body is not None and b != highlight_body
+    def _dimmed(b: int, c: int | None = None) -> bool:
+        if highlight_body is None:
+            return False
+        if b != highlight_body:
+            return True
+        # a specific copy is isolated: dim the body's other copies too (c=None means "the whole body")
+        return highlight_copy is not None and c is not None and c != highlight_copy
 
     def _colour(b: int, c: int) -> str:
         idx = c if color_by == "copy" else b
@@ -291,7 +298,7 @@ def draw_structure(ax, data: dict, split_residues: list[int], *,
             if len(pts) == 0:
                 continue
             original = (c == 0)
-            if _dimmed(b):
+            if _dimmed(b, c):
                 lw, alpha, z = 0.8, 0.12, 1
             else:
                 lw, alpha, z = (1.0, 1.0, 2) if original else (0.8, 0.65, 1)
