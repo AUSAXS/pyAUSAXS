@@ -77,6 +77,7 @@ class StructurePane(ttk.Frame):
         self._bodies: list[dict] = []             # per-body summary rows (index/name/atoms/res)
         self._highlight: int | None = None        # body index isolated in the view, or None
         self._row_frames: list[tk.Widget] = []
+        self._rows: list[tuple] = []              # (body index, recolourable row widgets)
 
         self._show_atoms = tk.BooleanVar(value=False)
         self._show_copies = tk.BooleanVar(value=True)
@@ -246,12 +247,10 @@ class StructurePane(ttk.Frame):
         for w in self._row_frames:
             w.destroy()
         self._row_frames = []
+        self._rows = []  # (index, [widgets to recolour on highlight])
         for b in self._bodies:
             row = tk.Frame(self._body_list.body, background=PALETTE["surface"], cursor="hand2")
             row.pack(fill="x")
-            selected = (b["index"] == self._highlight)
-            bg = PALETTE["accent_soft"] if selected else PALETTE["surface"]
-            row.configure(background=bg)
 
             swatch = tk.Frame(row, background=b["colour"], width=12, height=12)
             swatch.pack(side="left", padx=(2, 6), pady=4)
@@ -259,22 +258,71 @@ class StructurePane(ttk.Frame):
 
             res = f"res {b['res'][0]}–{b['res'][1]}" if b["res"] else "no residues"
             label = tk.Label(
-                row, text=f"{b['name']}", background=bg, foreground=PALETTE["text"],
+                row, text=f"{b['name']}", foreground=PALETTE["text"],
                 font=FONTS["base"], anchor="w")
             label.pack(side="left")
             meta = tk.Label(
-                row, text=f"{b['atoms']} atoms · {res}", background=bg, foreground=PALETTE["muted"],
+                row, text=f"{b['atoms']} atoms · {res}", foreground=PALETTE["muted"],
                 font=FONTS["small"], anchor="e")
             meta.pack(side="right", padx=(0, 4))
 
             for w in (row, swatch, label, meta):
                 w.bind("<Button-1>", lambda _e, i=b["index"]: self._toggle_highlight(i))
+            # double-click the name (or the row) to rename the body
+            for w in (row, label):
+                w.bind("<Double-Button-1>", lambda _e, bb=b, lbl=label: self._start_rename(lbl, bb))
             self._row_frames.append(row)
+            self._rows.append((b["index"], (row, label, meta)))
+        self._refresh_row_highlight()
+
+    def _refresh_row_highlight(self):
+        """Recolour the rows to reflect the highlighted body, in place — so a click doesn't tear
+        down the row widgets (which would make double-click-to-rename impossible)."""
+        for index, widgets in self._rows:
+            bg = PALETTE["accent_soft"] if index == self._highlight else PALETTE["surface"]
+            for w in widgets:
+                w.configure(background=bg)
 
     def _toggle_highlight(self, index: int):
         self._highlight = None if self._highlight == index else index
-        self._rebuild_body_list()
+        self._refresh_row_highlight()
         self._redraw()
+
+    def _start_rename(self, label: tk.Label, b: dict):
+        """Replace a body's name label with an inline entry so the user can rename it. Committing
+        applies a `rename <old> <new>` element; the backend keeps the body's default name too, so a
+        rename can always be undone by renaming back."""
+        old = b["name"]
+        var = tk.StringVar(value=old)
+        entry = tk.Entry(
+            label.master, textvariable=var, font=FONTS["base"], width=14,
+            background=PALETTE["surface"], foreground=PALETTE["text"],
+            insertbackground=PALETTE["text"], relief="flat", highlightthickness=1,
+            highlightbackground=PALETTE["accent"], highlightcolor=PALETTE["accent"])
+        label.pack_forget()
+        entry.pack(side="left")
+        entry.focus_set()
+        entry.select_range(0, "end")
+
+        state = {"done": False}
+
+        def finish(apply: bool):
+            if state["done"]:
+                return
+            state["done"] = True
+            new = var.get().strip()
+            entry.destroy()
+            self._rebuild_body_list()  # restore the row to its normal label state
+            if not apply or not new or new == old:
+                return
+            if any(c.isspace() for c in new):
+                self._set_status("A body name cannot contain spaces.", ok=False)
+                return
+            self._apply_element(f"rename {old} {new}")
+
+        entry.bind("<Return>", lambda _e: finish(True))
+        entry.bind("<FocusOut>", lambda _e: finish(True))
+        entry.bind("<Escape>", lambda _e: finish(False))
 
     # ----- drawing ------------------------------------------------------------
     def _redraw(self):
