@@ -4,6 +4,7 @@
 import math
 import re
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import filedialog, ttk
 from typing import Callable, Optional
 
@@ -253,6 +254,76 @@ def enable_file_drop(
     widget.dnd_bind("<<Drop>>", handle_drop)
 
 
+class PlaceholderEntry(ttk.Entry):
+    """A ttk.Entry that shows greyed-out hint text while it is empty and unfocused, cleared the moment the user types. The placeholder is 
+    never part of the value — get() returns "" while  shows — so it can carry a field's hint inline instead of a separate label, saving 
+    vertical  Pass a StringVar via `textvariable` and it is kept empty while the placeholder is showing.
+    """
+
+    def __init__(self, parent, placeholder: str = "", *, textvariable: Optional[tk.StringVar] = None, **kwargs):
+        super().__init__(parent, textvariable=textvariable, **kwargs)
+        self._placeholder = placeholder
+        self._var = textvariable
+        self._showing = False
+        self._normal_fg = PALETTE["text"]
+        self._placeholder_fg = PALETTE["muted"]
+        self.bind("<FocusIn>", self._clear_placeholder, add="+")
+        self.bind("<FocusOut>", self._add_placeholder, add="+")
+        self._add_placeholder()
+
+    def _clear_placeholder(self, _event=None):
+        if self._showing:
+            self.delete(0, "end")
+            self.configure(foreground=self._normal_fg)
+            self._showing = False
+
+    def _add_placeholder(self, _event=None):
+        if not super().get():
+            self.delete(0, "end")
+            self.insert(0, self._placeholder)
+            self.configure(foreground=self._placeholder_fg)
+            self._showing = True
+
+    def get(self) -> str:
+        return "" if self._showing else super().get()
+
+    def clear(self):
+        """Empty the field, restoring the placeholder when the field is not focused."""
+        self.delete(0, "end")
+        self._showing = False
+        self.configure(foreground=self._normal_fg)
+        if self.focus_get() is not self:
+            self._add_placeholder()
+
+
+def ellipsize_label(label: ttk.Label, text: str):
+    """Keep `label` showing `text` truncated with an ellipsis to whatever width it is currently allotted, re-fitting on every resize. Give 
+    the label a bounded width via its geometry manager (e.g. packed fill='x'/expand beside a fixed-width sibling) so a long value can never 
+    push that sibling — such as a delete button — out of view."""
+    font = tkfont.Font(font=label.cget("font"))
+    state = {"w": -1}
+
+    def fit(_event=None):
+        avail = label.winfo_width()
+        if avail <= 1 or avail == state["w"]:
+            return
+        state["w"] = avail
+        if font.measure(text) <= avail:
+            label.configure(text=text)
+            return
+        lo, hi = 0, len(text)
+        while lo < hi:  # longest prefix that still fits once the ellipsis is appended
+            mid = (lo + hi + 1) // 2
+            if font.measure(text[:mid] + "…") <= avail:
+                lo = mid
+            else:
+                hi = mid - 1
+        label.configure(text=text[:lo] + "…")
+
+    label.bind("<Configure>", fit)
+    fit()
+
+
 class Tooltip:
     """A small hover tooltip for any widget (Tk has none of its own). Bindings are added with
     add="+" so they don't clobber the widget's own <Enter>/<Leave> handlers."""
@@ -300,8 +371,7 @@ class Tooltip:
 class RangeSlider(ttk.Frame):
     """A double-ended slider with linked min/max entry boxes.
 
-    Supports linear and logarithmic scales. Values are reported through
-    on_change(vmin, vmax) and can be read via .values().
+    Supports linear and logarithmic scales. Values are reported through on_change(vmin, vmax) and can be read via .values().
     """
 
     HANDLE_R = 8          # handle radius
@@ -733,10 +803,12 @@ class ScrollableFrame(ttk.Frame):
     appears only when the content overflows. Suited to lists that can grow long (e.g. the
     per-body rows of a badly-split structure). Mouse-wheel scrolling is active while the
     pointer is over the frame. `height` bounds the viewport so a long list scrolls instead
-    of stretching its parent."""
+    of stretching its parent. `max_height` instead lets the viewport grow with its content up to
+    that cap and only then scroll, so a short list takes no more room than it needs."""
 
-    def __init__(self, parent, height: Optional[int] = None, **kwargs):
+    def __init__(self, parent, height: Optional[int] = None, max_height: Optional[int] = None, **kwargs):
         super().__init__(parent, **kwargs)
+        self._max_height = max_height
         canvas_kwargs = {"height": height} if height is not None else {}
         self._canvas = tk.Canvas(self, background=PALETTE["surface"], highlightthickness=0, bd=0, **canvas_kwargs)
         self._scroll = ttk.Scrollbar(self, orient="vertical", command=self._canvas.yview)
@@ -749,11 +821,17 @@ class ScrollableFrame(ttk.Frame):
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
 
-        self.body.bind("<Configure>", lambda _e: self._canvas.configure(scrollregion=self._canvas.bbox("all")))
+        self.body.bind("<Configure>", self._on_body_configure)
         self._canvas.bind("<Configure>", lambda e: self._canvas.itemconfigure(self._window, width=e.width))
         # only scroll while the pointer is inside, so wheel events elsewhere are untouched
         self._canvas.bind("<Enter>", lambda _e: self._bind_wheel())
         self._canvas.bind("<Leave>", lambda _e: self._unbind_wheel())
+
+    def _on_body_configure(self, _event=None):
+        self._canvas.configure(scrollregion=self._canvas.bbox("all"))
+        # grow the viewport with the content up to max_height, then let it scroll past that
+        if self._max_height is not None:
+            self._canvas.configure(height=min(self.body.winfo_reqheight(), self._max_height))
 
     def _on_scroll_set(self, lo, hi):
         # hide the scrollbar entirely when everything fits

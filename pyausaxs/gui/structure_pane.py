@@ -29,7 +29,7 @@ from matplotlib.figure import Figure
 
 from .plotting import draw_structure, _BODY_COLORS
 from .theme import FONTS, PALETTE
-from .widgets import CollapsibleSection, ScrollableFrame
+from .widgets import CollapsibleSection, PlaceholderEntry, ScrollableFrame, ellipsize_label
 
 # the load block whose bodies we manage; setup elements are inserted just after it
 _LOAD_BLOCK_RE = re.compile(r"load\s*\{.*?\}", re.DOTALL)
@@ -123,16 +123,8 @@ class StructurePane(ttk.Frame):
         self._canvas.get_tk_widget().pack(fill="both", expand=True)
 
     def _build_controls(self, parent):
-        self._merge_var = tk.StringVar()
-        self._delete_var = tk.StringVar()
-        self._sym_add_var = tk.StringVar()
-        self._sym_convert_var = tk.StringVar()
-        self._autoconstrain_var = tk.StringVar()
-        self._constraint_var = tk.StringVar()
-
-        # The applied-elements list, status line, and Send button stay pinned to the bottom so
-        # they're visible no matter which sections are open; packed first with side="bottom" so
-        # the collapsible sections above can grow and shrink freely without displacing them.
+        # The applied-elements list, status line, and Send button stay pinned to the bottom so they're visible no matter which sections 
+        # are open; packed first with side="bottom" so the collapsible sections above can grow and shrink freely without displacing them.
         if self._on_apply_script is not None:
             ttk.Button(parent, text="Send to script…", style="Accent.TButton",
                        command=self._send_to_script).pack(side="bottom", fill="x", pady=(8, 0))
@@ -146,7 +138,7 @@ class StructurePane(ttk.Frame):
         self._build_refresh_bar(parent)
 
         # --- collapsible control sections, run as an accordion (one open at a time) so every
-        # section header stays visible and the column fits a small pane ---
+        # section header stays visible and the column fits a small pane
         self._sections: list[CollapsibleSection] = []
 
         # --- display toggles ---
@@ -166,24 +158,23 @@ class StructurePane(ttk.Frame):
 
         # --- merge / delete ---
         actions = self._section(parent, "Manage bodies", expanded=False)
-        self._action_row(actions.body, "Merge", self._merge_var, "first others…", self._apply_merge)
-        self._action_row(actions.body, "Delete", self._delete_var, "bodies…", self._apply_delete)
+        self._merge_entry = self._action_row(actions.body, "Merge", "first others…", self._apply_merge)
+        self._delete_entry = self._action_row(actions.body, "Delete", "bodies…", self._apply_delete)
 
-        # --- symmetry: two distinct operations, the more common one (adding a symmetry to a
-        # single body) on top, decomposing several bodies into a shared symmetry below ---
+        # --- symmetry: two distinct operations, the more common one (adding a symmetry to a single body) on top, decomposing several bodies 
+        # into a shared symmetry below
         sym = self._section(parent, "Symmetry", expanded=False).body
-        self._action_row(sym, "Add symmetry to a body", self._sym_add_var,
+        self._sym_add_entry = self._action_row(sym, "Add symmetry to a body",
                          "a body then a type, e.g. b1 c4", self._apply_add_symmetry, button="Apply")
-        self._action_row(sym, "Decompose bodies into a symmetry", self._sym_convert_var,
+        self._sym_convert_entry = self._action_row(sym, "Decompose bodies into a symmetry",
                          "bodies then a type, e.g. b1 b2 b3 b4 c4", self._apply_convert_symmetry, button="Convert")
 
-        # --- constraints: auto-generate a set (backbone) on top, then add an individual constraint
-        # between two bodies below. Existing constraints are edited by removing/re-adding via the
-        # applied-elements list, and shown in the view via the "Constraints" display toggle. ---
+        # --- constraints: auto-generate a set (backbone) on top, then add an individual constraint between two bodies below. Existing constraints
+        # are edited by removing/re-adding via the applied-elements list, and shown in the view via the "Constraints" display toggle.
         con = self._section(parent, "Constraints", expanded=False).body
-        self._action_row(con, "Auto-generate constraints", self._autoconstrain_var,
+        self._autoconstrain_entry = self._action_row(con, "Auto-generate constraints",
                          "backbone or none", self._apply_autoconstrain, button="Generate")
-        self._action_row(con, "Constrain two bodies", self._constraint_var,
+        self._constraint_entry = self._action_row(con, "Constrain two bodies",
                          "two bodies then a type, e.g. b1 b2 cm; attract/repel add a distance",
                          self._apply_add_constraint, button="Add")
 
@@ -220,20 +211,19 @@ class StructurePane(ttk.Frame):
             w.bind("<Button-1>", lambda _e: self._do_refresh())
         self._refresh_bar = bar  # created unpacked; _set_stale packs it above the sections
 
-    def _action_row(self, parent, label, var, hint, command, button="Apply"):
+    def _action_row(self, parent, label, hint, command, button="Apply") -> PlaceholderEntry:
+        """An action row: a short label, a text entry whose greyed placeholder carries the format
+        hint (so no separate hint line is needed), and a button. Returns the entry so the caller
+        can read it with .get() and reset it with .clear()."""
         row = ttk.Frame(parent)
-        row.pack(fill="x", pady=(0, 2))
+        row.pack(fill="x", pady=(0, 6))
         ttk.Label(row, text=label, style="Muted.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
-        entry = ttk.Entry(row, textvariable=var)
+        entry = PlaceholderEntry(row, hint)
         entry.grid(row=1, column=0, sticky="ew", padx=(0, 6))
         ttk.Button(row, text=button, style="Icon.TButton", command=command).grid(row=1, column=1)
         row.columnconfigure(0, weight=1)
         entry.bind("<Return>", lambda _e: command())
-        self._hint(row, hint, row=2)
-
-    def _hint(self, parent, text, row):
-        ttk.Label(parent, text=text, style="Muted.TLabel", font=FONTS["small"]).grid(
-            row=row, column=0, columnspan=2, sticky="w", pady=(0, 2))
+        return entry
 
     # ----- backend rebuild ----------------------------------------------------
     def _compose(self, elements: list[str]) -> str:
@@ -429,9 +419,9 @@ class StructurePane(ttk.Frame):
     _preserve_view = False
 
     # ----- camera --------------------------------------------------------------
-    # The rigid-body pane and this pane show the same structure in two separate figures; rather than truly sync them, each 
-    # adopts the other's camera angle when the user switches to it, which is enough to feel continuous. Only the orientation 
-    # is carried, not the zoom, since the two structures can diverge (after a merge/delete) and shared limits would then clip.
+    # The rigid-body pane and this pane show the same structure in two separate figures; rather than truly sync them, each adopts the other's 
+    # camera angle when the user switches to it, which is enough to feel continuous. Only the orientation is carried, not the zoom, since the 
+    # two structures can diverge (after a merge/delete) and shared limits would then clip.
     def get_camera_orientation(self) -> tuple:
         return self._get_orientation()
 
@@ -467,25 +457,25 @@ class StructurePane(ttk.Frame):
             self._set_status(f"Rejected “{element}”: {msg}", ok=False)
 
     def _apply_merge(self):
-        tokens = self._merge_var.get().split()
+        tokens = self._merge_entry.get().split()
         if len(tokens) < 2:
             self._set_status("Merge needs a target body and at least one other.", ok=False)
             return
         self._apply_element("merge " + " ".join(tokens))
-        self._merge_var.set("")
+        self._merge_entry.clear()
 
     def _apply_delete(self):
-        tokens = self._delete_var.get().split()
+        tokens = self._delete_entry.get().split()
         if not tokens:
             self._set_status("Delete needs at least one body.", ok=False)
             return
         self._apply_element("delete " + " ".join(tokens))
-        self._delete_var.set("")
+        self._delete_entry.clear()
 
     def _apply_add_symmetry(self):
         """Add a symmetry to a single body: `symmetry <body> <type>` (e.g. b1 c4). A lone type is
         allowed for a single-body system, where the backend infers the body."""
-        tokens = self._sym_add_var.get().split()
+        tokens = self._sym_add_entry.get().split()
         if not tokens:
             self._set_status("Add symmetry needs a body and a type, e.g. b1 c4.", ok=False)
             return
@@ -493,32 +483,32 @@ class StructurePane(ttk.Frame):
             self._set_status("Add symmetry takes one body and one type, e.g. b1 c4.", ok=False)
             return
         self._apply_element("symmetry " + " ".join(tokens))
-        self._sym_add_var.set("")
+        self._sym_add_entry.clear()
 
     def _apply_convert_symmetry(self):
         """Decompose several bodies into one shared symmetry, collapsing the copies into the first
         body plus a fitted symmetry: `convert_to_symmetry { type <type> bodies <b…> }`."""
-        tokens = self._sym_convert_var.get().split()
+        tokens = self._sym_convert_entry.get().split()
         if len(tokens) < 3:
             self._set_status("Decomposing needs at least two bodies and a type, e.g. b1 b2 c2.", ok=False)
             return
         *bodies, sym = tokens
         element = "convert_to_symmetry {\n    type " + sym + "\n    bodies " + " ".join(bodies) + "\n}"
         self._apply_element(element)
-        self._sym_convert_var.set("")
+        self._sym_convert_entry.clear()
 
     def _apply_autoconstrain(self):
         """Auto-generate a set of constraints: `autoconstrain <backbone|none>`. Defaults to
         backbone, the usual choice; `none` clears any auto-generated set."""
-        choice = self._autoconstrain_var.get().strip() or "backbone"
+        choice = self._autoconstrain_entry.get().strip() or "backbone"
         self._apply_element(f"autoconstrain {choice}")
-        self._autoconstrain_var.set("")
+        self._autoconstrain_entry.clear()
 
     def _apply_add_constraint(self):
         """Add a distance constraint between two bodies: `<body1> <body2> <type> [distance]`.
         `bond` and `cm` need only the two bodies; `attract` and `repel` also take a target
         distance (e.g. b1 b2 attract 30). Built as a `constrain { … }` block for the backend."""
-        tokens = self._constraint_var.get().split()
+        tokens = self._constraint_entry.get().split()
         if len(tokens) < 3:
             self._set_status("A constraint needs two bodies and a type, e.g. b1 b2 cm.", ok=False)
             return
@@ -533,7 +523,7 @@ class StructurePane(ttk.Frame):
             self._set_status(f"A {ctype} constraint takes no arguments beyond the two bodies.", ok=False)
             return
         self._apply_element("constrain {\n" + "\n".join(lines) + "\n}")
-        self._constraint_var.set("")
+        self._constraint_entry.clear()
 
     def _rebuild_applied_list(self):
         for w in self._applied.winfo_children():
@@ -541,14 +531,19 @@ class StructurePane(ttk.Frame):
         if not self._elements:
             return
         ttk.Label(self._applied, text="Applied elements", style="Muted.TLabel").pack(anchor="w")
+        # bounded and scrollable, so a long list of edits never grows up into the accordion headers
+        scroll = ScrollableFrame(self._applied, max_height=150)
+        scroll.pack(fill="x")
         for i, element in enumerate(self._elements):
-            row = ttk.Frame(self._applied)
+            row = ttk.Frame(scroll.body)
             row.pack(fill="x", pady=1)
+            # the delete button is packed first at side=right so it always keeps its full size; the summary then fills whatever width is left and 
+            # is ellipsized to it, so a wide element (e.g. a constrain block collapsed to one line) can never push the button out of reach
+            ttk.Button(row, text="✕", width=2, style="Icon.TButton", command=lambda i=i: self._remove_element(i)).pack(side="right", padx=(4, 0))
+            summary = ttk.Label(row, font=FONTS["mono"], anchor="w")
+            summary.pack(side="left", fill="x", expand=True)
             # collapse any multi-line element (e.g. a convert_to_symmetry block) to one tidy line
-            summary = " ".join(element.split())
-            ttk.Label(row, text=summary, font=FONTS["mono"]).pack(side="left")
-            ttk.Button(row, text="✕", width=2, style="Icon.TButton",
-                       command=lambda i=i: self._remove_element(i)).pack(side="right")
+            ellipsize_label(summary, " ".join(element.split()))
 
     def _remove_element(self, i: int):
         candidate = self._elements[:i] + self._elements[i + 1:]
