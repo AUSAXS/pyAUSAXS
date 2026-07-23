@@ -3,6 +3,7 @@
 
 import math
 import os
+import time
 import tkinter as tk
 from tkinter import ttk
 
@@ -30,6 +31,9 @@ class SaxsDataPane(ttk.Frame):
     HANDLE_MS = 11      # handle marker diameter (points)
     LABEL_SIZE = 10     # decade-label font size (points)
     UNIT_ANIM_MS = 900  # how long both interpretations are shown on a unit change
+    SLIDER_ANIM_MS = 600    # how long the slider takes to slide to its new position
+    SLIDER_DELAY_MS = 100   # pause before the slide starts, so it reads as a deliberate move
+    SLIDER_STEP_MS = 16     # ~60fps tick for the slide
 
     def __init__(self, parent, file_path: str):
         super().__init__(parent)
@@ -45,6 +49,8 @@ class SaxsDataPane(ttk.Frame):
         self._decade_labels: list = []
         self._ghost_artists: list = []            # previous interpretation during a unit change
         self._unit_anim_job = None                # pending end-of-transition callback
+        self._slider_anim_job = None              # pending slide-to-new-position tick
+        self._slider_anim = None                  # (log_q0min, log_q0max, log_q1min, log_q1max, t0)
 
         # the axis (and slider track) span the data's own q-range, in Å⁻¹; the unit
         # selector forces the backend's interpretation of the file's q, and the range
@@ -282,10 +288,16 @@ class SaxsDataPane(ttk.Frame):
 
     # ------------------------------------------------------------------
     def _refresh(self):
+        self._cancel_slider_slide()
         self._sync_entries()
         self._update_selector()
         self._redraw_data_artists()
         self._mpl_canvas.draw_idle()
+
+    def _cancel_slider_slide(self):
+        if self._slider_anim_job is not None:
+            self.after_cancel(self._slider_anim_job)
+            self._slider_anim_job = None
 
     def _sync_entries(self):
         self.lo_var.set(f"{self._qmin:.4g}")
@@ -307,7 +319,8 @@ class SaxsDataPane(ttk.Frame):
         backend with that unit forced (matching how the actual fit will parse it). The
         data's q-range — and so the axis, slider track and decade labels — rescales with
         it, while the selection keeps its position relative to the data. A short
-        transition keeps the previous interpretation on screen so the shift is visible."""
+        transition keeps the previous interpretation on screen, and the range-slider's
+        handles slide from their old position to the new one, so the shift is visible."""
         if self._qs is None:
             return
         new_unit = self._unit_var.get()
@@ -319,6 +332,7 @@ class SaxsDataPane(ttk.Frame):
             return
 
         old_qs, old_Is, old_lim = self._qs, self._Is, (self._vmin, self._vmax)
+        old_qmin, old_qmax = self._qmin, self._qmax
         ratio = self.UNIT_FACTORS[new_unit] / self.UNIT_FACTORS[self._unit]
         self._unit = new_unit
         self._qs, self._Is, self._sigs = data
@@ -334,13 +348,48 @@ class SaxsDataPane(ttk.Frame):
         self._ghost_artists = [ghost]
         self._track_line.set_xdata([self._vmin, self._vmax])
         self._draw_decade_labels()
-        self._refresh()
+        self._sync_entries()
+        self._redraw_data_artists()
         self._ax.set_xlim(min(self._vmin, old_lim[0]), max(self._vmax, old_lim[1]))
-        self._mpl_canvas.draw_idle()
+        self._slide_selector(old_qmin, old_qmax, self._qmin, self._qmax)
 
         if self._unit_anim_job is not None:
             self.after_cancel(self._unit_anim_job)
         self._unit_anim_job = self.after(self.UNIT_ANIM_MS, self._settle_unit_change)
+
+    def _slide_selector(self, q0min, q0max, q1min, q1max):
+        """Animate the selector (handles, span and risers) from their old position to the new one, interpolated in log-space to match the log 
+        x-axis. A brief pause (SLIDER_DELAY_MS) precedes the move so it reads as a deliberate slide rather than a twitch, and the move itself 
+        eases in and out (slow-fast-slow) rather than running at a constant rate, so the unit change reads as a slide instead of an instant jump."""
+        self._cancel_slider_slide()
+        if q0min == q1min and q0max == q1max:
+            self._update_selector()
+            self._mpl_canvas.draw_idle()
+            return
+        self._slider_anim = (math.log10(q0min), math.log10(q0max), math.log10(q1min), math.log10(q1max), None)
+        self._slider_anim_job = self.after(self.SLIDER_DELAY_MS, self._start_slider_slide)
+
+    def _start_slider_slide(self):
+        l0min, l0max, l1min, l1max, _ = self._slider_anim
+        self._slider_anim = (l0min, l0max, l1min, l1max, time.monotonic())
+        self._step_slider_slide()
+
+    def _step_slider_slide(self):
+        l0min, l0max, l1min, l1max, t0 = self._slider_anim
+        t = min((time.monotonic() - t0) * 1000.0 / self.SLIDER_ANIM_MS, 1.0)
+        # ease-in-out cubic: slow to start, fastest through the middle, slow to a stop
+        e = 4 * t ** 3 if t < 0.5 else 1 - (-2 * t + 2) ** 3 / 2
+        qmin, qmax = 10.0 ** (l0min + (l1min - l0min) * e), 10.0 ** (l0max + (l1max - l0max) * e)
+        self._span_line.set_xdata([qmin, qmax])
+        self._handles.set_xdata([qmin, qmax])
+        self._handle_cores.set_xdata([qmin, qmax])
+        self._vlines[0].set_xdata([qmin, qmin])
+        self._vlines[1].set_xdata([qmax, qmax])
+        self._mpl_canvas.draw_idle()
+        if t < 1.0:
+            self._slider_anim_job = self.after(self.SLIDER_STEP_MS, self._step_slider_slide)
+        else:
+            self._slider_anim_job = None
 
     def _settle_unit_change(self):
         """End the unit-change transition: drop the ghost and zoom onto the new range."""
