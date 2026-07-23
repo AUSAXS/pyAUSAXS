@@ -572,6 +572,7 @@ class StructurePane(ttk.Frame):
             if state["done"]:
                 return
             state["done"] = True
+            toplevel.unbind("<Button-1>", click_id)
             new = var.get().strip()
             entry.destroy()
             self._rebuild_body_list()  # restore the row to its normal label state
@@ -582,9 +583,20 @@ class StructurePane(ttk.Frame):
                 return
             self._apply_element(f"rename {old} {new}")
 
+        def click_outside(event):
+            # most row widgets (labels/frames) never take keyboard focus, so clicking them doesn't fire <FocusOut> on the entry
+            #  — commit/close explicitly on any click that isn't on the entry itself, so clicking anywhere else in the GUI 
+            # (not just the plot or another entry) closes the editor as expected
+            if event.widget is not entry:
+                finish(True)
+
         entry.bind("<Return>", lambda _e: finish(True))
         entry.bind("<FocusOut>", lambda _e: finish(True))
         entry.bind("<Escape>", lambda _e: finish(False))
+        # bound on the toplevel (not just this row) so a click anywhere in the window is caught, added
+        # after the entry is focused so it doesn't fire for the double-click that opened it
+        toplevel = self.winfo_toplevel()
+        click_id = toplevel.bind("<Button-1>", click_outside, add="+")
 
     # ----- drawing ------------------------------------------------------------
     def _schedule_redraw(self):
