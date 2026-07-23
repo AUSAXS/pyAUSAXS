@@ -16,15 +16,12 @@ from .theme import ANSI_COLORS, FONTS, PALETTE, SYNTAX
 class FileField(ttk.Frame):
     """A labelled file path entry with a browse button and background validation coloring.
 
-    The validator is called with the entered path and must return True/False.
-    on_valid fires with the path whenever it passes validation (including on focus-out,
-    so it is suited to passive reactions like coloring or autodetection). on_commit fires
-    only on explicit user commits — pressing Enter or picking a file via Browse — and is
-    suited to actions that should not be re-triggered by merely tabbing away.
+    The validator is called with the entered path and must return True/False. on_valid fires with the path whenever it passes validation
+    (including on focus-out, so it is suited to passive reactions like coloring or autodetection). on_commit fires only on explicit user 
+    commits — pressing Enter or picking a file via Browse — and is suited to actions that should not be re-triggered by merely tabbing away.
 
-    If on_view is given, a small view button sits beside the folder (browse) button; it is
-    enabled only while the field holds a valid path, and clicking it calls on_view() — used
-    to open an inspection tab for the chosen file.
+    If on_view is given, a small view button sits beside the folder (browse) button; it is enabled only while the field holds a valid path, 
+    and clicking it calls on_view() — used to open an inspection tab for the chosen file.
     """
 
     _BROWSE_GLYPH = "🗁"

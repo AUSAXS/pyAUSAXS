@@ -47,6 +47,7 @@ loop
                 msg "{iteration}/{iterations_total}: Accepted with new chi2 {chi2_no_penalty}"
                 colour green
             }
+            update structure
             save trajectory.xyz
         end
     end
@@ -159,8 +160,7 @@ class RigidbodyPane(ttk.Frame):
         # the one input-wide action left in this block: hand both inputs to the SAXS fitter
         button_row = ttk.Frame(input_frame)
         button_row.pack(fill="x", pady=(8, 0))
-        ttk.Button(button_row, text="Send to SAXS fitter", command=self._send_to_saxs_fitter).pack(
-            side="right")
+        ttk.Button(button_row, text="Send to SAXS fitter", command=self._send_to_saxs_fitter).pack(side="right")
         self._on_load_structure = make_on_load_structure(self._set_load_directive, self.saxs_field)
         self._on_load_saxs = make_on_load_saxs(self._set_load_directive, self.structure_field)
 
@@ -203,10 +203,10 @@ class RigidbodyPane(ttk.Frame):
             color=PALETTE["danger"], hover=PALETTE["danger_hover"], bold=True)
         self.reset_button.pack(side="right", padx=(0, 2))
         self._make_icon_button(
-            title_row, "↧", self._save_to_file_clicked, "Save script to a file…"
+            title_row, "🖫", self._save_to_file_clicked, "Save script to a file…"
         ).pack(side="right", padx=(0, 8))
         self._make_icon_button(
-            title_row, "↥", self._load_from_file_clicked, "Load script from a file…"
+            title_row, "🗁", self._load_from_file_clicked, "Load script from a file…"
         ).pack(side="right", padx=(0, 8))
         editor_frame.configure(labelwidget=title_row)
         # Stretch the title row to the frame width (the labelframe won't do it) so the reset cross sits flush right.
@@ -468,15 +468,19 @@ class RigidbodyPane(ttk.Frame):
         return "break"
 
     def _reset_clicked(self):
-        """Restore the default script after a confirmation, so an accidental click
-        can't silently wipe a hand-written script."""
+        """Restore the default script while preserving the current load block."""
         if not messagebox.askyesno(
                 "Reset script",
-                "Discard the current script and restore the default?",
+                "Reset the script while keeping the current load element?",
                 parent=self):
             return
+        current_script = self.editor.get("1.0", "end-1c")
+        current_load = _LOAD_BLOCK_RE.search(current_script)
+        reset_script = DEFAULT_RIGIDBODY_SCRIPT
+        if current_load:
+            reset_script = _LOAD_BLOCK_RE.sub(current_load.group(0), reset_script, count=1)
         self.editor.delete("1.0", "end")
-        self.editor.insert("1.0", DEFAULT_RIGIDBODY_SCRIPT)
+        self.editor.insert("1.0", reset_script)
         self.highlighter.highlight()
         self._schedule_preview_update()
         self._save_script()  # persist immediately so the default survives a restart
@@ -496,9 +500,8 @@ class RigidbodyPane(ttk.Frame):
 
     # ----- load / save the script to a file (independent of the cache) --------
     def _save_to_file_clicked(self):
-        """Save the current script to a user-chosen file. This is separate from the cache: the
-        periodic cache autosave continues untouched, and the file we write here is never overwritten
-        by it."""
+        """Save the current script to a user-chosen file. This is separate from the cache: the periodic cache autosave 
+        continues untouched, and the file we write here is never overwritten by it."""
         path = filedialog.asksaveasfilename(
             parent=self, title="Save refinement script", defaultextension=".conf",
             initialdir=os.path.dirname(self._script_file_path) if self._script_file_path else None,
@@ -516,10 +519,9 @@ class RigidbodyPane(ttk.Frame):
         self._script_file_path = path
 
     def _load_from_file_clicked(self):
-        """Load a script from a user-chosen file into the editor (not from the cache), then mirror
-        its load block into the Input fields so they aren't left stale-empty beside a working script.
-        As elsewhere, this is a one-shot fill: later edits don't propagate back, and the script
-        remains the authority."""
+        """Load a script from a user-chosen file into the editor (not from the cache), then mirror its load block into the Input fields so
+        they aren't left stale-empty beside a working script. As elsewhere, this is a one-shot fill: later edits don't propagate back, and 
+        the script remains the authority."""
         path = filedialog.askopenfilename(
             parent=self, title="Load refinement script",
             initialdir=os.path.dirname(self._script_file_path) if self._script_file_path else None,
