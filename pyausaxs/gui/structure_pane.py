@@ -244,6 +244,7 @@ class StructurePane(ttk.Frame):
 
         # --- merge / delete ---
         actions = self._section(parent, "Manage bodies", expanded=False)
+        self._rename_entry = self._action_row(actions.body, "Rename", "old new", self._apply_rename, button="Rename")
         self._merge_entry = self._action_row(actions.body, "Merge", "first others...", self._apply_merge)
         self._delete_entry = self._action_row(actions.body, "Delete", "body", self._apply_delete)
 
@@ -462,7 +463,7 @@ class StructurePane(ttk.Frame):
         for w in (row, swatch, label, meta):  # click anywhere on the row highlights the whole body
             w.bind("<Button-1>", lambda _e, i=b["index"]: self._toggle_highlight(i, None))
         for w in (row, label):  # double-click the name (or the row) to rename the body
-            w.bind("<Double-Button-1>", lambda _e, bb=b, lbl=label: self._start_rename(lbl, bb))
+            w.bind("<Double-Button-1>", lambda _e, nm=b["name"], lbl=label: self._start_rename(lbl, nm))
         self._row_frames.append(row)
         self._rows.append(((b["index"], None), (row, label, meta)))
         self._body_row_frames[b["index"]] = row
@@ -489,6 +490,8 @@ class StructurePane(ttk.Frame):
         widgets = [row, swatch, label, badge]
         for w in widgets:
             w.bind("<Button-1>", lambda _e, i=b["index"], c=copy: self._toggle_highlight(i, c))
+        for w in (row, label):  # double-click the name (or the row) to rename the replica, same as a base body
+            w.bind("<Double-Button-1>", lambda _e, nm=info["name"], lbl=label: self._start_rename(lbl, nm))
         self._row_frames.append(row)
         self._rows.append(((b["index"], copy), tuple(widgets)))
         return row
@@ -539,19 +542,27 @@ class StructurePane(ttk.Frame):
         self._refresh_row_highlight()
         self._schedule_redraw()
 
-    def _start_rename(self, label: tk.Label, b: dict):
-        """Replace a body's name label with an inline entry so the user can rename it. Committing
-        applies a `rename <old> <new>` element; the backend keeps the body's default name too, so a
-        rename can always be undone by renaming back."""
-        old = b["name"]
+    def _start_rename(self, label: tk.Label, old: str):
+        """Replace a body or replica name label with an inline entry so the user can rename it in place. Committing applies a 
+        `rename <old> <new>` element; the backend keeps the default name too, so a rename can always be undone by renaming back. Works the 
+        same for a base body's name and a replica's addressable name (e.g. "b1s1r1"), since both are just names the backend accepts."""
+        # match the label's own font (replica labels use a smaller font than base bodies), and take the label's spot in the 
+        # row's left-to-right pack order so a sibling packed after it (e.g. the replica's type badge) doesn't visually jump 
+        # to its left while the entry is showing
+        siblings = label.master.pack_slaves()
+        after_idx = siblings.index(label) + 1
+        before = siblings[after_idx] if after_idx < len(siblings) else None
         var = tk.StringVar(value=old)
         entry = tk.Entry(
-            label.master, textvariable=var, font=FONTS["base"], width=14,
+            label.master, textvariable=var, font=label.cget("font"), width=14,
             background=PALETTE["surface"], foreground=PALETTE["text"],
             insertbackground=PALETTE["text"], relief="flat", highlightthickness=1,
             highlightbackground=PALETTE["accent"], highlightcolor=PALETTE["accent"])
         label.pack_forget()
-        entry.pack(side="left")
+        if before is not None:
+            entry.pack(side="left", before=before)
+        else:
+            entry.pack(side="left")
         entry.focus_set()
         entry.select_range(0, "end")
 
@@ -567,7 +578,7 @@ class StructurePane(ttk.Frame):
             if not apply or not new or new == old:
                 return
             if any(c.isspace() for c in new):
-                self._set_status("A body name cannot contain spaces.", ok=False)
+                self._set_status("A name cannot contain spaces.", ok=False)
                 return
             self._apply_element(f"rename {old} {new}")
 
@@ -670,6 +681,20 @@ class StructurePane(ttk.Frame):
             self._splits = prev
             self._splits_var.set(prev)
             self._set_status(f"Could not re-split: {msg}", ok=False)
+
+    def _apply_rename(self):
+        """Rename a body: `rename <old> <new>`, the same element the inline double-click-to-rename
+        (see _start_rename) applies, just entered as two tokens instead of typed in place."""
+        tokens = self._rename_entry.get().split()
+        if len(tokens) != 2:
+            self._set_status("Rename needs the current name and the new name, e.g. b1 core.", ok=False)
+            return
+        old, new = tokens
+        if old == new:
+            self._set_status("The new name is the same as the current one.", ok=False)
+            return
+        self._apply_element(f"rename {old} {new}")
+        self._rename_entry.clear()
 
     def _apply_merge(self):
         tokens = self._merge_entry.get().split()
