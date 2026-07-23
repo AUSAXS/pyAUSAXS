@@ -84,6 +84,29 @@ register({
         ],
         None
     ),
+    "rigidbody_get_body_names": (
+        [
+            ct.c_int,                            # rigidbody id
+            ct.POINTER(ct.POINTER(ct.c_char_p)), # names (output)
+            ct.POINTER(ct.c_int),                # size (output)
+            ct.POINTER(ct.c_int)                 # status (0 = success)
+        ],
+        None
+    ),
+    "rigidbody_get_symmetry_layout": (
+        [
+            ct.c_int,                            # rigidbody id
+            ct.POINTER(ct.POINTER(ct.c_int)),    # body vector (output)
+            ct.POINTER(ct.POINTER(ct.c_int)),    # copy vector (output)
+            ct.POINTER(ct.POINTER(ct.c_int)),    # symmetry vector (output)
+            ct.POINTER(ct.POINTER(ct.c_int)),    # replica vector (output)
+            ct.POINTER(ct.POINTER(ct.c_char_p)), # type vector (output)
+            ct.POINTER(ct.POINTER(ct.c_char_p)), # name vector (output)
+            ct.POINTER(ct.c_int),                # n_replicas (output)
+            ct.POINTER(ct.c_int)                 # status (0 = success)
+        ],
+        ct.c_int                                 # return data id
+    ),
 })
 
 class Rigidbody(BackendObject):
@@ -146,6 +169,58 @@ class Rigidbody(BackendObject):
             "is_ca": _ptr_to_array(is_ca, n, dtype=bool),
             "constraints": (_ptr_to_array(constraints, nc * 3, dtype=int).reshape(-1, 3)
                             if nc else np.empty((0, 3), dtype=int)),
+        }
+        ausaxs.deallocate(temp_id)
+        return result
+
+    def body_names(self) -> list[str]:
+        """Names of the bodies currently in the setup, after any merge/delete/convert_to_symmetry
+        elements have collapsed or removed bodies. The order matches the body indices reported by
+        preview_structure(), so body index i corresponds to body_names()[i]."""
+        ausaxs = AUSAXS()
+        names = ct.POINTER(ct.c_char_p)()
+        size = ct.c_int()
+        status = ct.c_int()
+        ausaxs.lib().functions.rigidbody_get_body_names(
+            self._get_id(), ct.byref(names), ct.byref(size), ct.byref(status)
+        )
+        _check_error_code(status, "rigidbody_get_body_names")
+        return _ptr_to_str_list(names, size.value)
+
+    def symmetry_layout(self) -> dict:
+        """Get the symmetry-replica layout of the current structure, one row per replica (copy > 0),
+        keyed to preview_structure()'s (body, copy) pairs so the GUI never has to guess the
+        copy -> symmetry mapping. Returns a dict with:
+            body     : (R,) int       — body index (matches preview_structure's body)
+            copy     : (R,) int       — symmetry copy index (matches preview_structure's copy)
+            symmetry : (R,) int       — 0-based symmetry index within the body
+            replica  : (R,) int       — replica index within the symmetry
+            type     : (R,) list[str] — symmetry type (e.g. "c4", "p2")
+            name     : (R,) list[str] — current addressable name, including a rename alias when present (e.g. "b1s1r1" or "my_replica")"""
+        ausaxs = AUSAXS()
+        body = ct.POINTER(ct.c_int)()
+        copy = ct.POINTER(ct.c_int)()
+        symmetry = ct.POINTER(ct.c_int)()
+        replica = ct.POINTER(ct.c_int)()
+        type_ = ct.POINTER(ct.c_char_p)()
+        name = ct.POINTER(ct.c_char_p)()
+        n_replicas = ct.c_int()
+        status = ct.c_int()
+        temp_id = ausaxs.lib().functions.rigidbody_get_symmetry_layout(
+            self._get_id(),
+            ct.byref(body), ct.byref(copy), ct.byref(symmetry), ct.byref(replica),
+            ct.byref(type_), ct.byref(name),
+            ct.byref(n_replicas), ct.byref(status)
+        )
+        _check_error_code(status, "rigidbody_get_symmetry_layout")
+        n = n_replicas.value
+        result = {
+            "body": _ptr_to_array(body, n, dtype=int),
+            "copy": _ptr_to_array(copy, n, dtype=int),
+            "symmetry": _ptr_to_array(symmetry, n, dtype=int),
+            "replica": _ptr_to_array(replica, n, dtype=int),
+            "type": _ptr_to_str_list(type_, n),
+            "name": _ptr_to_str_list(name, n),
         }
         ausaxs.deallocate(temp_id)
         return result

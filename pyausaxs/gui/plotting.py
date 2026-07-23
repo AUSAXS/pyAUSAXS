@@ -244,27 +244,122 @@ def pretty_plot_name(stem: str) -> str:
 _BODY_COLORS = ["#4a7dbd", "#e89a3c", "#46a86c", "#9467bd", "#17becf", "#8c564b", "#bcbd22", "#7f7f7f"]
 
 
-def draw_structure(ax, data: dict, split_residues: list[int]):
-    """Draw a rigid-body structure preview on a 3D axis from a backend preview-structure dict (see Rigidbody.preview_structure). 
-    All atoms are shown as a faint cloud; the Cα backbone is drawn per body (one colour each) with symmetry copies faded, and 
-    the split residues marked in red. Authoritative body/Cα/residue metadata comes from the backend, so it works for wildcards, 
-    multi-file loads and symmetry alike."""
+def draw_structure(ax, data: dict, split_residues: list[int], *,
+                   show_atoms: bool = False, show_copies: bool = True, show_backbone: bool = True,
+                   show_constraints: bool = True, highlight: set[tuple[int, int | None]] | None = None,
+                   color_by: str = "body", body_names: dict[int, str] | None = None):
+    """Draw a rigid-body structure preview on a 3D axis from a backend preview-structure dict (see Rigidbody.preview_structure).
+    The Cα backbone is drawn per body (one colour each) with symmetry copies faded, and the split residues marked in red.
+    Authoritative body/Cα/residue metadata comes from the backend, so it works for wildcards, multi-file loads and symmetry alike.
+
+    Options (all default to the rigid-body pane's original behaviour):
+        show_atoms       — also draw every atom as a faint cloud (atomic detail), not just the Cα trace
+        show_copies      — draw symmetry copies (copy > 0); when False only the originals are shown
+        show_backbone    — draw the per-body Cα trace; when False it's left out entirely (e.g. to
+                           declutter the view when show_atoms already shows the real atoms)
+        show_constraints — draw the constraint tethers / attractor-repulsor arrows
+        highlight         — a set of (body, copy) selectors to keep lit while everything else is dimmed
+                           (copy=None selects the whole body, i.e. every one of its copies); empty/None
+                           means nothing is dimmed
+        color_by         — "body" (a colour per body) or "copy" (a colour per symmetry copy)
+        body_names       — body index -> display name, used to label bodies with no Cα atoms (falls back
+                           to "b{index+1}" for any body missing from the mapping)
+    """
+    body_names = body_names or {}
+    highlight = highlight or set()
     coords = data["coords"]
     body, copy, res, is_ca = data["body"], data["copy"], data["residue_seq"], data["is_ca"]
     splits = sorted({int(s) for s in split_residues})
 
+    def _dimmed(b: int, c: int | None = None) -> bool:
+        if not highlight:
+            return False
+        if c is None:  # copy-agnostic check (e.g. the all-atom cloud): lit if any selector names this body
+            return not any(bb == b for bb, _cc in highlight)
+        return (b, None) not in highlight and (b, c) not in highlight
+
+    def _colour(b: int, c: int) -> str:
+        idx = c if color_by == "copy" else b
+        return _BODY_COLORS[idx % len(_BODY_COLORS)]
+
+    # optional faint all-atom cloud, drawn beneath the backbone; copies included only if shown. only the selected bodies are drawn 
+    # (all of them, if nothing is selected) to keep a multi-body structure from turning into an unreadable point cloud.
+    if show_atoms:
+        cloud = (copy == 0) if not show_copies else np.ones(len(coords), dtype=bool)
+        for b in sorted(set(body[cloud].tolist())):
+            if highlight and _dimmed(b):
+                continue
+            m = cloud & (body == b)
+            if not m.any():
+                continue
+            selected = bool(highlight) and not _dimmed(b)
+            size, alpha = (18, 0.5) if selected else (10, 0.22)
+            ax.scatter(
+                coords[m, 0], coords[m, 1], coords[m, 2], s=size, color=_colour(b, 0),
+                alpha=alpha, edgecolors="none", depthshade=False, zorder=0
+            )
+
     # Cα backbone, drawn separately per (body, copy) so traces never bridge bodies or copies
-    for b in sorted(set(body[is_ca].tolist())):
-        color = _BODY_COLORS[b % len(_BODY_COLORS)]
+    for b in sorted(set(body[is_ca].tolist())) if show_backbone else []:
         for c in sorted(set(copy[is_ca & (body == b)].tolist())):
+            if not show_copies and c != 0:
+                continue
             pts = coords[is_ca & (body == b) & (copy == c)]
             if len(pts) == 0:
                 continue
             original = (c == 0)
-            ax.plot(
-                pts[:, 0], pts[:, 1], pts[:, 2], color=color, 
-                lw=1.0 if original else 0.8, alpha=1.0 if original else 0.65, zorder=2 if original else 1
-            )
+            if _dimmed(b, c):
+                lw, alpha, z = 0.8, 0.12, 1
+            else:
+                lw, alpha, z = (1.0, 1.0, 2) if original else (0.8, 0.65, 1)
+            ax.plot(pts[:, 0], pts[:, 1], pts[:, 2], color=_colour(b, c), lw=lw, alpha=alpha, zorder=z)
+
+    # bodies with no Cα atoms at all (e.g. a non-protein hetero group) draw nothing in the trace above and would otherwise be completely invisible; 
+    # mark each with a small sphere at the centroid instead. The sphere is real geometry sized in data units (Angstrom), not a screen-space scatter 
+    # marker, so it pans/zooms consistently with the rest of the structure instead of visually dominating once the view zooms out.
+    ca_bodies = set(body[is_ca].tolist())
+    no_ca_bodies = sorted(set(body.tolist()) - ca_bodies)
+    MIN_RADIUS = 25  # floor so single-atom bodies (Rg=0) stay visible
+    for b in no_ca_bodies:
+        pts0 = coords[(body == b) & (copy == 0)]
+        if len(pts0) > 1:
+            rg = float(np.sqrt(np.mean(np.sum((pts0 - pts0.mean(axis=0)) ** 2, axis=1))))
+        else:
+            rg = 0.0
+        # approximate the group's physical extent from its Rg, treating it as a solid sphere (Rg = sqrt(3/5)*R  =>  R = sqrt(5/3)*Rg)
+        radius = 0.1*max(rg * np.sqrt(5 / 3), MIN_RADIUS)
+        u, v = np.meshgrid(np.linspace(0, 2 * np.pi, 10), np.linspace(0, np.pi, 6))
+        sx, sy, sz = np.cos(u) * np.sin(v), np.sin(u) * np.sin(v), np.cos(v)
+
+        for c in sorted(set(copy[body == b].tolist())):
+            if not show_copies and c != 0:
+                continue
+            pts = coords[(body == b) & (copy == c)]
+            if len(pts) == 0:
+                continue
+            centroid = pts.mean(axis=0)
+            original = (c == 0)
+            selected = bool(highlight) and not _dimmed(b, c)
+            if _dimmed(b, c):
+                alpha = 0.15
+            else:
+                alpha = 1.0 if original else 0.65
+            colour = _colour(b, c)
+            if show_atoms:
+                pass  # already drawn as part of the atomic-detail cloud above
+            elif selected:
+                # the centroid sphere can be misleading once picked (e.g. residues ringing the centroid put the sphere in empty space); show 
+                # the real atoms instead
+                ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], s=18, color=colour, alpha=0.5,
+                          edgecolors="none", depthshade=False, zorder=2)
+            else:
+                ax.plot_surface(
+                    centroid[0] + radius * sx, centroid[1] + radius * sy, centroid[2] + radius * sz,
+                    color=colour, alpha=alpha, linewidth=0, shade=True, zorder=2
+                )
+            if original:
+                label = body_names.get(b, f"b{b + 1}")
+                ax.text(*centroid, f" {label}", color=colour, alpha=alpha, fontsize=7, zorder=2)
 
     # split-residue markers on the originals, in red
     highlight = is_ca & (copy == 0) & np.isin(res, splits)
@@ -274,12 +369,10 @@ def draw_structure(ax, data: dict, split_residues: list[int]):
             color="red", edgecolors="black", linewidths=0.6, depthshade=False, zorder=3
         )
 
-    # active constraints, all in black: a dashed tether for backbone (0) / centre-of-mass (1)
-    # constraints (told apart by length — CM ones span much further), and a solid line with
-    # directional arrowheads for attractors (2, pointing inward) and repulsors (3, outward).
+    # active constraints, all in black: a dashed tether for backbone (0) / centre-of-mass (1) constraints (told apart by length — CM ones
+    # span much further), and a solid line with directional arrowheads for attractors (2, pointing inward) and repulsors (3, outward). 
     # indices reference copy 0, so they map straight onto the rows of `coords`.
-    constraints = data.get("constraints")
-    print(constraints)
+    constraints = data.get("constraints") if show_constraints else None
     if constraints is not None and len(constraints):
         n = len(coords)
         scale = float((coords.max(0) - coords.min(0)).max()) or 1.0
@@ -301,9 +394,10 @@ def draw_structure(ax, data: dict, split_residues: list[int]):
             length = min(0.15 * scale, 0.4 * dist)
             inward = (ctype == 2)  # attractor pulls together; repulsor pushes apart
             for tail, direction in ((p1, d if inward else -d), (p2, -d if inward else d)):
-                ax.quiver(tail[0], tail[1], tail[2], direction[0], direction[1], direction[2],
-                          length=length, normalize=True, color="black",
-                          arrow_length_ratio=0.45, lw=1.2, zorder=5)
+                ax.quiver(
+                    tail[0], tail[1], tail[2], direction[0], direction[1], direction[2],
+                    length=length, normalize=True, color="black", arrow_length_ratio=0.45, lw=1.2, zorder=5
+                )
 
     # equal aspect over every atom so symmetry copies are never clipped out of view
     span = float((coords.max(0) - coords.min(0)).max()) / 2 or 1.0

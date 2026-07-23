@@ -4,6 +4,7 @@
 import math
 import re
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import filedialog, ttk
 from typing import Callable, Optional
 
@@ -15,12 +16,16 @@ from .theme import ANSI_COLORS, FONTS, PALETTE, SYNTAX
 class FileField(ttk.Frame):
     """A labelled file path entry with a browse button and background validation coloring.
 
-    The validator is called with the entered path and must return True/False.
-    on_valid fires with the path whenever it passes validation (including on focus-out,
-    so it is suited to passive reactions like coloring or autodetection). on_commit fires
-    only on explicit user commits — pressing Enter or picking a file via Browse — and is
-    suited to actions that should not be re-triggered by merely tabbing away.
+    The validator is called with the entered path and must return True/False. on_valid fires with the path whenever it passes validation
+    (including on focus-out, so it is suited to passive reactions like coloring or autodetection). on_commit fires only on explicit user 
+    commits — pressing Enter or picking a file via Browse — and is suited to actions that should not be re-triggered by merely tabbing away.
+
+    If on_view is given, a small view button sits beside the folder (browse) button; it is enabled only while the field holds a valid path, 
+    and clicking it calls on_view() — used to open an inspection tab for the chosen file.
     """
+
+    _BROWSE_GLYPH = "🗁"
+    _VIEW_GLYPH = "👁"
 
     def __init__(
         self, parent,
@@ -30,6 +35,8 @@ class FileField(ttk.Frame):
         on_commit: Optional[Callable[[str], None]] = None,
         filetypes: Optional[list[tuple[str, str]]] = None,
         directory: bool = False,
+        on_view: Optional[Callable[[], None]] = None,
+        view_tooltip: str = "View",
     ):
         super().__init__(parent)
         self._validator = validator
@@ -37,6 +44,7 @@ class FileField(ttk.Frame):
         self._on_commit = on_commit
         self._filetypes = filetypes or []
         self._directory = directory
+        self._on_view = on_view
         self.valid = False
         self.touched = False  # whether the user has manually edited the field
 
@@ -51,7 +59,19 @@ class FileField(ttk.Frame):
             highlightbackground=PALETTE["border"], highlightcolor=PALETTE["accent"],
         )
         self.entry.grid(row=1, column=0, sticky="ew", ipady=4)
-        ttk.Button(self, text="Browse", style="Icon.TButton", command=self._browse).grid(row=1, column=1, padx=(6, 0))
+
+        browse = ttk.Button(self, text=self._BROWSE_GLYPH, style="Icon.TButton", width=2, command=self._browse)
+        browse.grid(row=1, column=1, padx=(6, 0))
+        Tooltip(browse, "Browse…")
+
+        self._view_btn = None
+        if on_view is not None:
+            self._view_btn = ttk.Button(
+                self, text=self._VIEW_GLYPH, style="Icon.TButton", width=2,
+                command=on_view, state="disabled")
+            self._view_btn.grid(row=1, column=2, padx=(4, 0))
+            Tooltip(self._view_btn, view_tooltip)
+
         self.columnconfigure(0, weight=1)
 
         self.entry.bind("<Return>", lambda _e: self._commit())
@@ -61,12 +81,18 @@ class FileField(ttk.Frame):
     def _set_state_color(self, fill: str, border: str):
         self.entry.configure(background=fill, readonlybackground=fill, disabledbackground=fill, highlightbackground=border)
 
+    def _sync_view_state(self):
+        """Keep the inline view button clickable only while the field holds a valid path."""
+        if self._view_btn is not None:
+            self._view_btn.configure(state="normal" if self.valid else "disabled")
+
     def _on_keypress(self, event):
         if event.keysym in ("Return", "Tab"):
             return
         self.touched = True
         self.valid = False
         self._set_state_color(PALETTE["surface"], PALETTE["border"])
+        self._sync_view_state()
 
     def _browse(self):
         if self._directory:
@@ -95,12 +121,14 @@ class FileField(ttk.Frame):
         if not path:
             self.valid = False
             self._set_state_color(PALETTE["surface"], PALETTE["border"])
+            self._sync_view_state()
             return False
         self.valid = bool(self._validator(path))
         if self.valid:
             self._set_state_color(PALETTE["ok"], PALETTE["ok_border"])
         else:
             self._set_state_color(PALETTE["bad"], PALETTE["bad_border"])
+        self._sync_view_state()
         if self.valid and self._on_valid:
             self._on_valid(path)
         return self.valid
@@ -223,6 +251,76 @@ def enable_file_drop(
     widget.dnd_bind("<<Drop>>", handle_drop)
 
 
+class PlaceholderEntry(ttk.Entry):
+    """A ttk.Entry that shows greyed-out hint text while it is empty and unfocused, cleared the moment the user types. The placeholder is 
+    never part of the value — get() returns "" while  shows — so it can carry a field's hint inline instead of a separate label, saving 
+    vertical  Pass a StringVar via `textvariable` and it is kept empty while the placeholder is showing.
+    """
+
+    def __init__(self, parent, placeholder: str = "", *, textvariable: Optional[tk.StringVar] = None, **kwargs):
+        super().__init__(parent, textvariable=textvariable, **kwargs)
+        self._placeholder = placeholder
+        self._var = textvariable
+        self._showing = False
+        self._normal_fg = PALETTE["text"]
+        self._placeholder_fg = PALETTE["muted"]
+        self.bind("<FocusIn>", self._clear_placeholder, add="+")
+        self.bind("<FocusOut>", self._add_placeholder, add="+")
+        self._add_placeholder()
+
+    def _clear_placeholder(self, _event=None):
+        if self._showing:
+            self.delete(0, "end")
+            self.configure(foreground=self._normal_fg)
+            self._showing = False
+
+    def _add_placeholder(self, _event=None):
+        if not super().get():
+            self.delete(0, "end")
+            self.insert(0, self._placeholder)
+            self.configure(foreground=self._placeholder_fg)
+            self._showing = True
+
+    def get(self) -> str:
+        return "" if self._showing else super().get()
+
+    def clear(self):
+        """Empty the field, restoring the placeholder when the field is not focused."""
+        self.delete(0, "end")
+        self._showing = False
+        self.configure(foreground=self._normal_fg)
+        if self.focus_get() is not self:
+            self._add_placeholder()
+
+
+def ellipsize_label(label: ttk.Label, text: str):
+    """Keep `label` showing `text` truncated with an ellipsis to whatever width it is currently allotted, re-fitting on every resize. Give 
+    the label a bounded width via its geometry manager (e.g. packed fill='x'/expand beside a fixed-width sibling) so a long value can never 
+    push that sibling — such as a delete button — out of view."""
+    font = tkfont.Font(font=label.cget("font"))
+    state = {"w": -1}
+
+    def fit(_event=None):
+        avail = label.winfo_width()
+        if avail <= 1 or avail == state["w"]:
+            return
+        state["w"] = avail
+        if font.measure(text) <= avail:
+            label.configure(text=text)
+            return
+        lo, hi = 0, len(text)
+        while lo < hi:  # longest prefix that still fits once the ellipsis is appended
+            mid = (lo + hi + 1) // 2
+            if font.measure(text[:mid] + "…") <= avail:
+                lo = mid
+            else:
+                hi = mid - 1
+        label.configure(text=text[:lo] + "…")
+
+    label.bind("<Configure>", fit)
+    fit()
+
+
 class Tooltip:
     """A small hover tooltip for any widget (Tk has none of its own). Bindings are added with
     add="+" so they don't clobber the widget's own <Enter>/<Leave> handlers."""
@@ -270,8 +368,7 @@ class Tooltip:
 class RangeSlider(ttk.Frame):
     """A double-ended slider with linked min/max entry boxes.
 
-    Supports linear and logarithmic scales. Values are reported through
-    on_change(vmin, vmax) and can be read via .values().
+    Supports linear and logarithmic scales. Values are reported through on_change(vmin, vmax) and can be read via .values().
     """
 
     HANDLE_R = 8          # handle radius
@@ -640,3 +737,119 @@ class RigidbodyHighlighter:
                     return n
                 stack -= 1
         return None
+
+
+class CollapsibleSection(ttk.Frame):
+    """A titled section that collapses to just its header when its header is clicked.
+
+    Add content to `.body`. The header shows a chevron (▾ open / ▸ closed) and the title;
+    clicking anywhere on it toggles the section. Stacking several of these gives an accordion
+    that keeps a tall control column inside a small pane — the user opens only what they need.
+    on_toggle(section) fires after each toggle, e.g. so the container can react to the change.
+    """
+
+    def __init__(self, parent, title: str, *, expanded: bool = True,
+                 on_toggle: Optional[Callable[["CollapsibleSection"], None]] = None):
+        super().__init__(parent)
+        self._expanded = expanded
+        self._on_toggle = on_toggle
+
+        self.header = tk.Frame(self, background=PALETTE["surface_alt"], cursor="hand2")
+        self.header.pack(fill="x")
+        self._chevron = tk.Label(
+            self.header, background=PALETTE["surface_alt"], foreground=PALETTE["muted"],
+            font=FONTS["base"], width=2)
+        self._chevron.pack(side="left", padx=(6, 0), pady=6)
+        self._title = tk.Label(
+            self.header, text=title, background=PALETTE["surface_alt"],
+            foreground=PALETTE["text"], font=FONTS["heading"])
+        self._title.pack(side="left", pady=6)
+
+        # the content area, matching the flat labelframe body it replaces (default bg background,
+        # so child checkbuttons/entries/labels sit on the same colour they did before)
+        self.body = ttk.Frame(self, padding=(10, 8))
+
+        for w in (self.header, self._chevron, self._title):
+            w.bind("<Button-1>", lambda _e: self.toggle())
+        self._render()
+
+    def toggle(self):
+        self._expanded = not self._expanded
+        self._render()
+        if self._on_toggle is not None:
+            self._on_toggle(self)
+
+    def set_expanded(self, expanded: bool):
+        if expanded != self._expanded:
+            self.toggle()
+
+    @property
+    def expanded(self) -> bool:
+        return self._expanded
+
+    def _render(self):
+        self._chevron.configure(text="▾" if self._expanded else "▸")
+        if self._expanded:
+            self.body.pack(fill="both", expand=True)
+        else:
+            self.body.pack_forget()
+
+
+class ScrollableFrame(ttk.Frame):
+    """A vertically scrolling container. Pack/grid children into `.body`; the scrollbar
+    appears only when the content overflows. Suited to lists that can grow long (e.g. the
+    per-body rows of a badly-split structure). Mouse-wheel scrolling is active while the
+    pointer is over the frame. `height` bounds the viewport so a long list scrolls instead
+    of stretching its parent. `max_height` instead lets the viewport grow with its content up to
+    that cap and only then scroll, so a short list takes no more room than it needs."""
+
+    def __init__(self, parent, height: Optional[int] = None, max_height: Optional[int] = None, **kwargs):
+        super().__init__(parent, **kwargs)
+        self._max_height = max_height
+        canvas_kwargs = {"height": height} if height is not None else {}
+        self._canvas = tk.Canvas(self, background=PALETTE["surface"], highlightthickness=0, bd=0, **canvas_kwargs)
+        self._scroll = ttk.Scrollbar(self, orient="vertical", command=self._canvas.yview)
+        self._canvas.configure(yscrollcommand=self._on_scroll_set)
+        self.body = ttk.Frame(self._canvas)
+        self._window = self._canvas.create_window((0, 0), window=self.body, anchor="nw")
+
+        self._canvas.grid(row=0, column=0, sticky="nsew")
+        self._scroll.grid(row=0, column=1, sticky="ns")
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+
+        self.body.bind("<Configure>", self._on_body_configure)
+        self._canvas.bind("<Configure>", lambda e: self._canvas.itemconfigure(self._window, width=e.width))
+        # only scroll while the pointer is inside, so wheel events elsewhere are untouched
+        self._canvas.bind("<Enter>", lambda _e: self._bind_wheel())
+        self._canvas.bind("<Leave>", lambda _e: self._unbind_wheel())
+
+    def _on_body_configure(self, _event=None):
+        self._canvas.configure(scrollregion=self._canvas.bbox("all"))
+        # grow the viewport with the content up to max_height, then let it scroll past that
+        if self._max_height is not None:
+            self._canvas.configure(height=min(self.body.winfo_reqheight(), self._max_height))
+
+    def _on_scroll_set(self, lo, hi):
+        # hide the scrollbar entirely when everything fits
+        if float(lo) <= 0.0 and float(hi) >= 1.0:
+            self._scroll.grid_remove()
+        else:
+            self._scroll.grid()
+        self._scroll.set(lo, hi)
+
+    def _bind_wheel(self):
+        self._canvas.bind_all("<MouseWheel>", self._on_wheel)      # Windows / macOS
+        self._canvas.bind_all("<Button-4>", self._on_wheel)        # X11 scroll up
+        self._canvas.bind_all("<Button-5>", self._on_wheel)        # X11 scroll down
+
+    def _unbind_wheel(self):
+        self._canvas.unbind_all("<MouseWheel>")
+        self._canvas.unbind_all("<Button-4>")
+        self._canvas.unbind_all("<Button-5>")
+
+    def _on_wheel(self, event):
+        if event.num == 5 or event.delta < 0:
+            self._canvas.yview_scroll(1, "units")
+        elif event.num == 4 or event.delta > 0:
+            self._canvas.yview_scroll(-1, "units")

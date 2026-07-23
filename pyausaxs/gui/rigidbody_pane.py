@@ -18,6 +18,7 @@ from .panes import (
 )
 from .plotting import draw_structure, fit_figure_from_curves
 from .runner import RigidbodyRunner
+from .structure_pane import StructurePane
 from .theme import FONTS, PALETTE
 from .widgets import ConsolePane, FileField, RigidbodyHighlighter, Tooltip, enable_file_drop
 
@@ -46,27 +47,49 @@ loop
                 msg "{iteration}/{iterations_total}: Accepted with new chi2 {chi2_no_penalty}"
                 colour green
             }
+            update structure
             save trajectory.xyz
         end
     end
 end
 save final_state.pdb
 """
+# ── regex building blocks ──────────────────────────────────────────────────
+# one or more spaces/tabs — separates a directive from its argument
+_TABS_OR_SPACES = r"[ \t]+"
+# a brace block `{ ... }` (non-greedy; spans newlines under re.DOTALL)
+_MANDATORY_BLOCK_FORMAT = r"\s*\{.*?\}"
+# a directive body that is either a brace block or a single inline line
+_OPTIONAL_BLOCK_FORMAT = r"(?:\s*\{.*?\}|[^\n]*)"
+# start of a line, skipping any leading indentation (needs re.MULTILINE)
+_LINE_START = r"^[ \t]*"
 
-_LOAD_BLOCK_RE = re.compile(r"load\s*\{.*?\}", re.DOTALL)
+# `load { ... }` — the mandatory brace block listing the bodies to refine
+_LOAD_BLOCK_RE = re.compile(f"load{_MANDATORY_BLOCK_FORMAT}", re.DOTALL)
 # a 'symmetry' element: either a brace block (symmetry { ... }) or a single inline line
 # (symmetry c6 / symmetry b1 c6), anchored to the first token on a line
-_SYMMETRY_RE = re.compile(r"(?m)^[ \t]*symmetry\b\s*(?:\{.*?\}|[^\n]*)", re.DOTALL)
+_SYMMETRY_RE = re.compile(
+    rf"{_LINE_START}symmetry\b{_OPTIONAL_BLOCK_FORMAT}", re.MULTILINE | re.DOTALL
+)
 # a constraint element — autoconstrain/autoconstraints (inline) or constrain/constraint
 # (inline or a brace block) — anchored to the first token on a line. The whole { ... } block
 # is captured so edits to its arguments (type, bodies, …) refresh the preview too.
-_CONSTRAINT_RE = re.compile(r"(?m)^[ \t]*(?:auto)?constrain(?:ts?)?\b\s*(?:\{.*?\}|[^\n]*)", re.DOTALL)
+_CONSTRAINT_RE = re.compile(
+    rf"{_LINE_START}(?:auto)?constrain(?:ts?)?\b{_OPTIONAL_BLOCK_FORMAT}",
+    re.MULTILINE | re.DOTALL,
+)
 # an 'update' element (e.g. `update structure`) as the first token on a line; its presence makes
 # the GUI poll the backend for the live structure during a run
-_UPDATE_RE = re.compile(r"(?m)^[ \t]*update\b")
+_UPDATE_RE = re.compile(rf"{_LINE_START}update\b", re.MULTILINE)
 # the top-level 'output' directive (output <dir>), captured as (prefix, path) so the path can be
 # rewritten to an absolute one at boot
-_OUTPUT_RE = re.compile(r"(?m)^([ \t]*output[ \t]+)(\S+)")
+_OUTPUT_RE = re.compile(rf"({_LINE_START}output{_TABS_OR_SPACES})(\S+)", re.MULTILINE)
+# structurally relevant elements: the load block, symmetry block, constraint blocks, and delete element. 
+# Used to determine whether a script edit should trigger a preview redraw.
+_DELETE_RE = re.compile(rf"{_LINE_START}delete\b{_OPTIONAL_BLOCK_FORMAT}", re.MULTILINE | re.DOTALL)
+_STRUCTURALLY_RELEVANT_RE = re.compile(
+    rf"(?:{_LOAD_BLOCK_RE.pattern}|{_SYMMETRY_RE.pattern}|{_CONSTRAINT_RE.pattern}|{_DELETE_RE.pattern})", re.MULTILINE | re.DOTALL
+)
 
 
 class RigidbodyPane(ttk.Frame):
@@ -99,6 +122,7 @@ class RigidbodyPane(ttk.Frame):
         self._script_file_path = None    # last file the user manually saved to / loaded from
         self._autosave_job = None        # pending periodic autosave
         self._data_pane = None           # SaxsDataPane tab for inspecting the SAXS data, or None
+        self._structure_pane = None      # StructurePane tab for inspecting/managing bodies, or None
 
         # three panes: controls | script editor | results. The editor can expand over the results pane (and collapses again
         # when a refinement is launched).
@@ -115,30 +139,28 @@ class RigidbodyPane(ttk.Frame):
         input_frame = ttk.Labelframe(controls, text="Input", padding=12)
         input_frame.pack(fill="x")
 
+        # each field carries its own inspection button: the structure opens the manage-structure
+        # tab, the SAXS field opens the data tab. Both light up only once the path is valid.
         self.structure_field = FileField(
             input_frame, "Structure",
             validator=_make_validator(STRUCTURE_EXTENSIONS, "_is_pdb_file"),
             on_commit=lambda p: self._on_load_structure(p),
             filetypes=[("Structure", "*.pdb *.ent *.cif *.xyz")],
+            on_view=self._open_structure_pane, view_tooltip="View / manage structure",
         )
         self.saxs_field = FileField(
             input_frame, "SAXS data",
             validator=_make_validator(SAXS_EXTENSIONS, "_is_saxs_data_file"),
-            on_valid=lambda _p: self._refresh_view_btn(),
             on_commit=lambda p: self._on_load_saxs(p),
             filetypes=[("SAXS data", "*.dat *.rsr *.xvg")],
+            on_view=self._open_data_pane, view_tooltip="View data",
         )
         self.structure_field.pack(fill="x")
         self.saxs_field.pack(fill="x", pady=(6, 0))
-        # actions that act on the inputs as a whole rather than a single field, grouped to
-        # the right: hand the inputs to the SAXS fitter, or open a data-inspection tab
+        # the one input-wide action left in this block: hand both inputs to the SAXS fitter
         button_row = ttk.Frame(input_frame)
         button_row.pack(fill="x", pady=(8, 0))
-        self._view_btn = ttk.Button(button_row, text="View data", command=self._open_data_pane,
-                                    state="disabled")
-        self._view_btn.pack(side="right")
-        ttk.Button(button_row, text="Send to SAXS fitter", command=self._send_to_saxs_fitter).pack(
-            side="right", padx=(0, 8))
+        ttk.Button(button_row, text="Send to SAXS fitter", command=self._send_to_saxs_fitter).pack(side="right")
         self._on_load_structure = make_on_load_structure(self._set_load_directive, self.saxs_field)
         self._on_load_saxs = make_on_load_saxs(self._set_load_directive, self.structure_field)
 
@@ -181,10 +203,10 @@ class RigidbodyPane(ttk.Frame):
             color=PALETTE["danger"], hover=PALETTE["danger_hover"], bold=True)
         self.reset_button.pack(side="right", padx=(0, 2))
         self._make_icon_button(
-            title_row, "↧", self._save_to_file_clicked, "Save script to a file…"
+            title_row, "🖫", self._save_to_file_clicked, "Save script to a file…"
         ).pack(side="right", padx=(0, 8))
         self._make_icon_button(
-            title_row, "↥", self._load_from_file_clicked, "Load script from a file…"
+            title_row, "🗁", self._load_from_file_clicked, "Load script from a file…"
         ).pack(side="right", padx=(0, 8))
         editor_frame.configure(labelwidget=title_row)
         # Stretch the title row to the frame width (the labelframe won't do it) so the reset cross sits flush right.
@@ -266,6 +288,9 @@ class RigidbodyPane(ttk.Frame):
         self.after(60, self._restore_split)
         self.after(80, self._update_structure_preview)
         self._autosave_job = self.after(self._AUTOSAVE_INTERVAL_MS, self._autosave_script)
+        # carry the preview camera to/from the structure pane as the user switches top-level tabs;
+        # add="+" so we don't clobber the tab-persistence binding the main window installs
+        self.master.bind("<<NotebookTabChanged>>", self._on_toplevel_tab_changed, add="+")
         enable_file_drop(
             self, [self.structure_field, self.saxs_field],
             on_unmatched=self._on_drop_unmatched,
@@ -311,6 +336,46 @@ class RigidbodyPane(ttk.Frame):
             pass
         self._data_pane.destroy()
         self._data_pane = None
+
+    # ----- structure pane management ------------------------------------------
+    def _open_structure_pane(self):
+        """Open (or focus) the structure-management tab for the current PDB. It reads the live
+        script as its base and writes confirmed body changes back into the editor."""
+        path = self.structure_field.get() or (self._load_value("pdb") or "")
+        if not path:
+            return
+        if self._structure_pane is not None and self._structure_pane.pdb_path != path:
+            self._close_structure_pane()
+        if self._structure_pane is None:
+            notebook = self.master
+            self._structure_pane = StructurePane(
+                notebook, path,
+                splits=self.splits_var.get(),
+                base_script=lambda: self.editor.get("1.0", "end-1c"),
+                on_apply_script=self._apply_structure_script,
+            )
+            notebook.add(self._structure_pane, text=self._structure_pane.title)
+        # selecting fires <<NotebookTabChanged>>, which re-checks staleness and syncs the camera
+        self.master.select(self._structure_pane)
+
+    def _close_structure_pane(self):
+        if self._structure_pane is None:
+            return
+        try:
+            self.master.forget(self._structure_pane)
+        except Exception:
+            pass
+        self._structure_pane.destroy()
+        self._structure_pane = None
+
+    def _apply_structure_script(self, new_script: str):
+        """Replace the editor's script with one carrying the structure pane's body changes, then
+        refresh highlighting and the preview and switch focus back to this pane."""
+        self.editor.delete("1.0", "end")
+        self.editor.insert("1.0", new_script)
+        self.highlighter.highlight()
+        self._schedule_preview_update()
+        self.master.select(self)
 
     def _send_to_saxs_fitter(self):
         """Populate the SAXS fitter pane with the current structure and SAXS fields and switch to it."""
@@ -403,15 +468,19 @@ class RigidbodyPane(ttk.Frame):
         return "break"
 
     def _reset_clicked(self):
-        """Restore the default script after a confirmation, so an accidental click
-        can't silently wipe a hand-written script."""
+        """Restore the default script while preserving the current load block."""
         if not messagebox.askyesno(
                 "Reset script",
-                "Discard the current script and restore the default?",
+                "Reset the script while keeping the current load element?",
                 parent=self):
             return
+        current_script = self.editor.get("1.0", "end-1c")
+        current_load = _LOAD_BLOCK_RE.search(current_script)
+        reset_script = DEFAULT_RIGIDBODY_SCRIPT
+        if current_load:
+            reset_script = _LOAD_BLOCK_RE.sub(current_load.group(0), reset_script, count=1)
         self.editor.delete("1.0", "end")
-        self.editor.insert("1.0", DEFAULT_RIGIDBODY_SCRIPT)
+        self.editor.insert("1.0", reset_script)
         self.highlighter.highlight()
         self._schedule_preview_update()
         self._save_script()  # persist immediately so the default survives a restart
@@ -431,9 +500,8 @@ class RigidbodyPane(ttk.Frame):
 
     # ----- load / save the script to a file (independent of the cache) --------
     def _save_to_file_clicked(self):
-        """Save the current script to a user-chosen file. This is separate from the cache: the
-        periodic cache autosave continues untouched, and the file we write here is never overwritten
-        by it."""
+        """Save the current script to a user-chosen file. This is separate from the cache: the periodic cache autosave 
+        continues untouched, and the file we write here is never overwritten by it."""
         path = filedialog.asksaveasfilename(
             parent=self, title="Save refinement script", defaultextension=".conf",
             initialdir=os.path.dirname(self._script_file_path) if self._script_file_path else None,
@@ -451,10 +519,9 @@ class RigidbodyPane(ttk.Frame):
         self._script_file_path = path
 
     def _load_from_file_clicked(self):
-        """Load a script from a user-chosen file into the editor (not from the cache), then mirror
-        its load block into the Input fields so they aren't left stale-empty beside a working script.
-        As elsewhere, this is a one-shot fill: later edits don't propagate back, and the script
-        remains the authority."""
+        """Load a script from a user-chosen file into the editor (not from the cache), then mirror its load block into the Input fields so
+        they aren't left stale-empty beside a working script. As elsewhere, this is a one-shot fill: later edits don't propagate back, and 
+        the script remains the authority."""
         path = filedialog.askopenfilename(
             parent=self, title="Load refinement script",
             initialdir=os.path.dirname(self._script_file_path) if self._script_file_path else None,
@@ -649,13 +716,10 @@ class RigidbodyPane(ttk.Frame):
 
     @staticmethod
     def _structural_signature(script: str) -> tuple:
-        """Distil the parts of the script that affect the preview — the load block, any symmetry elements, and any
-        constraint lines — so edits to unrelated lines (iterations, print, save, ...) don't trigger a redraw or a
-        backend rebuild."""
-        load = _LOAD_BLOCK_RE.search(script)
-        return (load.group(0) if load else "",
-                tuple(m.group(0) for m in _SYMMETRY_RE.finditer(script)),
-                tuple(m.group(0) for m in _CONSTRAINT_RE.finditer(script)))
+        """Distil the parts of the script that affect the preview — the load block, any symmetry elements,
+        constraint lines, and delete elements — so edits to unrelated lines (iterations, print, save, ...)
+        don't trigger a redraw or a backend rebuild."""
+        return tuple(m.group(0) for m in _STRUCTURALLY_RELEVANT_RE.finditer(script))
 
     def _preview_data(self, script: str, sig: tuple):
         """Build the rigid body from the current script and return its preview structure
@@ -693,6 +757,7 @@ class RigidbodyPane(ttk.Frame):
         data = self._preview_data(script, sig)
 
         ax = self._struct_ax
+        view = self._preview_orientation()
         ax.clear()
         ax.set_axis_off()
         if data is None:
@@ -704,13 +769,47 @@ class RigidbodyPane(ttk.Frame):
             draw_structure(ax, data, splits)
             if self._update_structure_preview_first_draw:
                 self._update_structure_preview_first_draw = False
-            elif self._last_valid_lims is not None:
-                ax.set_xlim(self._last_valid_lims[0])
-                ax.set_ylim(self._last_valid_lims[1])
-                ax.set_zlim(self._last_valid_lims[2])
+            else:
+                if self._last_valid_lims is not None:
+                    ax.set_xlim(self._last_valid_lims[0])
+                    ax.set_ylim(self._last_valid_lims[1])
+                    ax.set_zlim(self._last_valid_lims[2])
+                self._set_preview_orientation(view)  # keep the camera angle across redraws
             self._last_valid_lims = [ax.get_xlim(), ax.get_ylim(), ax.get_zlim()]
         self._struct_fig.set_layout_engine("tight")
         self._struct_canvas.draw_idle()
+
+    # ----- camera sync with the structure pane --------------------------------
+    # The structure pane shows the same structure in its own figure. Rather than truly sync the two, each adopts the other's 
+    # camera angle when the user switches to it (see _on_toplevel_tab_changed), which reads as continuous. Only the orientation 
+    # is carried, not the zoom, since after a merge/delete the two structures can diverge and shared limits would clip.
+    def _preview_orientation(self) -> tuple:
+        ax = self._struct_ax
+        return (ax.elev, ax.azim, getattr(ax, "roll", 0.0))
+
+    def _set_preview_orientation(self, cam):
+        if cam is None:
+            return
+        elev, azim, roll = cam
+        try:
+            self._struct_ax.view_init(elev=elev, azim=azim, roll=roll)
+        except TypeError:  # matplotlib < 3.5 has no roll
+            self._struct_ax.view_init(elev=elev, azim=azim)
+
+    def _on_toplevel_tab_changed(self, _event=None):
+        """When the user switches to the structure pane, hand it this preview's camera angle; when
+        they switch back here, adopt the structure pane's. Gives the illusion of a shared camera
+        without keeping the two figures in lock-step."""
+        if self._structure_pane is None:
+            return
+        selected = self.master.select()
+        current = self.master.nametowidget(selected) if selected else None
+        if current is self._structure_pane:
+            self._structure_pane.set_camera_orientation(self._preview_orientation())
+            self._structure_pane.check_stale()  # flag the refresh bar if the script changed meanwhile
+        elif current is self:
+            self._set_preview_orientation(self._structure_pane.get_camera_orientation())
+            self._struct_canvas.draw_idle()
 
     def _home_preview(self):
         """Reset the structure preview to the auto-fit default view."""

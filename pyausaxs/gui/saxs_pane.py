@@ -19,6 +19,7 @@ class SaxsFitterPane(FitterPane):
 
     def __init__(self, parent):
         self._data_pane: SaxsDataPane | None = None
+        self._structure_pane = None
         super().__init__(parent)
 
     def _build_inputs(self, parent):
@@ -32,7 +33,7 @@ class SaxsFitterPane(FitterPane):
         self.structure_field = FileField(
             parent, "Structure",
             validator=_make_validator(STRUCTURE_EXTENSIONS, "_is_pdb_file"),
-            on_valid=lambda path: self._autodetect_saxs(path, self.saxs_field),
+            on_valid=self._on_structure_valid,
             on_commit=lambda p: self._on_load_structure(p),
             filetypes=[("Structure", "*.pdb *.ent *.cif *.xyz")],
         )
@@ -43,9 +44,14 @@ class SaxsFitterPane(FitterPane):
         self.saxs_field.pack(fill="x", pady=(6, 0))
         self.output_field.pack(fill="x", pady=(6, 0))
 
-        self._view_btn = ttk.Button(parent, text="View data", command=self._open_data_pane,
+        view_row = ttk.Frame(parent)
+        view_row.pack(anchor="e", pady=(8, 0))
+        self._view_struct_btn = ttk.Button(view_row, text="View structure",
+                                           command=self._open_structure_pane, state="disabled")
+        self._view_struct_btn.pack(side="right", padx=(8, 0))
+        self._view_btn = ttk.Button(view_row, text="View data", command=self._open_data_pane,
                                     state="disabled")
-        self._view_btn.pack(anchor="e", pady=(8, 0))
+        self._view_btn.pack(side="right")
 
         self._on_load_structure = make_on_load_structure(None, self.saxs_field)
         self._on_load_saxs = make_on_load_saxs(None, self.structure_field)
@@ -108,6 +114,38 @@ class SaxsFitterPane(FitterPane):
         not just on an explicit commit."""
         if hasattr(self, "_view_btn"):
             self._view_btn.configure(state="normal" if self.saxs_field.valid else "disabled")
+
+    def _on_structure_valid(self, path: str):
+        """Autodetect a matching SAXS file and enable the structure viewer."""
+        self._autodetect_saxs(path, self.saxs_field)
+        if hasattr(self, "_view_struct_btn"):
+            self._view_struct_btn.configure(
+                state="normal" if self.structure_field.valid else "disabled")
+
+    def _open_structure_pane(self):
+        """Open (or focus) a structure-inspection tab for the current PDB. In the SAXS fitter
+        there is no script to patch, so body management is exploratory (no "Send to script")."""
+        path = self.structure_field.get()
+        if not path:
+            return
+        if self._structure_pane is not None and self._structure_pane.pdb_path != path:
+            self._close_structure_pane()
+        if self._structure_pane is None:
+            from .structure_pane import StructurePane
+            notebook = self.master
+            self._structure_pane = StructurePane(notebook, path)
+            notebook.add(self._structure_pane, text=self._structure_pane.title)
+        self.master.select(self._structure_pane)
+
+    def _close_structure_pane(self):
+        if self._structure_pane is None:
+            return
+        try:
+            self.master.forget(self._structure_pane)
+        except Exception:
+            pass
+        self._structure_pane.destroy()
+        self._structure_pane = None
 
     def _open_data_pane(self):
         path = self.saxs_field.get()
