@@ -8,8 +8,9 @@ structure and lets the user inspect and re-organise its bodies without touching 
 
   * toggle atomic detail (all-atom cloud), symmetry copies, and constraints;
   * see and highlight the individual bodies via a scrolling, backend-fed list;
-  * merge or delete bodies, and convert a set of bodies to a symmetry, by adding the
-    corresponding setup elements (`merge` / `delete` / `convert_to_symmetry`);
+  * merge or delete bodies, convert a set of bodies to a symmetry, and add constraints between
+    bodies, by adding the corresponding setup elements (`merge` / `delete` /
+    `convert_to_symmetry` / `constrain` / `autoconstrain`);
   * preview the resulting script changes as a red/green diff and send them to the editor.
 
 The body list is authoritative: every edit is applied by rebuilding the setup script through the
@@ -126,6 +127,8 @@ class StructurePane(ttk.Frame):
         self._delete_var = tk.StringVar()
         self._sym_add_var = tk.StringVar()
         self._sym_convert_var = tk.StringVar()
+        self._autoconstrain_var = tk.StringVar()
+        self._constraint_var = tk.StringVar()
 
         # The applied-elements list, status line, and Send button stay pinned to the bottom so
         # they're visible no matter which sections are open; packed first with side="bottom" so
@@ -173,6 +176,16 @@ class StructurePane(ttk.Frame):
                          "a body then a type, e.g. b1 c4", self._apply_add_symmetry, button="Apply")
         self._action_row(sym, "Decompose bodies into a symmetry", self._sym_convert_var,
                          "bodies then a type, e.g. b1 b2 b3 b4 c4", self._apply_convert_symmetry, button="Convert")
+
+        # --- constraints: auto-generate a set (backbone) on top, then add an individual constraint
+        # between two bodies below. Existing constraints are edited by removing/re-adding via the
+        # applied-elements list, and shown in the view via the "Constraints" display toggle. ---
+        con = self._section(parent, "Constraints", expanded=False).body
+        self._action_row(con, "Auto-generate constraints", self._autoconstrain_var,
+                         "backbone or none", self._apply_autoconstrain, button="Generate")
+        self._action_row(con, "Constrain two bodies", self._constraint_var,
+                         "two bodies then a type, e.g. b1 b2 cm; attract/repel add a distance",
+                         self._apply_add_constraint, button="Add")
 
     def _section(self, parent, title, *, expanded: bool) -> CollapsibleSection:
         """A collapsible controls section, spaced from the one above it and wired into the accordion."""
@@ -493,6 +506,34 @@ class StructurePane(ttk.Frame):
         element = "convert_to_symmetry {\n    type " + sym + "\n    bodies " + " ".join(bodies) + "\n}"
         self._apply_element(element)
         self._sym_convert_var.set("")
+
+    def _apply_autoconstrain(self):
+        """Auto-generate a set of constraints: `autoconstrain <backbone|none>`. Defaults to
+        backbone, the usual choice; `none` clears any auto-generated set."""
+        choice = self._autoconstrain_var.get().strip() or "backbone"
+        self._apply_element(f"autoconstrain {choice}")
+        self._autoconstrain_var.set("")
+
+    def _apply_add_constraint(self):
+        """Add a distance constraint between two bodies: `<body1> <body2> <type> [distance]`.
+        `bond` and `cm` need only the two bodies; `attract` and `repel` also take a target
+        distance (e.g. b1 b2 attract 30). Built as a `constrain { … }` block for the backend."""
+        tokens = self._constraint_var.get().split()
+        if len(tokens) < 3:
+            self._set_status("A constraint needs two bodies and a type, e.g. b1 b2 cm.", ok=False)
+            return
+        body1, body2, ctype, *rest = tokens
+        lines = [f"    first {body1}", f"    second {body2}", f"    type {ctype}"]
+        if ctype in ("attract", "repel"):
+            if len(rest) != 1:
+                self._set_status(f"A {ctype} constraint needs a distance, e.g. b1 b2 {ctype} 30.", ok=False)
+                return
+            lines.append(f"    distance {rest[0]}")
+        elif rest:
+            self._set_status(f"A {ctype} constraint takes no arguments beyond the two bodies.", ok=False)
+            return
+        self._apply_element("constrain {\n" + "\n".join(lines) + "\n}")
+        self._constraint_var.set("")
 
     def _rebuild_applied_list(self):
         for w in self._applied.winfo_children():
