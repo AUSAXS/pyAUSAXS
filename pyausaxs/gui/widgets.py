@@ -7,6 +7,8 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 from typing import Callable, Optional
 
+from tkinterdnd2 import DND_FILES
+
 from .theme import ANSI_COLORS, FONTS, PALETTE, SYNTAX
 
 
@@ -102,6 +104,123 @@ class FileField(ttk.Frame):
         if self.valid and self._on_valid:
             self._on_valid(path)
         return self.valid
+
+    def accept_drop(self, path: str) -> bool:
+        """Accept a drag-and-dropped path if it passes this field's validator, mirroring the
+        Browse flow (set + commit). Returns whether the path was accepted."""
+        if not self._validator(path):
+            return False
+        self.set(path, touched=True)
+        self._commit()
+        return True
+
+
+# one dropped-file token: either a brace-quoted path (used by tkdnd when the path contains
+# spaces) or a bare run of non-space characters
+_DND_TOKEN_RE = re.compile(r"\{[^}]*\}|\S+")
+
+
+def _split_dropped_paths(data: str) -> list[str]:
+    """Split a tkinterdnd2 <<Drop>> event's raw `data` string into individual file paths. Parsed by hand rather than via Tcl's splitlist, 
+    which would mis-parse backslashes in Windows paths as escape sequences."""
+    return [token.strip("{}") for token in _DND_TOKEN_RE.findall(data)]
+
+
+class _DropOverlay(tk.Frame):
+    """A hint shown over its parent while a dragged file hovers over it, cueing where it will land."""
+
+    # A boundary crossing at the very edge of the parent can still produce a DropLeave that
+    # isn't a genuine departure. hide() is delayed by this long so a following DropEnter can
+    # cancel it before it takes effect; only a DropLeave with nothing following within the
+    # delay actually hides the overlay.
+    _HIDE_DELAY_MS = 400
+
+    def __init__(self, parent):
+        super().__init__(parent, background=PALETTE["accent_soft"],
+                          highlightthickness=3, highlightbackground=PALETTE["accent"])
+        tk.Label(
+            self, text="⤓", background=PALETTE["accent_soft"], foreground=PALETTE["accent"],
+            font=(FONTS["base"][0], 42),
+        ).place(relx=0.5, rely=0.46, anchor="center")
+        tk.Label(
+            self, text="Drop file to load", background=PALETTE["accent_soft"], foreground=PALETTE["accent"],
+            font=FONTS["heading"],
+        ).place(relx=0.5, rely=0.56, anchor="center")
+        self._hide_job = None
+
+    def show(self):
+        if self._hide_job is not None:
+            self.after_cancel(self._hide_job)
+            self._hide_job = None
+        if not self.winfo_ismapped():
+            self.place(relx=0, rely=0, relwidth=1, relheight=1)
+            self.lift()
+
+    def hide(self, immediate: bool = False):
+        if self._hide_job is not None:
+            self.after_cancel(self._hide_job)
+            self._hide_job = None
+        if immediate:
+            self.place_forget()
+        else:
+            self._hide_job = self.after(self._HIDE_DELAY_MS, self._hide_now)
+
+    def _hide_now(self):
+        self._hide_job = None
+        self.place_forget()
+
+
+# Set once any <<Drop>> succeeds anywhere in the process. tkdnd has a known quirk (confirmed
+# via a live diagnostic, unrelated to this app's code) where the very first cross-process drag
+# of a session can silently resolve to a DropLeave with no file data instead of a Drop; every
+# attempt after that first one works normally. Tracked process-wide, not per-pane, since the
+# quirk is in the shared underlying XDND machinery, not any one widget.
+_drop_ever_succeeded = False
+
+
+def enable_file_drop(
+    widget,
+    fields: list[FileField],
+    on_unmatched: Optional[Callable[[str], None]] = None,
+    on_leave_without_drop: Optional[Callable[[], None]] = None,
+):
+    """Register `widget` as a drag-and-drop target for files.
+
+    Each dropped path is routed to the first of `fields` whose validator accepts it, so a file lands in the right FileField no matter where
+    over `widget` it was actually dropped (e.g. a SAXS file dropped on the structure field still ends up in the SAXS field). Paths that no
+    field accepts are reported to `on_unmatched`, if given, and otherwise ignored.
+
+    While a file is dragged over `widget`, a hint overlay (see `_DropOverlay`) — a child of `widget`, so it can never disrupt `widget`'s own
+    drop-target resolution — is shown, and hidden again on drop or once the drag leaves.
+
+    `on_leave_without_drop`, if given, fires whenever a drag leaves without any Drop having
+    ever succeeded yet in this process (see `_drop_ever_succeeded`) — a cheap nudge to retry
+    for the known first-drop-of-the-session quirk described above.
+    """
+    overlay = _DropOverlay(widget)
+
+    def handle_enter(_event):
+        overlay.show()
+        return "copy"
+
+    def handle_leave(_event):
+        overlay.hide()
+        if not _drop_ever_succeeded and on_leave_without_drop:
+            on_leave_without_drop()
+
+    def handle_drop(event):
+        global _drop_ever_succeeded
+        _drop_ever_succeeded = True
+        overlay.hide(immediate=True)
+        for path in _split_dropped_paths(event.data):
+            if not any(field.accept_drop(path) for field in fields) and on_unmatched:
+                on_unmatched(path)
+        return "copy"
+
+    widget.drop_target_register(DND_FILES)
+    widget.dnd_bind("<<DropEnter>>", handle_enter)
+    widget.dnd_bind("<<DropLeave>>", handle_leave)
+    widget.dnd_bind("<<Drop>>", handle_drop)
 
 
 class Tooltip:
