@@ -119,8 +119,8 @@ class StructurePane(ttk.Frame):
     def _build_controls(self, parent):
         self._merge_var = tk.StringVar()
         self._delete_var = tk.StringVar()
-        self._sym_type_var = tk.StringVar()
-        self._sym_bodies_var = tk.StringVar()
+        self._sym_add_var = tk.StringVar()
+        self._sym_convert_var = tk.StringVar()
 
         # The applied-elements list, status line, and Send button stay pinned to the bottom so
         # they're visible no matter which sections are open; packed first with side="bottom" so
@@ -157,17 +157,13 @@ class StructurePane(ttk.Frame):
         self._action_row(actions.body, "Merge", self._merge_var, "first others…", self._apply_merge)
         self._action_row(actions.body, "Delete", self._delete_var, "bodies…", self._apply_delete)
 
-        # --- convert a set of bodies to a symmetry ---
-        sym_section = self._section(parent, "Symmetry", expanded=False)
-        sym = sym_section.body
-        type_entry = ttk.Entry(sym, textvariable=self._sym_type_var, width=10)
-        type_entry.grid(row=0, column=0, sticky="ew", padx=(0, 6))
-        ttk.Button(sym, text="Convert", style="Icon.TButton", command=self._apply_symmetry).grid(row=0, column=1)
-        bodies_entry = ttk.Entry(sym, textvariable=self._sym_bodies_var)
-        bodies_entry.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(4, 0))
-        bodies_entry.bind("<Return>", lambda _e: self._apply_symmetry())
-        sym.columnconfigure(0, weight=1)
-        self._hint(sym, "type e.g. c4 or p2-c2; bodies optional (blank = all)", row=2)
+        # --- symmetry: two distinct operations, the more common one (adding a symmetry to a
+        # single body) on top, decomposing several bodies into a shared symmetry below ---
+        sym = self._section(parent, "Symmetry", expanded=False).body
+        self._action_row(sym, "Add symmetry to a body", self._sym_add_var,
+                         "a body then a type, e.g. b1 c4", self._apply_add_symmetry, button="Apply")
+        self._action_row(sym, "Decompose bodies into a symmetry", self._sym_convert_var,
+                         "bodies then a type, e.g. b1 b2 b3 b4 c4", self._apply_convert_symmetry, button="Convert")
 
     def _section(self, parent, title, *, expanded: bool) -> CollapsibleSection:
         """A collapsible controls section, spaced from the one above it and wired into the accordion."""
@@ -185,13 +181,13 @@ class StructurePane(ttk.Frame):
             if section is not opened and section.expanded:
                 section.set_expanded(False)
 
-    def _action_row(self, parent, label, var, hint, command):
+    def _action_row(self, parent, label, var, hint, command, button="Apply"):
         row = ttk.Frame(parent)
         row.pack(fill="x", pady=(0, 2))
         ttk.Label(row, text=label, style="Muted.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
         entry = ttk.Entry(row, textvariable=var)
         entry.grid(row=1, column=0, sticky="ew", padx=(0, 6))
-        ttk.Button(row, text="Apply", style="Icon.TButton", command=command).grid(row=1, column=1)
+        ttk.Button(row, text=button, style="Icon.TButton", command=command).grid(row=1, column=1)
         row.columnconfigure(0, weight=1)
         entry.bind("<Return>", lambda _e: command())
         self._hint(row, hint, row=2)
@@ -336,19 +332,30 @@ class StructurePane(ttk.Frame):
         self._apply_element("delete " + " ".join(tokens))
         self._delete_var.set("")
 
-    def _apply_symmetry(self):
-        sym = self._sym_type_var.get().strip()
-        if not sym:
-            self._set_status("Enter a symmetry type (e.g. c4 or p2-c2).", ok=False)
+    def _apply_add_symmetry(self):
+        """Add a symmetry to a single body: `symmetry <body> <type>` (e.g. b1 c4). A lone type is
+        allowed for a single-body system, where the backend infers the body."""
+        tokens = self._sym_add_var.get().split()
+        if not tokens:
+            self._set_status("Add symmetry needs a body and a type, e.g. b1 c4.", ok=False)
             return
-        bodies = self._sym_bodies_var.get().split()
-        if bodies:
-            element = "convert_to_symmetry { type " + sym + " bodies " + " ".join(bodies) + " }"
-        else:
-            element = "convert_to_symmetry " + sym
+        if len(tokens) > 2:
+            self._set_status("Add symmetry takes one body and one type, e.g. b1 c4.", ok=False)
+            return
+        self._apply_element("symmetry " + " ".join(tokens))
+        self._sym_add_var.set("")
+
+    def _apply_convert_symmetry(self):
+        """Decompose several bodies into one shared symmetry, collapsing the copies into the first
+        body plus a fitted symmetry: `convert_to_symmetry { type <type> bodies <b…> }`."""
+        tokens = self._sym_convert_var.get().split()
+        if len(tokens) < 3:
+            self._set_status("Decomposing needs at least two bodies and a type, e.g. b1 b2 c2.", ok=False)
+            return
+        *bodies, sym = tokens
+        element = "convert_to_symmetry {\n    type " + sym + "\n    bodies " + " ".join(bodies) + "\n}"
         self._apply_element(element)
-        self._sym_type_var.set("")
-        self._sym_bodies_var.set("")
+        self._sym_convert_var.set("")
 
     def _rebuild_applied_list(self):
         for w in self._applied.winfo_children():
@@ -359,7 +366,9 @@ class StructurePane(ttk.Frame):
         for i, element in enumerate(self._elements):
             row = ttk.Frame(self._applied)
             row.pack(fill="x", pady=1)
-            ttk.Label(row, text=element, font=FONTS["mono"]).pack(side="left")
+            # collapse any multi-line element (e.g. a convert_to_symmetry block) to one tidy line
+            summary = " ".join(element.split())
+            ttk.Label(row, text=summary, font=FONTS["mono"]).pack(side="left")
             ttk.Button(row, text="✕", width=2, style="Icon.TButton",
                        command=lambda i=i: self._remove_element(i)).pack(side="right")
 
