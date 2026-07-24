@@ -3,8 +3,10 @@
 
 import math
 import os
+import time
 import tkinter as tk
 from tkinter import ttk
+from typing import Optional
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
@@ -17,8 +19,8 @@ from .theme import PALETTE
 class SaxsDataPane(ttk.Frame):
     """Interactive data-inspection pane for a single SAXS dataset."""
 
-    # relative scale between units, used only to carry the qmin/qmax selection across a
-    # unit change; the actual q-values always come from a fresh backend read
+    # relative scale between units, used only to carry the qmin/qmax selection across a unit change; the actual q-values always come from 
+    # a fresh backend read
     UNIT_FACTORS = {"Å⁻¹": 1.0, "nm⁻¹": 0.1}
     # backend `settings.histogram(unit=...)` / --unit token for each display unit
     UNIT_TOKENS = {"Å⁻¹": "A", "nm⁻¹": "nm"}
@@ -30,6 +32,10 @@ class SaxsDataPane(ttk.Frame):
     HANDLE_MS = 11      # handle marker diameter (points)
     LABEL_SIZE = 10     # decade-label font size (points)
     UNIT_ANIM_MS = 900  # how long both interpretations are shown on a unit change
+    SLIDER_ANIM_MS = 600    # how long the slider takes to slide to its new position
+    SLIDER_DELAY_MS = 100   # pause before the slide starts, so it reads as a deliberate move
+    SLIDER_STEP_MS = 16     # ~60fps tick for the slide
+    AXIS_ANIM_MS = 500      # how long the axis view takes to pan onto the new range
 
     def __init__(self, parent, file_path: str):
         super().__init__(parent)
@@ -38,24 +44,30 @@ class SaxsDataPane(ttk.Frame):
         self._qs = self._Is = self._sigs = None   # q always in Å⁻¹ (the backend's own unit)
         self._has_sigma = False
         self._data_artists: list = []
-        self._unit_var = tk.StringVar(value=self.DEFAULT_UNIT)
-        self._unit = self.DEFAULT_UNIT
+        self._reset_backend_settings()  # a new dataset starts clean, e.g. for unit auto-detection
+        self._unit = self._restore_unit()
+        # snapshot qmin/qmax before `_read_saxs_data` below forces them to the full range
+        restored_qrange = self._backend_qrange()
+        self._unit_var = tk.StringVar(value=self._unit)
         self._drag = None                         # handle being dragged (0 / 1 / None)
         self._vline_top = None                    # cached slider-fraction of the plot top
         self._decade_labels: list = []
         self._ghost_artists: list = []            # previous interpretation during a unit change
         self._unit_anim_job = None                # pending end-of-transition callback
+        self._slider_anim_job = None              # pending slide-to-new-position tick
+        self._slider_anim = None                  # (log_q0min, log_q0max, log_q1min, log_q1max, t0)
+        self._axis_anim_job = None                # pending axis-pan tick
+        self._axis_anim = None                    # (log_x0min, log_x0max, log_x1min, log_x1max, t0)
 
-        # the axis (and slider track) span the data's own q-range, in Å⁻¹; the unit
-        # selector forces the backend's interpretation of the file's q, and the range
-        # rescales with it
+        # the axis (and slider track) span the data's own q-range, in Å⁻¹; the unit selector forces the backend's interpretation of the
+        # file's q, and the range rescales with it
         data = _read_saxs_data(file_path, self.UNIT_TOKENS[self._unit])
         if data:
             qs, _, _ = data
             self._vmin, self._vmax = min(qs), max(qs)
         else:
             self._vmin, self._vmax = QMIN, QMAX
-        self._qmin, self._qmax = self._vmin, self._vmax
+        self._qmin, self._qmax = self._clamp_qrange(restored_qrange, self._vmin, self._vmax)
 
         # --- figure: data axes on top, a thin slider strip sharing its x below ---
         self._fig = Figure(facecolor=PALETTE["surface"])
@@ -92,6 +104,7 @@ class SaxsDataPane(ttk.Frame):
         self._draw_data(data)
         self._draw_selector()
         self._sync_entries()
+        self._sync_backend_settings()
 
         self._fig.canvas.mpl_connect("button_press_event", self._on_press)
         self._fig.canvas.mpl_connect("motion_notify_event", self._on_motion)
@@ -110,6 +123,48 @@ class SaxsDataPane(ttk.Frame):
     def unit(self) -> str:
         """The backend --unit token ("A" / "nm") for the currently selected unit."""
         return self.UNIT_TOKENS[self._unit]
+
+    # ------------------------------------------------------------------
+    def _reset_backend_settings(self):
+        """Reset the backend to its pristine defaults before loading a *different*
+        dataset than the one the current settings belong to, so unit auto-detection
+        isn't stuck on an unrelated file's choice. Reopening the same dataset (e.g. a
+        restored session/script) is left alone, so its own restored selection sticks."""
+        from .session import load_config, reset_settings_to_defaults
+        if load_config().get("last_dataset_path") == self.file_path:
+            return
+        try:
+            reset_settings_to_defaults()
+        except Exception:
+            pass
+
+    def _restore_unit(self) -> str:
+        """Start from the backend's current q-unit setting, instead of always Å⁻¹."""
+        from ..wrapper.settings import settings as backend_settings
+        try:
+            token = backend_settings.get("unit").lower()
+        except Exception:
+            return self.DEFAULT_UNIT
+        return "nm⁻¹" if "nm" in token else "Å⁻¹"
+
+    @staticmethod
+    def _backend_qrange() -> Optional[tuple[float, float]]:
+        """The backend's current qmin/qmax, or None if unavailable."""
+        from ..wrapper.settings import settings as backend_settings
+        try:
+            return float(backend_settings.get("qmin")), float(backend_settings.get("qmax"))
+        except Exception:
+            return None
+
+    @staticmethod
+    def _clamp_qrange(qrange: Optional[tuple[float, float]], vmin: float, vmax: float) -> tuple[float, float]:
+        """Clamp a (qmin, qmax) pair to this file's own range, or the full range if missing/degenerate."""
+        if qrange is None:
+            return vmin, vmax
+        qmin, qmax = qrange
+        qmin = min(max(qmin, vmin), vmax)
+        qmax = min(max(qmax, vmin), vmax)
+        return (vmin, vmax) if qmin >= qmax else (qmin, qmax)
 
     # ------------------------------------------------------------------
     def _draw_data(self, data):
@@ -282,10 +337,28 @@ class SaxsDataPane(ttk.Frame):
 
     # ------------------------------------------------------------------
     def _refresh(self):
+        self._cancel_slider_slide()
         self._sync_entries()
         self._update_selector()
         self._redraw_data_artists()
+        self._sync_backend_settings()
         self._mpl_canvas.draw_idle()
+
+    def _sync_backend_settings(self):
+        """Push this pane's q-range/unit into the backend, so a fit run (and the settings-cache autosave) see the actual selection.
+        Also records which file these settings belong to, for `_reset_backend_settings`."""
+        from ..wrapper.settings import settings as backend_settings
+        from .session import update_config
+        try:
+            backend_settings.histogram(qmin=self._qmin, qmax=self._qmax, unit=self.unit())
+            update_config(last_dataset_path=self.file_path)
+        except Exception:
+            pass
+
+    def _cancel_slider_slide(self):
+        if self._slider_anim_job is not None:
+            self.after_cancel(self._slider_anim_job)
+            self._slider_anim_job = None
 
     def _sync_entries(self):
         self.lo_var.set(f"{self._qmin:.4g}")
@@ -303,11 +376,8 @@ class SaxsDataPane(ttk.Frame):
         self._refresh()
 
     def _on_unit_changed(self):
-        """Reinterpret the file's q in the selected unit by re-reading it through the
-        backend with that unit forced (matching how the actual fit will parse it). The
-        data's q-range — and so the axis, slider track and decade labels — rescales with
-        it, while the selection keeps its position relative to the data. A short
-        transition keeps the previous interpretation on screen so the shift is visible."""
+        """Re-read the file with the new unit forced, then animate the change: the slider slides to its new position, and the axis then
+        pans from its widened (both-ranges) span onto the new range alone."""
         if self._qs is None:
             return
         new_unit = self._unit_var.get()
@@ -318,7 +388,9 @@ class SaxsDataPane(ttk.Frame):
             self._unit_var.set(self._unit)  # revert: can't re-read what we already loaded
             return
 
+        self._cancel_axis_slide()
         old_qs, old_Is, old_lim = self._qs, self._Is, (self._vmin, self._vmax)
+        old_qmin, old_qmax = self._qmin, self._qmax
         ratio = self.UNIT_FACTORS[new_unit] / self.UNIT_FACTORS[self._unit]
         self._unit = new_unit
         self._qs, self._Is, self._sigs = data
@@ -334,20 +406,83 @@ class SaxsDataPane(ttk.Frame):
         self._ghost_artists = [ghost]
         self._track_line.set_xdata([self._vmin, self._vmax])
         self._draw_decade_labels()
-        self._refresh()
+        self._sync_entries()
+        self._redraw_data_artists()
+        # `_read_saxs_data` above forced qmin/qmax to the full range; push our real selection
         self._ax.set_xlim(min(self._vmin, old_lim[0]), max(self._vmax, old_lim[1]))
-        self._mpl_canvas.draw_idle()
+        self._sync_backend_settings()
+        self._slide_selector(old_qmin, old_qmax, self._qmin, self._qmax)
 
         if self._unit_anim_job is not None:
             self.after_cancel(self._unit_anim_job)
         self._unit_anim_job = self.after(self.UNIT_ANIM_MS, self._settle_unit_change)
 
-    def _settle_unit_change(self):
-        """End the unit-change transition: drop the ghost and zoom onto the new range."""
-        self._unit_anim_job = None
-        self._clear_ghosts()
-        self._ax.set_xlim(self._vmin, self._vmax)
+    @staticmethod
+    def _ease_in_out(t: float) -> float:
+        """Cubic ease-in-out: slow to start, fastest through the middle, slow to a stop."""
+        return 4 * t ** 3 if t < 0.5 else 1 - (-2 * t + 2) ** 3 / 2
+
+    def _slide_selector(self, q0min, q0max, q1min, q1max):
+        """Slide the selector to its new position, in log-space, after a brief pause (SLIDER_DELAY_MS), easing in and out."""
+        self._cancel_slider_slide()
+        if q0min == q1min and q0max == q1max:
+            self._update_selector()
+            self._mpl_canvas.draw_idle()
+            return
+        self._slider_anim = (math.log10(q0min), math.log10(q0max), math.log10(q1min), math.log10(q1max), None)
+        self._slider_anim_job = self.after(self.SLIDER_DELAY_MS, self._start_slider_slide)
+
+    def _start_slider_slide(self):
+        l0min, l0max, l1min, l1max, _ = self._slider_anim
+        self._slider_anim = (l0min, l0max, l1min, l1max, time.monotonic())
+        self._step_slider_slide()
+
+    def _step_slider_slide(self):
+        l0min, l0max, l1min, l1max, t0 = self._slider_anim
+        t = min((time.monotonic() - t0) * 1000.0 / self.SLIDER_ANIM_MS, 1.0)
+        e = self._ease_in_out(t)
+        qmin, qmax = 10.0 ** (l0min + (l1min - l0min) * e), 10.0 ** (l0max + (l1max - l0max) * e)
+        self._span_line.set_xdata([qmin, qmax])
+        self._handles.set_xdata([qmin, qmax])
+        self._handle_cores.set_xdata([qmin, qmax])
+        self._vlines[0].set_xdata([qmin, qmin])
+        self._vlines[1].set_xdata([qmax, qmax])
         self._mpl_canvas.draw_idle()
+        if t < 1.0:
+            self._slider_anim_job = self.after(self.SLIDER_STEP_MS, self._step_slider_slide)
+        else:
+            self._slider_anim_job = None
+
+    def _cancel_axis_slide(self):
+        if self._axis_anim_job is not None:
+            self.after_cancel(self._axis_anim_job)
+            self._axis_anim_job = None
+
+    def _settle_unit_change(self):
+        """Pan the axis from its widened span onto the new range, so the ghost is pushed out of frame, then drop it."""
+        self._unit_anim_job = None
+        x0min, x0max = self._ax.get_xlim()
+        if x0min == self._vmin and x0max == self._vmax:
+            self._clear_ghosts()
+            self._mpl_canvas.draw_idle()
+            return
+        self._axis_anim = (math.log10(x0min), math.log10(x0max),
+                           math.log10(self._vmin), math.log10(self._vmax), time.monotonic())
+        self._step_axis_slide()
+
+    def _step_axis_slide(self):
+        l0min, l0max, l1min, l1max, t0 = self._axis_anim
+        t = min((time.monotonic() - t0) * 1000.0 / self.AXIS_ANIM_MS, 1.0)
+        e = self._ease_in_out(t)
+        xmin, xmax = 10.0 ** (l0min + (l1min - l0min) * e), 10.0 ** (l0max + (l1max - l0max) * e)
+        self._ax.set_xlim(xmin, xmax)
+        self._mpl_canvas.draw_idle()
+        if t < 1.0:
+            self._axis_anim_job = self.after(self.SLIDER_STEP_MS, self._step_axis_slide)
+        else:
+            self._axis_anim_job = None
+            self._clear_ghosts()
+            self._mpl_canvas.draw_idle()
 
     def _clear_ghosts(self):
         for a in self._ghost_artists:

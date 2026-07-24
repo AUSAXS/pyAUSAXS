@@ -9,6 +9,7 @@ from .data_pane import SaxsDataPane
 from .panes import (
     FitterPane, _make_validator, _file_stem, _output_arg,
     QMIN, QMAX, SAXS_EXTENSIONS, EM_MAP_EXTENSIONS,
+    find_data_pane, release_data_pane,
 )
 from .widgets import FileField
 
@@ -24,9 +25,9 @@ class EmFitterPane(FitterPane):
         self.saxs_field = FileField(
             parent, "SAXS data",
             validator=_make_validator(SAXS_EXTENSIONS, "_is_saxs_data_file"),
-            on_valid=lambda _p: self._refresh_view_btn(),
             on_commit=self._on_saxs_commit,
             filetypes=[("SAXS data", "*.dat *.rsr *.xvg")],
+            on_view=self._open_data_pane, view_tooltip="View data",
         )
         self.map_field = FileField(
             parent, "EM map",
@@ -40,9 +41,6 @@ class EmFitterPane(FitterPane):
         self.map_field.pack(fill="x")
         self.saxs_field.pack(fill="x", pady=(6, 0))
         self.output_field.pack(fill="x", pady=(6, 0))
-
-        self._view_btn = ttk.Button(parent, text="View data", command=self._open_data_pane, state="disabled")
-        self._view_btn.pack(anchor="e", pady=(8, 0))
 
     def _build_settings(self, parent):
         ttk.Label(parent, text="alpha levels").pack(anchor="w", pady=(4, 0))
@@ -80,13 +78,6 @@ class EmFitterPane(FitterPane):
                 self.saxs_field.set(self._data_pane.file_path)
                 return
             self._close_data_pane()
-        self._refresh_view_btn()
-
-    def _refresh_view_btn(self):
-        """Enable "View data" whenever the SAXS field is valid. Driven by on_valid so it
-        also fires for paths set programmatically (autodetection), not just on commit."""
-        if hasattr(self, "_view_btn"):
-            self._view_btn.configure(state="normal" if self.saxs_field.valid else "disabled")
 
     def _open_data_pane(self):
         path = self.saxs_field.get()
@@ -94,19 +85,14 @@ class EmFitterPane(FitterPane):
             return
         if self._data_pane is None:
             notebook = self.master
-            self._data_pane = SaxsDataPane(notebook, path)
-            notebook.add(self._data_pane, text=self._data_pane.title)
+            self._data_pane = find_data_pane(notebook, path)
+            if self._data_pane is None:
+                self._data_pane = SaxsDataPane(notebook, path)
+                notebook.add(self._data_pane, text=self._data_pane.title)
         self.master.select(self._data_pane)
 
     def _close_data_pane(self):
-        if self._data_pane is None:
-            return
-        try:
-            self.master.forget(self._data_pane)
-        except Exception:
-            pass
-        self._data_pane.destroy()
-        self._data_pane = None
+        release_data_pane(self)
 
     # ----- FitterPane interface ------------------------------------------------
 

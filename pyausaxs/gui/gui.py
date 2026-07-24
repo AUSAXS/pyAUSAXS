@@ -14,7 +14,7 @@ from tkinterdnd2 import TkinterDnD
 from .em_pane import EmFitterPane
 from .rigidbody_pane import RigidbodyPane
 from .saxs_pane import SaxsFitterPane
-from .session import load_config, update_config
+from .session import SettingsBackup, load_config, snapshot_default_settings, update_config
 from .theme import PALETTE, apply_theme
 
 
@@ -27,6 +27,15 @@ class App(TkinterDnD.Tk):
         self.geometry("1320x880")
         self.minsize(960, 680)
         apply_theme(self)
+
+        # snapshot pristine defaults before restoring any prior session (used by SaxsDataPane._reset_backend_settings)
+        try:
+            snapshot_default_settings()
+        except Exception:
+            pass
+        self._settings_backup = SettingsBackup(self)
+        self._settings_backup.restore()
+        self._settings_backup.start_autosave()
 
         header = ttk.Frame(self, padding=(20, 14, 20, 6))
         header.pack(side="top", fill="x")
@@ -47,8 +56,8 @@ class App(TkinterDnD.Tk):
         if config.get("last_panel") in titles:
             notebook.select(titles.index(config["last_panel"]))
 
-        # remember where we were launched from (so the rigid-body pane can resolve relative
-        # script paths next boot) and keep the active panel persisted as the user switches
+        # remember where we were launched from (so the rigid-body pane can resolve relative script paths next boot) and keep the active 
+        # panel persisted as the user switches
         update_config(last_launch_directory=os.path.abspath(os.getcwd()))
         # add="+" so this doesn't clobber tab-change listeners the panes install on the same notebook
         # (e.g. the rigid-body pane's camera hand-off to the structure pane)
