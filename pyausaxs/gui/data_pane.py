@@ -44,10 +44,9 @@ class SaxsDataPane(ttk.Frame):
         self._qs = self._Is = self._sigs = None   # q always in Å⁻¹ (the backend's own unit)
         self._has_sigma = False
         self._data_artists: list = []
+        self._reset_backend_settings()  # a new dataset starts clean, e.g. for unit auto-detection
         self._unit = self._restore_unit()
-        # snapshot the backend's qmin/qmax *before* `_read_saxs_data` below forces them to
-        # the full axis range as a side effect (so its own reader doesn't clip rows) --
-        # otherwise we'd only ever see that clobbered full range here, never a restored one
+        # snapshot qmin/qmax before `_read_saxs_data` below forces them to the full range
         restored_qrange = self._backend_qrange()
         self._unit_var = tk.StringVar(value=self._unit)
         self._drag = None                         # handle being dragged (0 / 1 / None)
@@ -126,10 +125,17 @@ class SaxsDataPane(ttk.Frame):
         return self.UNIT_TOKENS[self._unit]
 
     # ------------------------------------------------------------------
+    def _reset_backend_settings(self):
+        """Reset the backend to its pristine defaults, so e.g. unit auto-detection isn't
+        stuck on whatever an earlier dataset (this session or a restored one) last set."""
+        from .session import reset_settings_to_defaults
+        try:
+            reset_settings_to_defaults()
+        except Exception:
+            pass
+
     def _restore_unit(self) -> str:
-        """Start from whatever q-unit the backend's settings currently hold (e.g.
-        restored from the settings cache at startup, or left behind by another pane's
-        data), instead of always defaulting to Å⁻¹."""
+        """Start from the backend's current q-unit setting, instead of always Å⁻¹."""
         from ..wrapper.settings import settings as backend_settings
         try:
             token = backend_settings.get("unit").lower()
@@ -148,9 +154,7 @@ class SaxsDataPane(ttk.Frame):
 
     @staticmethod
     def _clamp_qrange(qrange: Optional[tuple[float, float]], vmin: float, vmax: float) -> tuple[float, float]:
-        """Clamp a (qmin, qmax) pair -- e.g. restored from the backend, possibly left by a
-        different dataset -- to this file's own q-range, falling back to the full range
-        if it's missing or degenerate once clamped."""
+        """Clamp a (qmin, qmax) pair to this file's own range, or the full range if missing/degenerate."""
         if qrange is None:
             return vmin, vmax
         qmin, qmax = qrange
@@ -337,12 +341,7 @@ class SaxsDataPane(ttk.Frame):
         self._mpl_canvas.draw_idle()
 
     def _sync_backend_settings(self):
-        """Push the pane's current q-range/unit selection into the backend's global
-        settings. `_read_saxs_data` (used to preview the file) always forces qmin/qmax
-        to the full axis range so its own reader doesn't clip rows, which otherwise
-        leaves the backend's settings out of sync with what's actually selected here —
-        so a later fit run defaults to the full range instead, and the periodic
-        settings-cache autosave (see gui.py) backs up the wrong values."""
+        """Push this pane's q-range/unit into the backend, so a fit run (and the settings-cache autosave) see the actual selection."""
         from ..wrapper.settings import settings as backend_settings
         try:
             backend_settings.histogram(qmin=self._qmin, qmax=self._qmax, unit=self.unit())
@@ -370,11 +369,8 @@ class SaxsDataPane(ttk.Frame):
         self._refresh()
 
     def _on_unit_changed(self):
-        """Reinterpret the file's q in the selected unit by re-reading it through the backend with that unit forced (matching how the actual 
-        fit will parse it). The data's q-range — and so the axis, slider track and decade labels — rescales with it, while the selection 
-        keeps its position relative to the data. A short transition keeps the previous interpretation on screen, the range-slider's handles 
-        slide from their old position to the new one, and the axis view then pans from its widened (both-ranges) span onto the new range alone, 
-        so the shift is visible throughout rather than jumping at the start or end."""
+        """Re-read the file with the new unit forced, then animate the change: the slider slides to its new position, and the axis then
+        pans from its widened (both-ranges) span onto the new range alone."""
         if self._qs is None:
             return
         new_unit = self._unit_var.get()
@@ -405,10 +401,7 @@ class SaxsDataPane(ttk.Frame):
         self._draw_decade_labels()
         self._sync_entries()
         self._redraw_data_artists()
-        # `_read_saxs_data` above forced qmin/qmax to the full axis range so its own
-        # reader wouldn't clip rows; overwrite that with this pane's actual selection
-        # (now rescaled to the new unit) so the backend - and its settings backup - see
-        # what's really selected, not the full-range read
+        # `_read_saxs_data` above forced qmin/qmax to the full range; push our real selection
         self._ax.set_xlim(min(self._vmin, old_lim[0]), max(self._vmax, old_lim[1]))
         self._sync_backend_settings()
         self._slide_selector(old_qmin, old_qmax, self._qmin, self._qmax)
@@ -423,9 +416,7 @@ class SaxsDataPane(ttk.Frame):
         return 4 * t ** 3 if t < 0.5 else 1 - (-2 * t + 2) ** 3 / 2
 
     def _slide_selector(self, q0min, q0max, q1min, q1max):
-        """Animate the selector (handles, span and risers) from their old position to the new one, interpolated in log-space to match the log 
-        x-axis. A brief pause (SLIDER_DELAY_MS) precedes the move so it reads as a deliberate slide rather than a twitch, and the move itself 
-        eases in and out (slow-fast-slow) rather than running at a constant rate, so the unit change reads as a slide instead of an instant jump."""
+        """Slide the selector to its new position, in log-space, after a brief pause (SLIDER_DELAY_MS), easing in and out."""
         self._cancel_slider_slide()
         if q0min == q1min and q0max == q1max:
             self._update_selector()
@@ -461,8 +452,7 @@ class SaxsDataPane(ttk.Frame):
             self._axis_anim_job = None
 
     def _settle_unit_change(self):
-        """End the unit-change transition: pan the axis view from its widened (both ranges) span down onto the new range alone, so the old 
-        interpretation's ghost i pushed out of frame rather than snapped away, then drop the ghost."""
+        """Pan the axis from its widened span onto the new range, so the ghost is pushed out of frame, then drop it."""
         self._unit_anim_job = None
         x0min, x0max = self._ax.get_xlim()
         if x0min == self._vmin and x0max == self._vmax:

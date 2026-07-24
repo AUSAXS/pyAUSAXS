@@ -2,6 +2,7 @@ from .AUSAXS import AUSAXS, _check_error_code
 from .Models import ExvModel, ExvTable, WaterModel
 from pyausaxs.signatures import register
 import ctypes as ct
+import os
 from typing import Any
 
 register({
@@ -89,8 +90,7 @@ class settings:
 
     @staticmethod
     def save(path: str):
-        """Write every current setting to a file, so they can later be restored with `settings.load`. Used to carry the full backend state 
-        (q-range/unit, exv model, fit flags, ...) across a GUI restart, independent of any single setting's origin."""
+        """Write every current setting to a file, to later be restored with `settings.load`."""
         ausaxs = AUSAXS()
         status = ct.c_int()
         path_ptr = ct.c_char_p(path.encode('utf-8'))
@@ -105,6 +105,17 @@ class settings:
         path_ptr = ct.c_char_p(path.encode('utf-8'))
         ausaxs.lib().functions.load_settings(path_ptr, ct.byref(status))
         _check_error_code(status, "settings_load_settings")
+
+    @staticmethod
+    def snapshot_defaults(path: str):
+        """Capture the current settings as the "defaults" `reset_to_defaults` later restores. Call once per launch, first thing."""
+        settings.save(path)
+
+    @staticmethod
+    def reset_to_defaults(path: str):
+        """Reset every setting back to the snapshot taken by `snapshot_defaults`."""
+        if os.path.isfile(path):
+            settings.load(path)
 
     @staticmethod
     def exv(exv_model: ExvModel = ExvModel.simple):
