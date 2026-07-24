@@ -306,12 +306,6 @@ class RigidbodyPane(ttk.Frame):
         """Called when a drag leaves before any drop has ever succeeded in this process."""
         self.console.append("Drag-and-drop didn't register — please try dropping the file again.\n")
 
-    def _refresh_view_btn(self):
-        """Enable "View data" whenever the SAXS field is valid (driven by on_valid, so it
-        also fires when the field is filled from a restored/loaded script)."""
-        if hasattr(self, "_view_btn"):
-            self._view_btn.configure(state="normal" if self.saxs_field.valid else "disabled")
-
     def _open_data_pane(self):
         """Open (or focus) a data-inspection tab for the current SAXS file. Rebuilt if the
         file has changed since it was opened; the rigid-body run is script-driven, so this

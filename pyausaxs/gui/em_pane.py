@@ -24,9 +24,9 @@ class EmFitterPane(FitterPane):
         self.saxs_field = FileField(
             parent, "SAXS data",
             validator=_make_validator(SAXS_EXTENSIONS, "_is_saxs_data_file"),
-            on_valid=lambda _p: self._refresh_view_btn(),
             on_commit=self._on_saxs_commit,
             filetypes=[("SAXS data", "*.dat *.rsr *.xvg")],
+            on_view=self._open_data_pane, view_tooltip="View data",
         )
         self.map_field = FileField(
             parent, "EM map",
@@ -40,9 +40,6 @@ class EmFitterPane(FitterPane):
         self.map_field.pack(fill="x")
         self.saxs_field.pack(fill="x", pady=(6, 0))
         self.output_field.pack(fill="x", pady=(6, 0))
-
-        self._view_btn = ttk.Button(parent, text="View data", command=self._open_data_pane, state="disabled")
-        self._view_btn.pack(anchor="e", pady=(8, 0))
 
     def _build_settings(self, parent):
         ttk.Label(parent, text="alpha levels").pack(anchor="w", pady=(4, 0))
@@ -80,13 +77,6 @@ class EmFitterPane(FitterPane):
                 self.saxs_field.set(self._data_pane.file_path)
                 return
             self._close_data_pane()
-        self._refresh_view_btn()
-
-    def _refresh_view_btn(self):
-        """Enable "View data" whenever the SAXS field is valid. Driven by on_valid so it
-        also fires for paths set programmatically (autodetection), not just on commit."""
-        if hasattr(self, "_view_btn"):
-            self._view_btn.configure(state="normal" if self.saxs_field.valid else "disabled")
 
     def _open_data_pane(self):
         path = self.saxs_field.get()
