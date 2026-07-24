@@ -34,6 +34,7 @@ class SaxsDataPane(ttk.Frame):
     SLIDER_ANIM_MS = 600    # how long the slider takes to slide to its new position
     SLIDER_DELAY_MS = 100   # pause before the slide starts, so it reads as a deliberate move
     SLIDER_STEP_MS = 16     # ~60fps tick for the slide
+    AXIS_ANIM_MS = 500      # how long the axis view takes to pan onto the new range
 
     def __init__(self, parent, file_path: str):
         super().__init__(parent)
@@ -51,6 +52,8 @@ class SaxsDataPane(ttk.Frame):
         self._unit_anim_job = None                # pending end-of-transition callback
         self._slider_anim_job = None              # pending slide-to-new-position tick
         self._slider_anim = None                  # (log_q0min, log_q0max, log_q1min, log_q1max, t0)
+        self._axis_anim_job = None                # pending axis-pan tick
+        self._axis_anim = None                    # (log_x0min, log_x0max, log_x1min, log_x1max, t0)
 
         # the axis (and slider track) span the data's own q-range, in Å⁻¹; the unit
         # selector forces the backend's interpretation of the file's q, and the range
@@ -315,12 +318,11 @@ class SaxsDataPane(ttk.Frame):
         self._refresh()
 
     def _on_unit_changed(self):
-        """Reinterpret the file's q in the selected unit by re-reading it through the
-        backend with that unit forced (matching how the actual fit will parse it). The
-        data's q-range — and so the axis, slider track and decade labels — rescales with
-        it, while the selection keeps its position relative to the data. A short
-        transition keeps the previous interpretation on screen, and the range-slider's
-        handles slide from their old position to the new one, so the shift is visible."""
+        """Reinterpret the file's q in the selected unit by re-reading it through the backend with that unit forced (matching how the actual 
+        fit will parse it). The data's q-range — and so the axis, slider track and decade labels — rescales with it, while the selection 
+        keeps its position relative to the data. A short transition keeps the previous interpretation on screen, the range-slider's handles 
+        slide from their old position to the new one, and the axis view then pans from its widened (both-ranges) span onto the new range alone, 
+        so the shift is visible throughout rather than jumping at the start or end."""
         if self._qs is None:
             return
         new_unit = self._unit_var.get()
@@ -331,6 +333,7 @@ class SaxsDataPane(ttk.Frame):
             self._unit_var.set(self._unit)  # revert: can't re-read what we already loaded
             return
 
+        self._cancel_axis_slide()
         old_qs, old_Is, old_lim = self._qs, self._Is, (self._vmin, self._vmax)
         old_qmin, old_qmax = self._qmin, self._qmax
         ratio = self.UNIT_FACTORS[new_unit] / self.UNIT_FACTORS[self._unit]
@@ -357,6 +360,11 @@ class SaxsDataPane(ttk.Frame):
             self.after_cancel(self._unit_anim_job)
         self._unit_anim_job = self.after(self.UNIT_ANIM_MS, self._settle_unit_change)
 
+    @staticmethod
+    def _ease_in_out(t: float) -> float:
+        """Cubic ease-in-out: slow to start, fastest through the middle, slow to a stop."""
+        return 4 * t ** 3 if t < 0.5 else 1 - (-2 * t + 2) ** 3 / 2
+
     def _slide_selector(self, q0min, q0max, q1min, q1max):
         """Animate the selector (handles, span and risers) from their old position to the new one, interpolated in log-space to match the log 
         x-axis. A brief pause (SLIDER_DELAY_MS) precedes the move so it reads as a deliberate slide rather than a twitch, and the move itself 
@@ -377,8 +385,7 @@ class SaxsDataPane(ttk.Frame):
     def _step_slider_slide(self):
         l0min, l0max, l1min, l1max, t0 = self._slider_anim
         t = min((time.monotonic() - t0) * 1000.0 / self.SLIDER_ANIM_MS, 1.0)
-        # ease-in-out cubic: slow to start, fastest through the middle, slow to a stop
-        e = 4 * t ** 3 if t < 0.5 else 1 - (-2 * t + 2) ** 3 / 2
+        e = self._ease_in_out(t)
         qmin, qmax = 10.0 ** (l0min + (l1min - l0min) * e), 10.0 ** (l0max + (l1max - l0max) * e)
         self._span_line.set_xdata([qmin, qmax])
         self._handles.set_xdata([qmin, qmax])
@@ -391,12 +398,37 @@ class SaxsDataPane(ttk.Frame):
         else:
             self._slider_anim_job = None
 
+    def _cancel_axis_slide(self):
+        if self._axis_anim_job is not None:
+            self.after_cancel(self._axis_anim_job)
+            self._axis_anim_job = None
+
     def _settle_unit_change(self):
-        """End the unit-change transition: drop the ghost and zoom onto the new range."""
+        """End the unit-change transition: pan the axis view from its widened (both ranges) span down onto the new range alone, so the old 
+        interpretation's ghost i pushed out of frame rather than snapped away, then drop the ghost."""
         self._unit_anim_job = None
-        self._clear_ghosts()
-        self._ax.set_xlim(self._vmin, self._vmax)
+        x0min, x0max = self._ax.get_xlim()
+        if x0min == self._vmin and x0max == self._vmax:
+            self._clear_ghosts()
+            self._mpl_canvas.draw_idle()
+            return
+        self._axis_anim = (math.log10(x0min), math.log10(x0max),
+                           math.log10(self._vmin), math.log10(self._vmax), time.monotonic())
+        self._step_axis_slide()
+
+    def _step_axis_slide(self):
+        l0min, l0max, l1min, l1max, t0 = self._axis_anim
+        t = min((time.monotonic() - t0) * 1000.0 / self.AXIS_ANIM_MS, 1.0)
+        e = self._ease_in_out(t)
+        xmin, xmax = 10.0 ** (l0min + (l1min - l0min) * e), 10.0 ** (l0max + (l1max - l0max) * e)
+        self._ax.set_xlim(xmin, xmax)
         self._mpl_canvas.draw_idle()
+        if t < 1.0:
+            self._axis_anim_job = self.after(self.SLIDER_STEP_MS, self._step_axis_slide)
+        else:
+            self._axis_anim_job = None
+            self._clear_ghosts()
+            self._mpl_canvas.draw_idle()
 
     def _clear_ghosts(self):
         for a in self._ghost_artists:
