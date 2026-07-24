@@ -1,11 +1,7 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 # Author: Kristian Lytje
 
-"""Tiny JSON config persisted in the AUSAXS cache to carry a little state across GUI
-sessions: the directory the GUI was last launched from (used to resolve relative paths in
-the cached rigid-body script), the panel that was open when it was last closed, and the
-backend's settings (see SettingsBackup) -- kept here too, rather than as their own files,
-so this is the one file that needs finding."""
+"""Persistent JSON config in the AUSAXS cache to carry state across GUI sessions."""
 
 import json
 import os

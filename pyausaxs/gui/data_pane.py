@@ -126,9 +126,13 @@ class SaxsDataPane(ttk.Frame):
 
     # ------------------------------------------------------------------
     def _reset_backend_settings(self):
-        """Reset the backend to its pristine defaults, so e.g. unit auto-detection isn't
-        stuck on whatever an earlier dataset (this session or a restored one) last set."""
-        from .session import reset_settings_to_defaults
+        """Reset the backend to its pristine defaults before loading a *different*
+        dataset than the one the current settings belong to, so unit auto-detection
+        isn't stuck on an unrelated file's choice. Reopening the same dataset (e.g. a
+        restored session/script) is left alone, so its own restored selection sticks."""
+        from .session import load_config, reset_settings_to_defaults
+        if load_config().get("last_dataset_path") == self.file_path:
+            return
         try:
             reset_settings_to_defaults()
         except Exception:
@@ -341,10 +345,13 @@ class SaxsDataPane(ttk.Frame):
         self._mpl_canvas.draw_idle()
 
     def _sync_backend_settings(self):
-        """Push this pane's q-range/unit into the backend, so a fit run (and the settings-cache autosave) see the actual selection."""
+        """Push this pane's q-range/unit into the backend, so a fit run (and the settings-cache autosave) see the actual selection.
+        Also records which file these settings belong to, for `_reset_backend_settings`."""
         from ..wrapper.settings import settings as backend_settings
+        from .session import update_config
         try:
             backend_settings.histogram(qmin=self._qmin, qmax=self._qmax, unit=self.unit())
+            update_config(last_dataset_path=self.file_path)
         except Exception:
             pass
 
