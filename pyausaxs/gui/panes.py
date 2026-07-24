@@ -176,9 +176,37 @@ def make_on_load_saxs(set_load_directive=None, structure_field=None):
     return _on_load_saxs
 
 
+def find_data_pane(notebook: ttk.Notebook, path: str):
+    """Find a SaxsDataPane already open elsewhere in `notebook` for `path`, if any."""
+    from .data_pane import SaxsDataPane
+    target = os.path.abspath(path)
+    for tab_id in notebook.tabs():
+        widget = notebook.nametowidget(tab_id)
+        if isinstance(widget, SaxsDataPane) and os.path.abspath(widget.file_path) == target:
+            return widget
+    return None
+
+
+def release_data_pane(pane):
+    """Destroy `pane._data_pane`'s tab."""
+    data_pane = pane._data_pane
+    if data_pane is None:
+        return
+    notebook = pane.master
+    for tab_id in notebook.tabs():
+        widget = notebook.nametowidget(tab_id)
+        if widget is not pane and getattr(widget, "_data_pane", None) is data_pane:
+            widget._data_pane = None
+    pane._data_pane = None
+    try:
+        notebook.forget(data_pane)
+    except Exception:
+        pass
+    data_pane.destroy()
+
+
 class FitterPane(ttk.Frame):
-    """Common scaffolding for the SAXS and EM fitter panes: an input/settings column on
-    the left, and a results notebook with embedded plots on the right."""
+    """Common scaffolding for the SAXS and EM fitter panes."""
 
     title = ""
 

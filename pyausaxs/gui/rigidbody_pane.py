@@ -15,6 +15,7 @@ from .data_pane import SaxsDataPane
 from .panes import (
     SAXS_EXTENSIONS, STRUCTURE_EXTENSIONS, _make_validator, add_figure_tab,
     make_on_load_structure, make_on_load_saxs,
+    find_data_pane, release_data_pane,
 )
 from .plotting import draw_structure, fit_figure_from_curves
 from .runner import RigidbodyRunner
@@ -317,19 +318,14 @@ class RigidbodyPane(ttk.Frame):
             self._close_data_pane()
         if self._data_pane is None:
             notebook = self.master
-            self._data_pane = SaxsDataPane(notebook, path)
-            notebook.add(self._data_pane, text=self._data_pane.title)
+            self._data_pane = find_data_pane(notebook, path)
+            if self._data_pane is None:
+                self._data_pane = SaxsDataPane(notebook, path)
+                notebook.add(self._data_pane, text=self._data_pane.title)
         self.master.select(self._data_pane)
 
     def _close_data_pane(self):
-        if self._data_pane is None:
-            return
-        try:
-            self.master.forget(self._data_pane)
-        except Exception:
-            pass
-        self._data_pane.destroy()
-        self._data_pane = None
+        release_data_pane(self)
 
     # ----- structure pane management ------------------------------------------
     def _open_structure_pane(self):
