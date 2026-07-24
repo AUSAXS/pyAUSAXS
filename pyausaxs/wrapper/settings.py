@@ -22,6 +22,20 @@ register({
         ],
         None
     ),
+    "save_settings": (
+        [
+            ct.c_char_p,         # file path
+            ct.POINTER(ct.c_int) # status (0 = success)
+        ],
+        None
+    ),
+    "load_settings": (
+        [
+            ct.c_char_p,         # file path
+            ct.POINTER(ct.c_int) # status (0 = success)
+        ],
+        None
+    ),
 })
 
 def _type_cast(value: str, type: str):
@@ -72,6 +86,25 @@ class settings:
             ct.byref(status)
         )
         _check_error_code(status, "settings_set_setting")
+
+    @staticmethod
+    def save(path: str):
+        """Write every current setting to a file, so they can later be restored with `settings.load`. Used to carry the full backend state 
+        (q-range/unit, exv model, fit flags, ...) across a GUI restart, independent of any single setting's origin."""
+        ausaxs = AUSAXS()
+        status = ct.c_int()
+        path_ptr = ct.c_char_p(path.encode('utf-8'))
+        ausaxs.lib().functions.save_settings(path_ptr, ct.byref(status))
+        _check_error_code(status, "settings_save_settings")
+
+    @staticmethod
+    def load(path: str):
+        """Read settings from a file previously written by `settings.save`, overwriting the backend's current values."""
+        ausaxs = AUSAXS()
+        status = ct.c_int()
+        path_ptr = ct.c_char_p(path.encode('utf-8'))
+        ausaxs.lib().functions.load_settings(path_ptr, ct.byref(status))
+        _check_error_code(status, "settings_load_settings")
 
     @staticmethod
     def exv(exv_model: ExvModel = ExvModel.simple):
