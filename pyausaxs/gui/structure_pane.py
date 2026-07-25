@@ -42,7 +42,7 @@ _STALE_TAIL = r"(?:[ \t]*\{.*?\}|[^\n]*)"
 _STALE_RE = re.compile(
     r"(?m)^[ \t]*(?:load[ \t]*\{.*?\}|"
     r"(?:merge|delete|rename|convert_to_symmetry|symmetry|constraint|constrain"
-    r"|autoconstraints|autoconstrain|copy_body|copy)\b" + _STALE_TAIL + r")",
+    r"|autoconstraints|autoconstrain|copy_body|copy|split)\b" + _STALE_TAIL + r")",
     re.DOTALL,
 )
 
@@ -50,7 +50,7 @@ _STALE_RE = re.compile(
 # setup elements rather than blindly inserted immediately after `load`; otherwise a staged rename can precede an existing symmetry declaration.
 _SETUP_RE = re.compile(
     r"(?m)^[ \t]*(?:merge|delete|rename|convert_to_symmetry|symmetry|constraint|constrain"
-    r"|autoconstraints|autoconstrain|copy_body|copy)\b" + _STALE_TAIL,
+    r"|autoconstraints|autoconstrain|copy_body|copy|split)\b" + _STALE_TAIL,
     re.DOTALL,
 )
 
@@ -260,6 +260,29 @@ class StructurePane(ttk.Frame):
         ttk.Button(splits_row, text="Apply", style="Icon.TButton", command=self._apply_splits).grid(row=1, column=1)
         splits_row.columnconfigure(0, weight=1)
         splits_entry.bind("<Return>", lambda _e: self._apply_splits())
+
+        # A chevron reveals a second, distinct kind of split. The row above re-partitions the freshly-read PDB
+        # (a load-block directive, so it re-reads the file and defines the whole body set). The `split` element
+        # revealed here instead partitions a body already in the setup — e.g. one produced by convert_to_symmetry
+        # — tying its fragments together in a shared symmetry, and is staged like every other element (it appears
+        # in "Applied elements"). Collapsed by default, since re-splitting the whole structure is the common case.
+        self._body_split_frame = ttk.Frame(splits_row)
+        self._body_split_entry = self._action_row(
+            self._body_split_frame, "Additional splits (an existing body)", "body residues…",
+            self._apply_body_split, button="Add",
+        )
+
+        def _toggle_body_split(_e=None):
+            if self._body_split_frame.winfo_ismapped():
+                self._body_split_frame.grid_forget()
+                split_chevron.configure(text="▸")
+            else:
+                self._body_split_frame.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+                split_chevron.configure(text="▾")
+
+        split_chevron = ttk.Label(splits_row, text="▸", style="Muted.TLabel", cursor="hand2")
+        split_chevron.grid(row=1, column=2, padx=(4, 0))
+        split_chevron.bind("<Button-1>", _toggle_body_split)
         self._body_list = ScrollableFrame(bodies.body, max_height=220)
         self._body_list.pack(fill="both", expand=True)
 
@@ -292,7 +315,8 @@ class StructurePane(ttk.Frame):
             sym, "Add symmetry to a body", "body type", self._apply_add_symmetry, button="Apply"
         )
         self._sym_convert_entry = self._action_row(
-            sym, "Decompose bodies into a symmetry", "bodies... type", self._apply_convert_symmetry, button="Convert"
+            sym, "Decompose bodies into a symmetry", "bodies... type", self._apply_convert_symmetry, button="Convert",
+            advanced="tolerance (default 2.0 Å)"
         )
 
         # --- constraints: auto-generate a set (backbone) on top, then add an individual constraint between two bodies below. Existing constraints
@@ -335,13 +359,18 @@ class StructurePane(ttk.Frame):
             w.bind("<Button-1>", lambda _e: self._do_refresh())
         self._refresh_bar = bar  # created unpacked; _set_stale packs it above the sections
 
-    def _action_row(self, parent, label, hint, command, button="Apply", ready_check=None) -> PlaceholderEntry:
+    def _action_row(self, parent, label, hint, command, button="Apply", ready_check=None,
+                     advanced: str | None = None) -> PlaceholderEntry:
         """An action row: a short label, a text entry whose greyed placeholder carries the format hint (so no separate hint line is needed),
         and a button. Returns the entry so the caller can read it with .get() and reset it with .clear().
 
-        `ready_check(entry) -> bool`, if given, is re-evaluated on every keystroke and on every Bodies-list selection change 
-        (see _refresh_action_readiness); the button turns solid green while it returns True, so the user can tell at a glance that clicking 
-        it will actually do something."""
+        `ready_check(entry) -> bool`, if given, is re-evaluated on every keystroke and on every Bodies-list selection change
+        (see _refresh_action_readiness); the button turns solid green while it returns True, so the user can tell at a glance that clicking
+        it will actually do something.
+
+        `advanced`, if given, is the placeholder text for an optional second field (e.g. a tolerance override) tucked behind a small
+        chevron after the button, collapsed by default so it stays out of the way for the common case. It's reachable afterwards as
+        the returned entry's `.advanced` attribute (a PlaceholderEntry, or None if `advanced` wasn't given)."""
         row = ttk.Frame(parent)
         row.pack(fill="x", pady=(0, 6))
         ttk.Label(row, text=label, style="Muted.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
@@ -354,6 +383,24 @@ class StructurePane(ttk.Frame):
         if ready_check is not None:
             self._ready_checks.append((btn, entry, ready_check))
             entry.bind("<KeyRelease>", lambda _e: self._refresh_action_readiness(), add="+")
+
+        entry.advanced = None
+        if advanced is not None:
+            adv_entry = PlaceholderEntry(row, advanced)
+            adv_entry.bind("<Return>", lambda _e: command())
+            entry.advanced = adv_entry
+
+            def toggle_advanced(_e=None):
+                if adv_entry.winfo_ismapped():
+                    adv_entry.grid_forget()
+                    chevron.configure(text="▸")
+                else:
+                    adv_entry.grid(row=2, column=0, columnspan=2, sticky="ew", padx=(20, 0), pady=(4, 0))
+                    chevron.configure(text="▾")
+
+            chevron = ttk.Label(row, text="▸", style="Muted.TLabel", cursor="hand2")
+            chevron.grid(row=1, column=2, padx=(4, 0))
+            chevron.bind("<Button-1>", toggle_advanced)
         return entry
 
     def _refresh_action_readiness(self):
@@ -777,7 +824,7 @@ class StructurePane(ttk.Frame):
                       ha="center", va="center", color=PALETTE["muted"])
         else:
             draw_structure(
-                ax, self._data, self._parse_splits(),
+                ax, self._data, self._split_residues(),
                 show_atoms=self._show_atoms.get(),
                 show_copies=self._show_copies.get(),
                 show_backbone=self._show_backbone.get(),
@@ -823,6 +870,19 @@ class StructurePane(ttk.Frame):
     def _parse_splits(self) -> list[int]:
         return [int(t) for t in re.split(r"[,\s]+", self._splits.strip()) if t.isdigit()]
 
+    def _split_residues(self) -> list[int]:
+        """Residue ids to mark as split points in the view: the load-block split (self._splits) plus every
+        `split` element — both the ones staged in this pane and any already in the base script. Non-numeric
+        tokens (a body name, the keyword itself) are ignored; draw_structure deduplicates."""
+        ids = self._parse_splits()
+        sources = list(self._elements)
+        if self._base_script:
+            sources.append(self._base_script())
+        for text in sources:
+            for m in re.finditer(r"(?m)^[ \t]*split\b[^\n]*", text):
+                ids += [int(t) for t in re.split(r"[,\s]+", m.group(0).strip()) if t.isdigit()]
+        return ids
+
     # ----- setup actions ------------------------------------------------------
     def _apply_element(self, element: str, *, rebuild_widgets: bool = True) -> bool:
         candidate = self._elements + [element]
@@ -852,6 +912,23 @@ class StructurePane(ttk.Frame):
             self._splits = prev
             self._splits_var.set(prev)
             self._set_status(f"Could not re-split: {msg}", ok=False)
+
+    def _apply_body_split(self):
+        """Split an existing body into fragments at the given residue ids: `split <body> <residues…>`. Distinct from
+        the load-block split above (which re-partitions the freshly-read PDB and defines the whole body set): this is a
+        staged setup element that partitions a body already in the setup — e.g. one produced by convert_to_symmetry —
+        so its fragments stay tied together in a shared symmetry. Takes the body from a single Bodies-list selection
+        when only residue ids are typed."""
+        tokens = self._with_selected_bodies(self._body_split_entry, exact=1)
+        if len(tokens) < 2:
+            self._set_status("Splitting a body needs a body and at least one residue id, e.g. b1 100 200.", ok=False)
+            return
+        _body, *residues = tokens
+        if not all(r.isdigit() for r in residues):
+            self._set_status("Split residue ids must be integers, e.g. b1 100 200.", ok=False)
+            return
+        self._apply_element("split " + " ".join(tokens))
+        self._body_split_entry.clear()
 
     def _apply_rename(self):
         """Rename a body: `rename <old> <new>`, the same element the inline double-click-to-rename (see _start_rename) applies. Either typed 
@@ -905,17 +982,28 @@ class StructurePane(ttk.Frame):
         self._sym_add_entry.clear()
 
     def _apply_convert_symmetry(self):
-        """Decompose several bodies into one shared symmetry, collapsing the copies into the first body plus a fitted symmetry: 
-        `convert_to_symmetry { type <type> bodies <b…> }`. Typing just the type is enough when two or more whole bodies are selected 
-        in the Bodies list."""
+        """Decompose several bodies into one shared symmetry, collapsing the copies into the first body plus a fitted symmetry:
+        `convert_to_symmetry { type <type> bodies <b…> }`. Typing just the type is enough when two or more whole bodies are selected
+        in the Bodies list. An optional tolerance (Å) typed into the field tucked behind the chevron overrides the backend's default
+        when the assembly's residual RMSD to the fitted symmetry is just barely out of range."""
         tokens = self._with_selected_bodies(self._sym_convert_entry, minimum=2)
         if len(tokens) < 3:
             self._set_status("Decomposing needs at least two bodies and a type, e.g. b1 b2 c2.", ok=False)
             return
         *bodies, sym = tokens
-        element = "convert_to_symmetry {\n    type " + sym + "\n    bodies " + " ".join(bodies) + "\n}"
+        tolerance = self._sym_convert_entry.advanced.get().strip()
+        extra = ""
+        if tolerance:
+            try:
+                float(tolerance)
+            except ValueError:
+                self._set_status("Tolerance must be a number, e.g. 3.5.", ok=False)
+                return
+            extra = "\n    tolerance " + tolerance
+        element = "convert_to_symmetry {\n    type " + sym + "\n    bodies " + " ".join(bodies) + extra + "\n}"
         self._apply_element(element)
         self._sym_convert_entry.clear()
+        self._sym_convert_entry.advanced.clear()
 
     def _apply_autoconstrain(self):
         """Auto-generate a set of constraints: `autoconstrain <backbone|none>`. Defaults to backbone, the usual choice; `none` clears 

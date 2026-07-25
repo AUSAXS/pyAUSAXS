@@ -85,11 +85,17 @@ _UPDATE_RE = re.compile(rf"{_LINE_START}update\b", re.MULTILINE)
 # the top-level 'output' directive (output <dir>), captured as (prefix, path) so the path can be
 # rewritten to an absolute one at boot
 _OUTPUT_RE = re.compile(rf"({_LINE_START}output{_TABS_OR_SPACES})(\S+)", re.MULTILINE)
-# structurally relevant elements: the load block, symmetry block, constraint blocks, and delete element. 
-# Used to determine whether a script edit should trigger a preview redraw.
+# a top-level 'split' element: `split <body> <ids…>` on its own line. This is the sequencer element that
+# partitions an already-loaded body into new bodies at the given residue ids (distinct from the load-block
+# 'split' directive, which lists ids for the load-time BodySplitter). Both change the body set, so both must
+# refresh the preview; anchored to the first token on a line so it won't match 'splitter' or a mid-line word.
+_SPLIT_RE = re.compile(rf"{_LINE_START}split\b[^\n]*", re.MULTILINE)
+# structurally relevant elements: the load block, symmetry block, constraint blocks, delete element, and the
+# split element. Used to determine whether a script edit should trigger a preview redraw.
 _DELETE_RE = re.compile(rf"{_LINE_START}delete\b{_OPTIONAL_BLOCK_FORMAT}", re.MULTILINE | re.DOTALL)
 _STRUCTURALLY_RELEVANT_RE = re.compile(
-    rf"(?:{_LOAD_BLOCK_RE.pattern}|{_SYMMETRY_RE.pattern}|{_CONSTRAINT_RE.pattern}|{_DELETE_RE.pattern})", re.MULTILINE | re.DOTALL
+    rf"(?:{_LOAD_BLOCK_RE.pattern}|{_SYMMETRY_RE.pattern}|{_CONSTRAINT_RE.pattern}|{_DELETE_RE.pattern}|{_SPLIT_RE.pattern})",
+    re.MULTILINE | re.DOTALL
 )
 
 
@@ -696,6 +702,17 @@ class RigidbodyPane(ttk.Frame):
             return []
         return [int(t) for t in re.split(r"[,\s]+", value.strip()) if t.isdigit()]
 
+    def _split_residues(self, script: str) -> list[int]:
+        """Residue ids to highlight as split points in the preview: the load-block `split` directive
+        (load-time BodySplitter) together with every top-level `split` element (which partitions an
+        already-loaded body). Both forms carry residue ids; non-numeric tokens such as the element's
+        body name or the `split` keyword itself are ignored by _parse_splits, and draw_structure
+        deduplicates, so a residue matched by both forms is marked once."""
+        ids = self._parse_splits(self._load_value("split"))
+        for m in _SPLIT_RE.finditer(script):
+            ids += self._parse_splits(m.group(0))
+        return ids
+
     def _schedule_preview_update(self):
         """Debounce preview redraws so rapid edits (e.g. typing splits) stay smooth."""
         if not hasattr(self, "_struct_ax"):
@@ -736,7 +753,7 @@ class RigidbodyPane(ttk.Frame):
         if self._live_meta is not None:
             return  # a live run owns the preview axis; don't draw the static preview over it
         script = self.editor.get("1.0", "end-1c")
-        splits = self._parse_splits(self._load_value("split"))
+        splits = self._split_residues(script)
 
         # redraw only when the load or symmetry elements change; everything else is ignored
         sig = self._structural_signature(script)
@@ -880,7 +897,7 @@ class RigidbodyPane(ttk.Frame):
         lims = [ax.get_xlim(), ax.get_ylim(), ax.get_zlim()]
         ax.clear()
         ax.set_axis_off()
-        draw_structure(ax, data, self._parse_splits(self._load_value("split")))
+        draw_structure(ax, data, self._split_residues(self.editor.get("1.0", "end-1c")))
         self._struct_fig.set_layout_engine("tight")
         self._struct_canvas.draw_idle()
         ax.set_xlim(lims[0])
