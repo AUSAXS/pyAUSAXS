@@ -7,6 +7,7 @@ import matplotlib as mpl
 import numpy as np
 from matplotlib.figure import Figure
 from mpl_toolkits import mplot3d  # noqa: F401  (registers the '3d' projection)
+from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
 from ..plot.plot_helper import (
     PlotType, Dataset, Hline, Vline,
@@ -243,6 +244,13 @@ def pretty_plot_name(stem: str) -> str:
 # distinct body colours, deliberately excluding red (reserved for the split residues)
 _BODY_COLORS = ["#4a7dbd", "#e89a3c", "#46a86c", "#9467bd", "#17becf", "#8c564b", "#bcbd22", "#7f7f7f"]
 
+# "residue" colouring ramp. turbo spans the full hue range without wrapping, so the first and last residue of the ramp stay
+# distinguishable (hsv would return to red) and there is no jet-style banding. Its outermost tenth is near-black at both ends
+# and is trimmed off, which keeps the terminal residues as legible as the rest of the chain.
+_RESIDUE_CMAP = mpl.colormaps["turbo"]
+_RESIDUE_RAMP = (0.08, 0.92)
+_RESIDUE_UNRAMPED = "#8a8f98"   # bodies outside the selection, which the ramp does not span
+
 
 # ── interactive split-picking (hover + click) ──────────────────────────────────────────────────────────────
 # Manual-tuning knobs for the clickable preview, kept as module globals so they can be adjusted in one place
@@ -300,7 +308,9 @@ def draw_structure(ax, data: dict, split_residues: list[int], *,
         highlight         — a set of (body, copy) selectors to keep lit while everything else is dimmed
                            (copy=None selects the whole body, i.e. every one of its copies); empty/None
                            means nothing is dimmed
-        color_by         — "body" (a colour per body) or "copy" (a colour per symmetry copy)
+        color_by         — "body" (a colour per body), "copy" (a colour per symmetry copy), or "residue" (a
+                           rainbow along the Cα chain). In "residue" mode the ramp spans the highlighted bodies
+                           only, if any; everything else is drawn in a neutral out-of-ramp grey.
         body_names       — body index -> display name, used to label bodies with no Cα atoms (falls back
                            to "b{index+1}" for any body missing from the mapping)
     """
@@ -318,8 +328,30 @@ def draw_structure(ax, data: dict, split_residues: list[int], *,
         return (b, None) not in highlight and (b, c) not in highlight
 
     def _colour(b: int, c: int) -> str:
+        if color_by == "residue":
+            return _RESIDUE_UNRAMPED  # atoms off the Cα trace have no place on the chain, so no hue to take
         idx = c if color_by == "copy" else b
         return _BODY_COLORS[idx % len(_BODY_COLORS)]
+
+    # Position of each Cα along its own copy's chain, in atom order, which is what the "residue" ramp runs over. Raw residue ids are
+    # unusable here: they restart per chain, so a multi-file structure would repeat the ramp.
+    chain_pos = np.full(len(coords), -1)
+    ramp_lo, ramp_span = 0.0, 1.0
+    if color_by == "residue":
+        for c in sorted(set(copy[is_ca].tolist())):
+            m = is_ca & (copy == c)
+            chain_pos[m] = np.arange(int(m.sum()))
+        # the ramp spans the highlighted bodies only, so selecting a few bodies stretches the full rainbow over them
+        ramped = is_ca & (copy == 0)
+        if highlight:
+            ramped &= np.isin(body, sorted({b for b, _c in highlight}))
+        if ramped.any():
+            ramp_lo = float(chain_pos[ramped].min())
+            ramp_span = max(float(chain_pos[ramped].max()) - ramp_lo, 1.0)
+
+    def _residue_colours(mask) -> np.ndarray:
+        lo, hi = _RESIDUE_RAMP
+        return _RESIDUE_CMAP(lo + (hi - lo) * np.clip((chain_pos[mask] - ramp_lo) / ramp_span, 0.0, 1.0))
 
     # optional faint all-atom cloud, drawn beneath the backbone; copies included only if shown. only the selected bodies are drawn 
     # (all of them, if nothing is selected) to keep a multi-body structure from turning into an unreadable point cloud.
@@ -343,7 +375,8 @@ def draw_structure(ax, data: dict, split_residues: list[int], *,
         for c in sorted(set(copy[is_ca & (body == b)].tolist())):
             if not show_copies and c != 0:
                 continue
-            pts = coords[is_ca & (body == b) & (copy == c)]
+            m = is_ca & (body == b) & (copy == c)
+            pts = coords[m]
             if len(pts) == 0:
                 continue
             original = (c == 0)
@@ -351,6 +384,14 @@ def draw_structure(ax, data: dict, split_residues: list[int], *,
                 lw, alpha, z = 0.8, 0.12, 1
             else:
                 lw, alpha, z = (1.0, 1.0, 2) if original else (0.8, 0.65, 1)
+            # a gradient trace needs a colour per segment, which a single Line3DCollection carries and ax.plot cannot; dimmed bodies fall
+            # back to the flat out-of-ramp grey, as they sit outside the ramp anyway
+            if color_by == "residue" and not _dimmed(b, c) and len(pts) > 1:
+                segments = np.stack([pts[:-1], pts[1:]], axis=1)
+                lc = Line3DCollection(segments, colors=_residue_colours(m)[:-1], linewidths=lw, alpha=alpha, zorder=z)
+                ax.add_collection3d(lc)
+                ax.auto_scale_xyz(pts[:, 0], pts[:, 1], pts[:, 2], had_data=True)  # collections, unlike plot(), don't grow the limits
+                continue
             ax.plot(pts[:, 0], pts[:, 1], pts[:, 2], color=_colour(b, c), lw=lw, alpha=alpha, zorder=z)
 
     # bodies with no Cα atoms at all (e.g. a non-protein hetero group) draw nothing in the trace above and would otherwise be completely invisible; 

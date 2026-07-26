@@ -36,6 +36,10 @@ from .widgets import CollapsibleSection, PlaceholderEntry, ScrollableFrame, elli
 # the load block whose bodies we manage; setup elements are inserted just after it
 _LOAD_BLOCK_RE = re.compile(r"load\s*\{.*?\}", re.DOTALL)
 
+# display label -> draw_structure `color_by` mode; the first entry is the default
+COLOUR_BY_MODES = {"Body": "body", "Symmetry copy": "copy", "Residue": "residue"}
+COLOUR_BY_LABELS = list(COLOUR_BY_MODES)
+
 # Every element the structure pane reads or writes, so that an external edit to any of them (in the main editor) marks the view stale: the
 # load block plus all body-affecting setup elements. The tail captures either a whole brace block or the rest of the inline line, so an edit 
 # inside a symmetry/constraint block counts too. Longer keywords precede the prefixes they contain.
@@ -182,7 +186,7 @@ class StructurePane(ttk.Frame):
         self._show_copies = tk.BooleanVar(value=True)
         self._show_backbone = tk.BooleanVar(value=True)
         self._show_constraints = tk.BooleanVar(value=True)
-        self._colour_by_copy = tk.BooleanVar(value=False)
+        self._colour_by = tk.StringVar(value=COLOUR_BY_LABELS[0])
 
         paned = ttk.Panedwindow(self, orient="horizontal")
         paned.pack(fill="both", expand=True, padx=6, pady=6)
@@ -259,9 +263,15 @@ class StructurePane(ttk.Frame):
             ("Symmetry copies", self._show_copies),
             ("Backbone trace", self._show_backbone),
             ("Constraints", self._show_constraints),
-            ("Colour by symmetry copy", self._colour_by_copy),
         ):
             ttk.Checkbutton(display.body, text=text, variable=var, command=self._redraw).pack(anchor="w")
+
+        colour_row = ttk.Frame(display.body)
+        colour_row.pack(fill="x", pady=(4, 0))
+        ttk.Label(colour_row, text="Colour by", style="Muted.TLabel").pack(side="left", padx=(0, 6))
+        colour_box = ttk.Combobox(colour_row, textvariable=self._colour_by, values=COLOUR_BY_LABELS, state="readonly", width=14)
+        colour_box.pack(side="left", fill="x", expand=True)
+        colour_box.bind("<<ComboboxSelected>>", lambda _e: self._redraw())
 
         # --- body list (scrolls when long, so the section keeps a bounded height), with a splits editor above it so the structure can be 
         # re-split here without leaving the pane ---
@@ -846,7 +856,7 @@ class StructurePane(ttk.Frame):
                 show_backbone=self._show_backbone.get(),
                 show_constraints=self._show_constraints.get(),
                 highlight=self._highlighted,
-                color_by="copy" if self._colour_by_copy.get() else "body",
+                color_by=COLOUR_BY_MODES[self._colour_by.get()],
                 body_names={b["index"]: b["name"] for b in self._bodies},
                 selected_residues=self._selected_residues,
             )
