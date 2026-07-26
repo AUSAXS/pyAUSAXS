@@ -28,7 +28,8 @@ from typing import Callable, Optional
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 
-from .plotting import draw_structure, _BODY_COLORS
+from . import plotting
+from .plotting import draw_structure, nearest_ca_residue, _BODY_COLORS
 from .theme import FONTS, PALETTE
 from .widgets import CollapsibleSection, PlaceholderEntry, ScrollableFrame, ellipsize_label
 
@@ -163,6 +164,10 @@ class StructurePane(ttk.Frame):
         # selects every row between the last clicked row (the "anchor", see _select_anchor) and the one just clicked, in list order — the OS 
         # convention for range-selecting. Together these let several bodies be selected at once (e.g. to merge them) without typing every name out.
         self._highlighted: set[tuple[int, int | None]] = set()
+        # residues click-selected in the preview, highlighted with their own colour. Like the Bodies-list selection
+        # above (but for residues, not bodies), it stands in for an empty residue field: hitting Apply / Add with no
+        # residues typed splits at the selected residues instead. Consumed (and cleared) when a split is applied.
+        self._selected_residues: set[int] = set()
         self._select_anchor: tuple[int, int | None] | None = None  # last plain/ctrl-clicked row, the shift-click range's fixed end
         self._ready_checks: list[tuple[ttk.Button, PlaceholderEntry, Callable]] = []  # action buttons that light up green
         self._expanded_bodies: set[int] = set()   # body indices whose replica children are unfolded
@@ -208,16 +213,27 @@ class StructurePane(ttk.Frame):
         self._ax = self._fig.add_subplot(111, projection="3d")
         self._ax.set_axis_off()
         self._canvas = FigureCanvasTkAgg(self._fig, master=frame)
-        toolbar = NavigationToolbar2Tk(self._canvas, frame, pack_toolbar=False)
-        toolbar.configure(background=PALETTE["surface"])
-        for child in toolbar.winfo_children():
+        self._toolbar = NavigationToolbar2Tk(self._canvas, frame, pack_toolbar=False)
+        self._toolbar.configure(background=PALETTE["surface"])
+        for child in self._toolbar.winfo_children():
             try:
                 child.configure(background=PALETTE["surface"])
             except tk.TclError:
                 pass
-        toolbar.update()
-        toolbar.pack(side="bottom", fill="x")
+        self._toolbar.update()
+        self._toolbar.pack(side="bottom", fill="x")
+        # a thin readout above the canvas: shows the residue under the cursor and that a click toggles a split there
+        self._hover_label = tk.Label(frame, text="", background=PALETTE["surface"], foreground=PALETTE["muted"],
+                                     anchor="w", font=FONTS["base"])
+        self._hover_label.pack(side="top", fill="x", padx=6)
         self._canvas.get_tk_widget().pack(fill="both", expand=True)
+
+        # clickable preview: hover to read the nearest residue, click to toggle a split there. A left press is
+        # recorded and only treated as a click if the cursor barely moved by release (otherwise it was a rotation).
+        self._press_xy = None
+        self._canvas.mpl_connect("motion_notify_event", self._on_preview_hover)
+        self._canvas.mpl_connect("button_press_event", self._on_preview_press)
+        self._canvas.mpl_connect("button_release_event", self._on_preview_release)
 
     def _build_controls(self, parent):
         # The applied-elements list, status line, and Send button stay pinned to the bottom so they're visible no matter which sections 
@@ -832,6 +848,7 @@ class StructurePane(ttk.Frame):
                 highlight=self._highlighted,
                 color_by="copy" if self._colour_by_copy.get() else "body",
                 body_names={b["index"]: b["name"] for b in self._bodies},
+                selected_residues=self._selected_residues,
             )
             if lims is not None and self._preserve_view:
                 ax.set_xlim(lims[0]); ax.set_ylim(lims[1]); ax.set_zlim(lims[2])
@@ -842,6 +859,52 @@ class StructurePane(ttk.Frame):
         self._canvas.draw_idle()
 
     _preserve_view = False
+
+    # ----- clickable preview ---------------------------------------------------
+    def _on_preview_hover(self, event):
+        """Show the residue under the cursor in the hover readout (or clear it over empty space)."""
+        hit = nearest_ca_residue(self._ax, self._data, event)
+        if hit is None:
+            if self._hover_label["text"]:
+                self._hover_label.configure(text="")
+            return
+        name = next((b["name"] for b in self._bodies if b["index"] == hit["body"]), f"b{hit['body'] + 1}")
+        verb = "deselect" if hit["residue"] in self._selected_residues else "select"
+        self._hover_label.configure(text=f"{name} · residue {hit['residue']} · click to {verb}")
+
+    def _on_preview_press(self, event):
+        """Record a left-button press so _on_preview_release can tell a click from a view rotation."""
+        self._press_xy = (event.x, event.y) if event.button == 1 else None
+
+    def _on_preview_release(self, event):
+        """A left release that barely moved from the press is a click: toggle the nearest residue in the selection. A release after a real 
+        drag (a view rotation) or while a toolbar pan/zoom mode is active is ignored."""
+        press_xy, self._press_xy = self._press_xy, None
+        if (event.button != 1 or press_xy is None or event.x is None or event.y is None
+                or getattr(self._toolbar, "mode", "")):
+            return
+        if abs(event.x - press_xy[0]) + abs(event.y - press_xy[1]) > plotting.PICK_CLICK_DRAG_TOLERANCE:
+            return
+        hit = nearest_ca_residue(self._ax, self._data, event)
+        if hit is not None:
+            self._toggle_selected_residue(hit["residue"])
+
+    def _toggle_selected_residue(self, resid: int):
+        """Add `resid` to the click-selection, or remove it if already selected. Nothing is applied — the selection just stands in for an 
+        empty residue field when a split is applied (see _apply_splits / _apply_body_split), mirroring how a Bodies-list selection stands 
+        in for an empty Merge/Delete field."""
+        self._selected_residues.discard(resid) if resid in self._selected_residues else self._selected_residues.add(resid)
+        self._schedule_redraw()
+        n = len(self._selected_residues)
+        self._set_status(
+            f"{n} residue{'' if n == 1 else 's'} selected — Apply to split the whole structure there, "
+            "or Add (with a body) to split just that body." if n else "Selection cleared.", ok=True)
+
+    def _clear_selection(self):
+        """Drop the click-selection and repaint (called once a split has consumed it)."""
+        if self._selected_residues:
+            self._selected_residues = set()
+            self._schedule_redraw()
 
     # ----- camera --------------------------------------------------------------
     # The rigid-body pane and this pane show the same structure in two separate figures; rather than truly sync them, each adopts the other's 
@@ -871,9 +934,8 @@ class StructurePane(ttk.Frame):
         return [int(t) for t in re.split(r"[,\s]+", self._splits.strip()) if t.isdigit()]
 
     def _split_residues(self) -> list[int]:
-        """Residue ids to mark as split points in the view: the load-block split (self._splits) plus every
-        `split` element — both the ones staged in this pane and any already in the base script. Non-numeric
-        tokens (a body name, the keyword itself) are ignored; draw_structure deduplicates."""
+        """Residue ids to mark as split points in the view: the load-block split (self._splits) plus every `split` element — both the ones staged in 
+        this pane and any already in the base script. Non-numeric tokens (a body name, the keyword itself) are ignored; draw_structure deduplicates."""
         ids = self._parse_splits()
         sources = list(self._elements)
         if self._base_script:
@@ -896,17 +958,26 @@ class StructurePane(ttk.Frame):
         return ok
 
     def _apply_splits(self):
-        """Re-split the structure at the residue numbers in the splits field and rebuild the view. The split lives in the load block, so it is 
-        applied by recomposing (see _with_split); on a bad value the field is reverted so it always mirrors the splits actually in force."""
-        new = self._splits_var.get().strip()
+        """Re-split the structure at the residue numbers in the splits field and rebuild the view. The split lives in the load block, so it is
+        applied by recomposing (see _with_split); on a bad value the field is reverted so it always mirrors the splits actually in force.
+
+        With the field left empty, the click-selection (see _toggle_selected_residue) stands in for it — click residues in
+        the preview and hit Apply, no typing — matching how a Bodies-list selection stands in for an empty Merge/Delete field."""
+        typed = self._splits_var.get().strip()
+        from_selection = not typed and bool(self._selected_residues)
+        new = " ".join(str(r) for r in sorted(self._selected_residues)) if from_selection else typed
         if _norm_splits(new) == _norm_splits(self._splits):
             self._splits_var.set(new)
+            if from_selection:
+                self._clear_selection()  # already the splits in force, but consume the selection so it doesn't linger
             return
         prev = self._splits
         self._splits = new
         ok, msg = self._rebuild(self._elements)
         if ok:
             self._splits_var.set(new)
+            if from_selection:
+                self._clear_selection()
             self._set_status(f"Re-split at {new}." if new else "Removed all splits.", ok=True)
         else:
             self._splits = prev
@@ -914,21 +985,28 @@ class StructurePane(ttk.Frame):
             self._set_status(f"Could not re-split: {msg}", ok=False)
 
     def _apply_body_split(self):
-        """Split an existing body into fragments at the given residue ids: `split <body> <residues…>`. Distinct from
-        the load-block split above (which re-partitions the freshly-read PDB and defines the whole body set): this is a
-        staged setup element that partitions a body already in the setup — e.g. one produced by convert_to_symmetry —
-        so its fragments stay tied together in a shared symmetry. Takes the body from a single Bodies-list selection
-        when only residue ids are typed."""
+        """Split an existing body into fragments at the given residue ids: `split <body> <residues…>`. Distinct from the load-block split 
+        above (which re-partitions the freshly-read PDB and defines the whole body set): this is a staged setup element that partitions a 
+        body already in the setup — e.g. one produced by convert_to_symmetry — so its fragments stay tied together in a shared symmetry. 
+        The body may come from a single Bodies-list selection, and the residues from the click-selection (see _toggle_selected_residue), 
+        so selecting one body plus a few residues in the preview and hitting Add — with nothing typed — is enough."""
         tokens = self._with_selected_bodies(self._body_split_entry, exact=1)
-        if len(tokens) < 2:
-            self._set_status("Splitting a body needs a body and at least one residue id, e.g. b1 100 200.", ok=False)
+        if not tokens:
+            self._set_status("Splitting a body needs a body — type one or select it in the Bodies list.", ok=False)
             return
-        _body, *residues = tokens
+        body, *typed_residues = tokens
+        from_selection = not typed_residues and bool(self._selected_residues)
+        residues = [str(r) for r in sorted(self._selected_residues)] if from_selection else typed_residues
+        if not residues:
+            self._set_status("Splitting a body needs residue ids — type them or click residues in the preview.", ok=False)
+            return
         if not all(r.isdigit() for r in residues):
             self._set_status("Split residue ids must be integers, e.g. b1 100 200.", ok=False)
             return
-        self._apply_element("split " + " ".join(tokens))
-        self._body_split_entry.clear()
+        if self._apply_element("split " + body + " " + " ".join(residues)):
+            self._body_split_entry.clear()
+            if from_selection:
+                self._clear_selection()
 
     def _apply_rename(self):
         """Rename a body: `rename <old> <new>`, the same element the inline double-click-to-rename (see _start_rename) applies. Either typed 

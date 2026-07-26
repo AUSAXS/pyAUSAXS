@@ -244,10 +244,49 @@ def pretty_plot_name(stem: str) -> str:
 _BODY_COLORS = ["#4a7dbd", "#e89a3c", "#46a86c", "#9467bd", "#17becf", "#8c564b", "#bcbd22", "#7f7f7f"]
 
 
+# ── interactive split-picking (hover + click) ──────────────────────────────────────────────────────────────
+# Manual-tuning knobs for the clickable preview, kept as module globals so they can be adjusted in one place
+# without touching the picking logic. (Imported by value into the panes, so edits take effect on the next launch.)
+PICK_PIXEL_RADIUS = 18          # max cursor→Cα distance, in screen pixels, that still counts as a hover/click hit
+PICK_CLICK_DRAG_TOLERANCE = 4   # total px the cursor may move between press and release to still count as a click
+                                # (rather than a view rotation); larger = more forgiving, but easier to misfire
+SELECTION_COLOR = "#ff44cc"     # highlight colour for click-selected residues (distinct from split-red and the body palette)
+SELECTION_MARKER_RADIUS = 2.0   # radius (Å, data units) of the selected-residue spheres; data-unit so they don't
+                                # balloon when the view is zoomed out
+
+
+def nearest_ca_residue(ax, data: dict, event):
+    """Nearest drawable Cα to the mouse cursor, for hover/click residue picking on a 3D preview axis.
+
+    Projects every copy-0 Cα atom in `data` (a preview-structure dict; see Rigidbody.preview_structure) to screen pixels using the axis's 
+    *current* projection — so it stays correct after the view is rotated or zoomed — and returns the one closest to the cursor as 
+    {"residue": int, "body": int}, or None when the cursor is over empty space (nothing within PICK_PIXEL_RADIUS) or off the axis. Only copy-0 
+    (original, non-symmetry) Cα atoms with a known residue id are considered: those are the residues a split boundary can actually be placed at."""
+    if data is None or getattr(event, "inaxes", None) is not ax:
+        return None
+    mask = data["is_ca"] & (data["copy"] == 0) & (data["residue_seq"] >= 0)
+    if not mask.any():
+        return None
+    pts = data["coords"][mask]
+    res = data["residue_seq"][mask]
+    bodies = data["body"][mask]
+
+    # 3D -> projected 2D data coords -> display (pixel) coords, via the standard mplot3d projection recipe
+    from mpl_toolkits.mplot3d import proj3d
+    xs, ys, _ = proj3d.proj_transform(pts[:, 0], pts[:, 1], pts[:, 2], ax.get_proj())
+    disp = ax.transData.transform(np.column_stack([xs, ys]))
+    d = np.hypot(disp[:, 0] - event.x, disp[:, 1] - event.y)
+    i = int(np.argmin(d))
+    if d[i] > PICK_PIXEL_RADIUS:
+        return None
+    return {"residue": int(res[i]), "body": int(bodies[i])}
+
+
 def draw_structure(ax, data: dict, split_residues: list[int], *,
                    show_atoms: bool = False, show_copies: bool = True, show_backbone: bool = True,
                    show_constraints: bool = True, highlight: set[tuple[int, int | None]] | None = None,
-                   color_by: str = "body", body_names: dict[int, str] | None = None):
+                   color_by: str = "body", body_names: dict[int, str] | None = None,
+                   selected_residues=None):
     """Draw a rigid-body structure preview on a 3D axis from a backend preview-structure dict (see Rigidbody.preview_structure).
     The Cα backbone is drawn per body (one colour each) with symmetry copies faded, and the split residues marked in red.
     Authoritative body/Cα/residue metadata comes from the backend, so it works for wildcards, multi-file loads and symmetry alike.
@@ -368,6 +407,19 @@ def draw_structure(ax, data: dict, split_residues: list[int], *,
             coords[highlight, 0], coords[highlight, 1], coords[highlight, 2], s=80,
             color="red", edgecolors="black", linewidths=0.6, depthshade=False, zorder=3
         )
+
+    # click-selected residues (see the structure pane), in a distinct colour. Drawn as small spheres sized in data units (Å) rather than a 
+    # screen-space scatter, so they track the structure on zoom instead of ballooning out of proportion
+    selected = sorted({int(s) for s in (selected_residues or [])})
+    if selected:
+        sel_pts = coords[is_ca & (copy == 0) & np.isin(res, selected)]
+        if len(sel_pts):
+            r = SELECTION_MARKER_RADIUS
+            u, v = np.meshgrid(np.linspace(0, 2 * np.pi, 10), np.linspace(0, np.pi, 6))
+            sx, sy, sz = np.cos(u) * np.sin(v), np.sin(u) * np.sin(v), np.cos(v)
+            for p in sel_pts:
+                ax.plot_surface(p[0] + r * sx, p[1] + r * sy, p[2] + r * sz,
+                                color=SELECTION_COLOR, alpha=0.95, linewidth=0, shade=True, zorder=4)
 
     # active constraints, all in black: a dashed tether for backbone (0) / centre-of-mass (1) constraints (told apart by length — CM ones
     # span much further), and a solid line with directional arrowheads for attractors (2, pointing inward) and repulsors (3, outward). 
