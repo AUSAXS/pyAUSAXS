@@ -29,7 +29,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.figure import Figure
 
 from . import plotting
-from .plotting import draw_structure, nearest_ca_residue, _BODY_COLORS
+from .plotting import draw_structure, nearest_ca_residue, residue_bodies, _BODY_COLORS
 from .theme import FONTS, PALETTE
 from .widgets import CollapsibleSection, PlaceholderEntry, ScrollableFrame, ellipsize_label
 
@@ -39,6 +39,8 @@ _LOAD_BLOCK_RE = re.compile(r"load\s*\{.*?\}", re.DOTALL)
 # display label -> draw_structure `color_by` mode; the first entry is the default
 COLOUR_BY_MODES = {"Body": "body", "Symmetry copy": "copy", "Residue": "residue"}
 COLOUR_BY_LABELS = list(COLOUR_BY_MODES)
+
+_SUBOPTION_INDENT = 16  # px a folded-out display sub-option is inset from its parent toggle
 
 # Every element the structure pane reads or writes, so that an external edit to any of them (in the main editor) marks the view stale: the
 # load block plus all body-affecting setup elements. The tail captures either a whole brace block or the rest of the inline line, so an edit 
@@ -258,16 +260,18 @@ class StructurePane(ttk.Frame):
 
         # --- display toggles ---
         display = self._section(parent, "Display", expanded=False)
-        for text, var in (
-            ("Atomic detail", self._show_atoms),
-            ("Symmetry copies", self._show_copies),
-            ("Backbone trace", self._show_backbone),
-            ("Constraints", self._show_constraints),
-        ):
-            ttk.Checkbutton(display.body, text=text, variable=var, command=self._redraw).pack(anchor="w")
+        # "Backbone trace" hangs off "Atomic detail" behind a fold chevron: hiding the trace only makes sense once the atom cloud is
+        # there to replace it, and nesting it shows that dependency instead of leaving it to be discovered.
+        self._atom_chevron = self._display_row(display.body, "Atomic detail", self._show_atoms, chevron=True)
+        self._atom_suboptions = ttk.Frame(display.body)
+        self._display_row(self._atom_suboptions, "Backbone trace", self._show_backbone)
+        self._atom_chevron.bind("<Button-1>", lambda _e: self._toggle_atom_suboptions())
+        for text, var in (("Symmetry copies", self._show_copies), ("Constraints", self._show_constraints)):
+            self._display_row(display.body, text, var)
 
         colour_row = ttk.Frame(display.body)
         colour_row.pack(fill="x", pady=(4, 0))
+        tk.Label(colour_row, text="", background=PALETTE["bg"], font=FONTS["base"], width=2).pack(side="left")
         ttk.Label(colour_row, text="Colour by", style="Muted.TLabel").pack(side="left", padx=(0, 6))
         colour_box = ttk.Combobox(colour_row, textvariable=self._colour_by, values=COLOUR_BY_LABELS, state="readonly", width=14)
         colour_box.pack(side="left", fill="x", expand=True)
@@ -287,15 +291,15 @@ class StructurePane(ttk.Frame):
         splits_row.columnconfigure(0, weight=1)
         splits_entry.bind("<Return>", lambda _e: self._apply_splits())
 
-        # A chevron reveals a second, distinct kind of split. The row above re-partitions the freshly-read PDB
-        # (a load-block directive, so it re-reads the file and defines the whole body set). The `split` element
-        # revealed here instead partitions a body already in the setup — e.g. one produced by convert_to_symmetry
-        # — tying its fragments together in a shared symmetry, and is staged like every other element (it appears
-        # in "Applied elements"). Collapsed by default, since re-splitting the whole structure is the common case.
+        # A chevron reveals a second, distinct kind of split. The row above re-partitions the freshly-read PDB (a load-block directive, so it 
+        # re-reads the file and defines the whole body set). The `split` element revealed here instead partitions a body already in the setup 
+        # — e.g. one produced by convert_to_symmetry — tying its fragments together in a shared symmetry, and is staged like every other element 
+        # (it appears in "Applied elements"). Collapsed by default, since re-splitting the whole structure is the common case.
         self._body_split_frame = ttk.Frame(splits_row)
         self._body_split_entry = self._action_row(
             self._body_split_frame, "Additional splits (an existing body)", "body residues…",
             self._apply_body_split, button="Add",
+            ready_check=lambda entry: bool(self._selected_residues) or len(entry.get().split()) >= 2,
         )
 
         def _toggle_body_split(_e=None):
@@ -359,6 +363,25 @@ class StructurePane(ttk.Frame):
         # needs more room for e.g. Bodies + Constraints at once
         self._applied = self._section(parent, "Applied elements", expanded=True).body
         self._rebuild_applied_list()  # seed the initial "no changes" placeholder
+
+    def _display_row(self, parent, text: str, var, *, chevron: bool = False) -> tk.Label:
+        """A Display-section checkbutton, prefixed by a fold chevron or, without one, a blank of the same width so all labels line up."""
+        row = ttk.Frame(parent)
+        row.pack(fill="x")
+        glyph = tk.Label(row, text="▸" if chevron else "", background=PALETTE["bg"], foreground=PALETTE["muted"],
+                         font=FONTS["base"], width=2, cursor="hand2" if chevron else "")
+        glyph.pack(side="left")
+        ttk.Checkbutton(row, text=text, variable=var, command=self._redraw).pack(side="left")
+        return glyph
+
+    def _toggle_atom_suboptions(self):
+        """Fold the sub-options hanging off "Atomic detail" in or out, leaving the toggles themselves untouched."""
+        if self._atom_suboptions.winfo_manager():
+            self._atom_suboptions.pack_forget()
+            self._atom_chevron.configure(text="▸")
+        else:
+            self._atom_suboptions.pack(fill="x", padx=(_SUBOPTION_INDENT, 0), after=self._atom_chevron.master)
+            self._atom_chevron.configure(text="▾")
 
     def _section(self, parent, title, *, expanded: bool) -> CollapsibleSection:
         """A collapsible controls section, spaced from the one above it. Sections are independent,
@@ -900,21 +923,32 @@ class StructurePane(ttk.Frame):
             self._toggle_selected_residue(hit["residue"])
 
     def _toggle_selected_residue(self, resid: int):
-        """Add `resid` to the click-selection, or remove it if already selected. Nothing is applied — the selection just stands in for an 
-        empty residue field when a split is applied (see _apply_splits / _apply_body_split), mirroring how a Bodies-list selection stands 
+        """Add `resid` to the click-selection, or remove it if already selected. Nothing is applied — the selection just stands in for an
+        empty residue field when a split is applied (see _apply_splits / _apply_body_split), mirroring how a Bodies-list selection stands
         in for an empty Merge/Delete field."""
         self._selected_residues.discard(resid) if resid in self._selected_residues else self._selected_residues.add(resid)
         self._schedule_redraw()
+        self._refresh_action_readiness()  # the click-selection can stand in for a typed field, so it changes what is clickable
         n = len(self._selected_residues)
-        self._set_status(
-            f"{n} residue{'' if n == 1 else 's'} selected — Apply to split the whole structure there, "
-            "or Add (with a body) to split just that body." if n else "Selection cleared.", ok=True)
+        if not n:
+            self._set_status("Selection cleared.", ok=True)
+            return
+        # Add targets the body the residues lie in, so it is only offered while they all lie in the same one
+        target = self._selection_body_name()
+        hint = f", or Add to split {target} there" if target else ""
+        self._set_status(f"{n} residue{'' if n == 1 else 's'} selected — Apply to split the whole structure there{hint}.", ok=True)
+
+    def _selection_body_name(self) -> str | None:
+        """Name of the body every click-selected residue lies in, or None when there is no selection or it spans several bodies."""
+        bodies = residue_bodies(self._data, self._selected_residues)
+        return self._name_of(next(iter(bodies)), None) if len(bodies) == 1 else None
 
     def _clear_selection(self):
         """Drop the click-selection and repaint (called once a split has consumed it)."""
         if self._selected_residues:
             self._selected_residues = set()
             self._schedule_redraw()
+            self._refresh_action_readiness()
 
     # ----- camera --------------------------------------------------------------
     # The rigid-body pane and this pane show the same structure in two separate figures; rather than truly sync them, each adopts the other's 
@@ -998,13 +1032,20 @@ class StructurePane(ttk.Frame):
         """Split an existing body into fragments at the given residue ids: `split <body> <residues…>`. Distinct from the load-block split 
         above (which re-partitions the freshly-read PDB and defines the whole body set): this is a staged setup element that partitions a 
         body already in the setup — e.g. one produced by convert_to_symmetry — so its fragments stay tied together in a shared symmetry. 
-        The body may come from a single Bodies-list selection, and the residues from the click-selection (see _toggle_selected_residue), 
-        so selecting one body plus a few residues in the preview and hitting Add — with nothing typed — is enough."""
+        The body may come from a single Bodies-list selection or, failing that, from the click-selected residues themselves — each one
+        belongs to a body, so clicking a few residues along one body and hitting Add, with nothing typed and nothing else selected, is
+        enough. Residues spanning several bodies are rejected rather than guessed at, since a `split` partitions one body."""
         tokens = self._with_selected_bodies(self._body_split_entry, exact=1)
-        if not tokens:
-            self._set_status("Splitting a body needs a body — type one or select it in the Bodies list.", ok=False)
-            return
-        body, *typed_residues = tokens
+        if tokens and tokens[0] in self._known_names():
+            body, typed_residues = tokens[0], tokens[1:]
+        else:  # nothing names a body, so take it from the clicked residues; anything typed is then all residues
+            body, typed_residues = self._selection_body_name(), tokens
+            if body is None:
+                spans = len(residue_bodies(self._data, self._selected_residues)) > 1
+                self._set_status(
+                    "The selected residues span several bodies — split one body at a time." if spans else
+                    "Splitting a body needs a body — type one, select it in the Bodies list, or click residues on it.", ok=False)
+                return
         from_selection = not typed_residues and bool(self._selected_residues)
         residues = [str(r) for r in sorted(self._selected_residues)] if from_selection else typed_residues
         if not residues:

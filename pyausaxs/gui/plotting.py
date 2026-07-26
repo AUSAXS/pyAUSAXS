@@ -290,6 +290,15 @@ def nearest_ca_residue(ax, data: dict, event):
     return {"residue": int(res[i]), "body": int(bodies[i])}
 
 
+def residue_bodies(data: dict, residues) -> set[int]:
+    """Body indices the given residue ids lie in, over the same copy-0 Cα atoms residue picking considers. Read from the current preview
+    data rather than remembered from pick time, so a rebuild that reshuffles bodies (a merge, a re-split) is reflected."""
+    if data is None or not len(residues):
+        return set()
+    mask = data["is_ca"] & (data["copy"] == 0) & np.isin(data["residue_seq"], sorted(residues))
+    return {int(b) for b in data["body"][mask]}
+
+
 def draw_structure(ax, data: dict, split_residues: list[int], *,
                    show_atoms: bool = False, show_copies: bool = True, show_backbone: bool = True,
                    show_constraints: bool = True, highlight: set[tuple[int, int | None]] | None = None,
