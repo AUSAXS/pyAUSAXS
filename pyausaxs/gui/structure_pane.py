@@ -118,6 +118,19 @@ def _with_split(base: str, splits: str) -> str:
     return base[:match.start()] + new_block + base[match.end():]
 
 
+def _is_residue_id(token: str) -> bool:
+    """Whether `token` is a residue sequence id. Ids may legitimately be negative, so a leading minus is allowed."""
+    return token.lstrip("-").isdigit() and token not in ("-", "")
+
+
+def _parse_split(element: str) -> tuple[str, list[int]] | None:
+    """(target body, cut residues) of a staged `split` element, or None for any other element."""
+    tokens = element.split()
+    if len(tokens) < 3 or tokens[0] != "split" or not all(_is_residue_id(t) for t in tokens[2:]):
+        return None
+    return tokens[1], [int(t) for t in tokens[2:]]
+
+
 def _insert_elements(base: str, elements: list[str]) -> str:
     """Return `base` with staged setup elements appended to the existing setup declarations.
 
@@ -160,6 +173,10 @@ class StructurePane(ttk.Frame):
         self.title = "Structure: " + pdb_path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
 
         self._elements: list[str] = []            # setup elements the user has applied, in order
+        # Residues each staged `split` element's target body covered when it was staged, keyed by that target's name. Fragments are
+        # registered as brand-new bodies and inherit nothing from their parent, so their residue ids are the only link back to it; this
+        # map is what lets a later split of a fragment be folded into the element that produced it (see _apply_body_split).
+        self._split_coverage: dict[str, frozenset[int]] = {}
         self._data: dict | None = None            # last good preview-structure dict
         self._names: list[str] = []               # body names aligned to body indices
         self._bodies: list[dict] = []             # per-body summary rows (index/name/atoms/res/copies)
@@ -285,11 +302,11 @@ class StructurePane(ttk.Frame):
         ttk.Label(splits_row, text="Split at residues", style="Muted.TLabel").grid(
             row=0, column=0, columnspan=2, sticky="w")
         self._splits_var = tk.StringVar(value=self._splits)
-        splits_entry = ttk.Entry(splits_row, textvariable=self._splits_var)
-        splits_entry.grid(row=1, column=0, sticky="ew", padx=(0, 6))
+        self._splits_entry = ttk.Entry(splits_row, textvariable=self._splits_var)
+        self._splits_entry.grid(row=1, column=0, sticky="ew", padx=(0, 6))
         ttk.Button(splits_row, text="Apply", style="Icon.TButton", command=self._apply_splits).grid(row=1, column=1)
         splits_row.columnconfigure(0, weight=1)
-        splits_entry.bind("<Return>", lambda _e: self._apply_splits())
+        self._splits_entry.bind("<Return>", lambda _e: self._apply_splits())
 
         # A chevron reveals a second, distinct kind of split. The row above re-partitions the freshly-read PDB (a load-block directive, so it 
         # re-reads the file and defines the whole body set). The `split` element revealed here instead partitions a body already in the setup 
@@ -302,17 +319,9 @@ class StructurePane(ttk.Frame):
             ready_check=lambda entry: bool(self._selected_residues) or len(entry.get().split()) >= 2,
         )
 
-        def _toggle_body_split(_e=None):
-            if self._body_split_frame.winfo_ismapped():
-                self._body_split_frame.grid_forget()
-                split_chevron.configure(text="▸")
-            else:
-                self._body_split_frame.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(4, 0))
-                split_chevron.configure(text="▾")
-
-        split_chevron = ttk.Label(splits_row, text="▸", style="Muted.TLabel", cursor="hand2")
-        split_chevron.grid(row=1, column=2, padx=(4, 0))
-        split_chevron.bind("<Button-1>", _toggle_body_split)
+        self._split_chevron = ttk.Label(splits_row, text="▸", style="Muted.TLabel", cursor="hand2")
+        self._split_chevron.grid(row=1, column=2, padx=(4, 0))
+        self._split_chevron.bind("<Button-1>", lambda _e: self._toggle_body_split())
         self._body_list = ScrollableFrame(bodies.body, max_height=220)
         self._body_list.pack(fill="both", expand=True)
 
@@ -363,6 +372,30 @@ class StructurePane(ttk.Frame):
         # needs more room for e.g. Bodies + Constraints at once
         self._applied = self._section(parent, "Applied elements", expanded=True).body
         self._rebuild_applied_list()  # seed the initial "no changes" placeholder
+
+    def _toggle_body_split(self, *, expand: bool | None = None):
+        """Fold the per-body `split` row in or out. `expand` forces a direction instead of toggling, so it can be opened on demand without
+        closing it again on the next call."""
+        showing = self._body_split_frame.winfo_ismapped()
+        expand = not showing if expand is None else expand
+        if expand == showing:
+            return
+        if expand:
+            self._body_split_frame.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+        else:
+            self._body_split_frame.grid_forget()
+        self._split_chevron.configure(text="▾" if expand else "▸")
+
+    def _split_would_override(self) -> bool:
+        """Whether applying the load-block splits field would override work already done, rather than being the plain first split it looks
+        like: a split is already in force (including `chain`, which typing residues silently replaces), or staged elements name bodies that
+        a re-split renumbers. In both cases the per-body `split` element is what the user actually wants."""
+        return bool(self._elements) or bool(self._splits.strip())
+
+    def _refresh_split_field(self):
+        """Dim the load-block splits field once applying it would override an existing split. It stays fully usable — this only stops it
+        reading as the obvious next step, since the per-body split below is."""
+        self._splits_entry.configure(foreground=PALETTE["muted"] if self._split_would_override() else PALETTE["text"])
 
     def _display_row(self, parent, text: str, var, *, chevron: bool = False) -> tk.Label:
         """A Display-section checkbutton, prefixed by a fold chevron or, without one, a blank of the same width so all labels line up."""
@@ -499,6 +532,7 @@ class StructurePane(ttk.Frame):
         if rebuild_widgets:
             self._rebuild_body_list()
         self._refresh_action_readiness()
+        self._refresh_split_field()
         self._schedule_redraw()
         # the view now matches this base, so it is no longer stale
         self._built_sig = self._base_sig()
@@ -929,12 +963,16 @@ class StructurePane(ttk.Frame):
         self._selected_residues.discard(resid) if resid in self._selected_residues else self._selected_residues.add(resid)
         self._schedule_redraw()
         self._refresh_action_readiness()  # the click-selection can stand in for a typed field, so it changes what is clickable
+        # once the load-block split would override rather than establish the partition, the per-body split is the only thing a click can
+        # usefully feed, so reveal it rather than leaving it behind a chevron the user has no reason to suspect
+        if self._selected_residues and self._split_would_override():
+            self._toggle_body_split(expand=True)
         n = len(self._selected_residues)
         if not n:
             self._set_status("Selection cleared.", ok=True)
             return
-        # Add targets the body the residues lie in, so it is only offered while they all lie in the same one
-        target = self._selection_body_name()
+        # Add targets one body, so it is only offered while the selection resolves to one
+        target = self._split_target_name()
         hint = f", or Add to split {target} there" if target else ""
         self._set_status(f"{n} residue{'' if n == 1 else 's'} selected — Apply to split the whole structure there{hint}.", ok=True)
 
@@ -942,6 +980,12 @@ class StructurePane(ttk.Frame):
         """Name of the body every click-selected residue lies in, or None when there is no selection or it spans several bodies."""
         bodies = residue_bodies(self._data, self._selected_residues)
         return self._name_of(next(iter(bodies)), None) if len(bodies) == 1 else None
+
+    def _split_target_name(self) -> str | None:
+        """Body an Add would split the click-selection at: the original target of a staged split that already covers the selection (whose
+        fragments count as one body's business), otherwise the single live body the residues lie in."""
+        staged = self._staged_split_for(set(self._selected_residues))
+        return staged[1] if staged is not None else self._selection_body_name()
 
     def _clear_selection(self):
         """Drop the click-selection and repaint (called once a split has consumed it)."""
@@ -1001,6 +1045,19 @@ class StructurePane(ttk.Frame):
             self._set_status(f"Rejected “{element}”: {msg}", ok=False)
         return ok
 
+    def _replace_element(self, i: int, element: str) -> bool:
+        """Swap the staged element at `i` for `element`, keeping its position in the order. Used to extend an existing `split` rather than
+        stage a second one against a fragment the backend would refuse to split."""
+        candidate = self._elements[:i] + [element] + self._elements[i + 1:]
+        ok, msg = self._rebuild(candidate)
+        if ok:
+            self._elements = candidate
+            self._rebuild_applied_list()
+            self._set_status(f"Extended: {element}", ok=True)
+        else:
+            self._set_status(f"Rejected “{element}”: {msg}", ok=False)
+        return ok
+
     def _apply_splits(self):
         """Re-split the structure at the residue numbers in the splits field and rebuild the view. The split lives in the load block, so it is
         applied by recomposing (see _with_split); on a bad value the field is reverted so it always mirrors the splits actually in force.
@@ -1029,35 +1086,73 @@ class StructurePane(ttk.Frame):
             self._set_status(f"Could not re-split: {msg}", ok=False)
 
     def _apply_body_split(self):
-        """Split an existing body into fragments at the given residue ids: `split <body> <residues…>`. Distinct from the load-block split 
-        above (which re-partitions the freshly-read PDB and defines the whole body set): this is a staged setup element that partitions a 
-        body already in the setup — e.g. one produced by convert_to_symmetry — so its fragments stay tied together in a shared symmetry. 
+        """Split an existing body into fragments at the given residue ids: `split <body> <residues…>`. Distinct from the load-block split
+        above (which re-partitions the freshly-read PDB and defines the whole body set): this is a staged setup element that partitions a
+        body already in the setup — e.g. one produced by convert_to_symmetry — so its fragments stay tied together in a shared symmetry.
         The body may come from a single Bodies-list selection or, failing that, from the click-selected residues themselves — each one
         belongs to a body, so clicking a few residues along one body and hitting Add, with nothing typed and nothing else selected, is
-        enough. Residues spanning several bodies are rejected rather than guessed at, since a `split` partitions one body."""
+        enough.
+
+        Residues already inside a staged split's target extend that element instead of staging a second one. The backend refuses to split
+        a fragment that carries a symmetry shared with its siblings, and one element is enough regardless: BodySplitter cuts at a *set* of
+        residue ids taken in atom order, so cutting the original body at the union of both sets yields exactly the same fragments. This
+        also lets a selection spanning two fragments of one original body work, since they are one split element's business."""
         tokens = self._with_selected_bodies(self._body_split_entry, exact=1)
         if tokens and tokens[0] in self._known_names():
-            body, typed_residues = tokens[0], tokens[1:]
-        else:  # nothing names a body, so take it from the clicked residues; anything typed is then all residues
-            body, typed_residues = self._selection_body_name(), tokens
+            named, typed_residues = tokens[0], tokens[1:]
+        else:  # nothing names a body; whatever was typed is then all residues, and the body follows from them
+            named, typed_residues = None, tokens
+        from_selection = not typed_residues and bool(self._selected_residues)
+        residues = [str(r) for r in sorted(self._selected_residues)] if from_selection else typed_residues
+        if not residues:
+            self._set_status("Splitting a body needs residue ids — type them or click residues in the preview.", ok=False)
+            return
+        if not all(_is_residue_id(r) for r in residues):
+            self._set_status("Split residue ids must be integers, e.g. b1 100 200.", ok=False)
+            return
+        cuts = {int(r) for r in residues}
+
+        staged = self._staged_split_for(cuts)
+        if staged is not None:
+            i, target, existing = staged
+            merged = sorted(existing | cuts)
+            if len(merged) == len(existing):
+                self._set_status(f"Already splitting {target} at {' '.join(str(c) for c in sorted(cuts))}.", ok=False)
+                return
+            ok = self._replace_element(i, "split " + target + " " + " ".join(str(c) for c in merged))
+        else:
+            body = named or self._selection_body_name()
             if body is None:
                 spans = len(residue_bodies(self._data, self._selected_residues)) > 1
                 self._set_status(
                     "The selected residues span several bodies — split one body at a time." if spans else
                     "Splitting a body needs a body — type one, select it in the Bodies list, or click residues on it.", ok=False)
                 return
-        from_selection = not typed_residues and bool(self._selected_residues)
-        residues = [str(r) for r in sorted(self._selected_residues)] if from_selection else typed_residues
-        if not residues:
-            self._set_status("Splitting a body needs residue ids — type them or click residues in the preview.", ok=False)
-            return
-        if not all(r.isdigit() for r in residues):
-            self._set_status("Split residue ids must be integers, e.g. b1 100 200.", ok=False)
-            return
-        if self._apply_element("split " + body + " " + " ".join(residues)):
+            coverage = self._residues_of_body(body)  # read before the rebuild replaces the body with its fragments
+            ok = self._apply_element("split " + body + " " + " ".join(str(c) for c in sorted(cuts)))
+            if ok:
+                self._split_coverage[body] = coverage
+        if ok:
             self._body_split_entry.clear()
             if from_selection:
                 self._clear_selection()
+
+    def _staged_split_for(self, residues: set[int]) -> tuple[int, str, frozenset[int]] | None:
+        """(index, target body, existing cuts) of the staged `split` element whose target body contains every one of `residues`, or None
+        when they fall outside every staged split. Targets are whole bodies, so at most one element can ever match."""
+        for i, element in enumerate(self._elements):
+            parsed = _parse_split(element)
+            if parsed is not None and residues <= self._split_coverage.get(parsed[0], frozenset()):
+                return i, parsed[0], frozenset(parsed[1])
+        return None
+
+    def _residues_of_body(self, name: str) -> frozenset[int]:
+        """Every residue id in the named body, as it stands right now — the coverage a `split` element staged against it takes over."""
+        index = next((b["index"] for b in self._bodies if b["name"] == name), None)
+        if index is None or self._data is None:
+            return frozenset()
+        d = self._data
+        return frozenset(int(r) for r in d["residue_seq"][d["is_ca"] & (d["copy"] == 0) & (d["body"] == index)])
 
     def _apply_rename(self):
         """Rename a body: `rename <old> <new>`, the same element the inline double-click-to-rename (see _start_rename) applies. Either typed 
@@ -1162,7 +1257,13 @@ class StructurePane(ttk.Frame):
         self._apply_element("constrain {\n" + "\n".join(lines) + "\n}")
         self._constraint_entry.clear()
 
+    def _prune_split_coverage(self):
+        """Drop residue coverage for bodies no staged `split` targets any more, e.g. after one is removed from the applied list."""
+        targets = {parsed[0] for e in self._elements if (parsed := _parse_split(e)) is not None}
+        self._split_coverage = {name: r for name, r in self._split_coverage.items() if name in targets}
+
     def _rebuild_applied_list(self):
+        self._prune_split_coverage()  # called after every change to _elements, so coverage is pruned in step with it
         for w in self._applied.winfo_children():
             w.destroy()
         if not self._elements:
