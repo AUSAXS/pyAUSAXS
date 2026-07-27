@@ -17,7 +17,6 @@ from .panes import (
     make_on_load_structure, make_on_load_saxs,
     find_data_pane, release_data_pane,
 )
-from . import plotting
 from .plotting import draw_structure, nearest_ca_residue, fit_figure_from_curves
 from .runner import RigidbodyRunner
 from .structure_pane import StructurePane
@@ -280,19 +279,16 @@ class RigidbodyPane(ttk.Frame):
         )
         home_btn.configure(font=(FONTS["base"][0], 18), padding=(10, 0))
         home_btn.pack(side="left", padx=2, pady=2)
-        # readout of the residue under the cursor; a click there toggles it in the Splits field
+        # readout of the residue under the cursor
         self._struct_hover = tk.Label(struct_toolbar, text="", background=PALETTE["surface"], foreground=PALETTE["muted"], font=FONTS["base"])
         self._struct_hover.pack(side="left", padx=(10, 0))
         self._struct_fig = Figure(facecolor=PALETTE["surface"])
         self._struct_ax = self._struct_fig.add_subplot(111, projection="3d")
         self._struct_canvas = FigureCanvasTkAgg(self._struct_fig, master=self.structure_tab)
         self._struct_canvas.get_tk_widget().pack(fill="both", expand=True)
-        # clickable preview: hover to read the nearest residue, click to toggle a split there (a left press that barely moves by release is 
-        # a click; a real drag is a view rotation). See _on_struct_* below.
-        self._struct_press_xy = None
+        # hover to read the nearest residue. Deliberately read-only: this preview is rotated and zoomed constantly, so a click that edited
+        # the splits would be far too easy to trigger by accident — splitting by clicking belongs to the structure pane's preview.
         self._struct_canvas.mpl_connect("motion_notify_event", self._on_struct_hover)
-        self._struct_canvas.mpl_connect("button_press_event", self._on_struct_press)
-        self._struct_canvas.mpl_connect("button_release_event", self._on_struct_release)
         self.results.add(self.structure_tab, text="structure")
         self.results.bind("<<NotebookTabChanged>>", lambda _e: self._schedule_preview_update())
 
@@ -821,9 +817,9 @@ class RigidbodyPane(ttk.Frame):
         self._preview_key = None  # force a redraw so the reset takes effect immediately
         self._update_structure_preview()
 
-    # ----- clickable preview --------------------------------------------------
+    # ----- preview readout ----------------------------------------------------
     def _pickable_preview(self):
-        """The preview-structure dict the cursor can pick against, or None: the cached static preview, unless a live run currently owns the 
+        """The preview-structure dict the cursor can pick against, or None: the cached static preview, unless a live run currently owns the
         axis (its coordinates aren't tied to the editable split residues)."""
         return None if self._live_meta is not None else self._preview_cache
 
@@ -834,29 +830,7 @@ class RigidbodyPane(ttk.Frame):
             if self._struct_hover["text"]:
                 self._struct_hover.configure(text="")
             return
-        self._struct_hover.configure(text=f"b{hit['body'] + 1} · residue {hit['residue']} · click to toggle a split")
-
-    def _on_struct_press(self, event):
-        """Record a left-button press so _on_struct_release can tell a click from a view rotation."""
-        self._struct_press_xy = (event.x, event.y) if event.button == 1 else None
-
-    def _on_struct_release(self, event):
-        """A left release that barely moved from the press is a click: toggle a split at the nearest residue."""
-        press_xy, self._struct_press_xy = self._struct_press_xy, None
-        if event.button != 1 or press_xy is None or event.x is None or event.y is None:
-            return
-        if abs(event.x - press_xy[0]) + abs(event.y - press_xy[1]) > plotting.PICK_CLICK_DRAG_TOLERANCE:
-            return
-        hit = nearest_ca_residue(self._struct_ax, self._pickable_preview(), event)
-        if hit is not None:
-            self._toggle_split_residue(hit["residue"])
-
-    def _toggle_split_residue(self, resid: int):
-        """Add `resid` to the Splits field, or remove it if already present (so the preview acts as a toggle). The field's write trace 
-        rewrites the load block and schedules the preview redraw, so no extra work is needed."""
-        current = self._parse_splits(self.splits_var.get())
-        current.remove(resid) if resid in current else current.append(resid)
-        self.splits_var.set(" ".join(str(r) for r in sorted(current)))
+        self._struct_hover.configure(text=f"b{hit['body'] + 1} · residue {hit['residue']}")
 
     # ----- actions ------------------------------------------------------------
     def _set_busy(self, busy: bool, label: str = "Run refinement"):

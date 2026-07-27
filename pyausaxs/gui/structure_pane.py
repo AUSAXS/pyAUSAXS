@@ -61,6 +61,12 @@ _SETUP_RE = re.compile(
     re.DOTALL,
 )
 
+# Constraint declarations, and the staged elements that must be declared before them: the backend indexes constraints (and the symmetry
+# target pool) by body, so it rejects any element changing the set of bodies once a constraint has been declared. See _insert_elements.
+_CONSTRAINT_RE = re.compile(
+    r"(?m)^[ \t]*(?:autoconstraints|autoconstrain|constraint|constrain)\b" + _STALE_TAIL, re.DOTALL)
+_BODY_SET_ELEMENTS = frozenset({"split", "delete", "merge", "convert_to_symmetry", "copy", "copy_body"})
+
 
 def _structure_signature(script: str) -> tuple:
     """A fingerprint of the parts of `script` the structure pane cares about, so staleness is flagged when — and only when — one of them 
@@ -132,23 +138,46 @@ def _parse_split(element: str) -> tuple[str, list[int]] | None:
 
 
 def _insert_elements(base: str, elements: list[str]) -> str:
-    """Return `base` with staged setup elements appended to the existing setup declarations.
+    """Return `base` with staged setup elements inserted among the existing setup declarations.
 
-    The staged list itself remains in the order in which the user applied its elements. Existing setup declarations are left untouched, and
-    the new block is placed after the last one so the resulting script preserves declaration order across the base and staged portions.
+    The staged list itself remains in the order in which the user applied its elements, and existing declarations are left untouched. Two
+    anchors are used, since the two ends of the setup block have opposite requirements:
+
+      * elements that change the set of bodies go immediately *before* the first constraint declaration. Constraints (and the symmetry
+        target pool) are indexed by body, so the backend rejects any body-set change declared after them.
+      * everything else goes *after* the last existing setup declaration, so a staged rename can't precede the symmetry declaration that
+        created the name it renames.
+
+    With no constraints in the base script the two anchors coincide, and the staged block is appended whole.
     """
     if not elements:
         return base
-    block = "".join(f"{e}\n" for e in elements)
     match = _LOAD_BLOCK_RE.search(base)
     if match is None:  # no load block to anchor to: prepend
-        return block + base
-    end = match.end()
+        return "".join(f"{e}\n" for e in elements) + base
+
+    setup_end = match.end()
     existing_setup = list(_SETUP_RE.finditer(base, match.end()))
     if existing_setup:
-        end = existing_setup[-1].end()
-    sep = "" if base[:end].endswith("\n") else "\n"
-    return base[:end] + sep + block + base[end:]
+        setup_end = existing_setup[-1].end()
+    constraint = _CONSTRAINT_RE.search(base, match.end())
+    body_set_at = constraint.start() if constraint else setup_end
+
+    def insert(text: str, at: int, staged: list[str]) -> str:
+        if not staged:
+            return text
+        block = "".join(f"{e}\n" for e in staged)
+        sep = "" if not text[:at] or text[:at].endswith("\n") else "\n"
+        return text[:at] + sep + block + text[at:]
+
+    if body_set_at == setup_end:  # the anchors coincide, so the staged block stays whole and in the order it was applied
+        return insert(base, setup_end, elements)
+
+    body_set, rest = [], []
+    for e in elements:
+        (body_set if e.split()[:1] and e.split()[0] in _BODY_SET_ELEMENTS else rest).append(e)
+    # the later insertion first, so the earlier offset is still valid when it is applied
+    return insert(insert(base, setup_end, rest), body_set_at, body_set)
 
 
 class StructurePane(ttk.Frame):
