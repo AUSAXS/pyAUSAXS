@@ -131,6 +131,7 @@ class RigidbodyPane(ttk.Frame):
         self._autosave_job = None        # pending periodic autosave
         self._data_pane = None           # SaxsDataPane tab for inspecting the SAXS data, or None
         self._structure_pane = None      # StructurePane tab for inspecting/managing bodies, or None
+        self._syncing_splits = False     # set while the Splits field is being filled *from* the script, so it isn't written straight back
 
         # three panes: controls | script editor | results. The editor can expand over the results pane (and collapses again
         # when a refinement is launched).
@@ -294,7 +295,7 @@ class RigidbodyPane(ttk.Frame):
         self.results.bind("<<NotebookTabChanged>>", lambda _e: self._schedule_preview_update())
 
         # now that the preview exists, drive it live from the Splits field and draw it once
-        self.splits_var.trace_add("write", lambda *_: self._set_load_directive("split", self.splits_var.get()))
+        self.splits_var.trace_add("write", lambda *_: self._on_splits_edited())
         self.after(60, self._restore_split)
         self.after(80, self._update_structure_preview)
         self._autosave_job = self.after(self._AUTOSAVE_INTERVAL_MS, self._autosave_script)
@@ -367,10 +368,12 @@ class RigidbodyPane(ttk.Frame):
         self._structure_pane = None
 
     def _apply_structure_script(self, new_script: str):
-        """Replace the editor's script with one carrying the structure pane's body changes, then refresh highlighting and the preview and 
+        """Replace the editor's script with one carrying the structure pane's body changes, then refresh highlighting and the preview and
         switch focus back to this pane."""
         self.editor.delete("1.0", "end")
         self.editor.insert("1.0", new_script)
+        # the structure pane can re-split the load block ("Split at residues"), which leaves the Splits field showing the old value
+        self._sync_splits_field()
         self.highlighter.highlight()
         self._schedule_preview_update()
         self.master.select(self)
@@ -627,11 +630,27 @@ class RigidbodyPane(ttk.Frame):
         saxs = self._load_value("saxs")
         if saxs:
             self.saxs_field.set(saxs)
-        split = self._load_value("split")
-        if split:
-            # at boot the splits trace isn't attached yet; on a later load it is, but it only writes
-            # the identical value straight back, so the script's substance is unchanged
-            self.splits_var.set(split)
+        self._sync_splits_field()
+
+    def _sync_splits_field(self):
+        """Mirror the script's load-block `split` back into the Splits field. The field is normally the source and the script the sink, so
+        this is only for the cases where the script is replaced wholesale (restored from the cache, loaded from a file, or written back by
+        the structure pane) and the field would otherwise be left showing the previous splits. The write-back trace is suppressed for the
+        update: the value already came from the script, so writing it back would only reformat the load block."""
+        value = self._load_value("split") or ""
+        if value.strip() == self.splits_var.get().strip():
+            return
+        self._syncing_splits = True
+        try:
+            self.splits_var.set(value)
+        finally:
+            self._syncing_splits = False
+
+    def _on_splits_edited(self):
+        """Push an edit of the Splits field into the script's load block, unless the field is itself being filled from the script."""
+        if self._syncing_splits:
+            return
+        self._set_load_directive("split", self.splits_var.get())
 
     # ----- script helpers -----------------------------------------------------
     def _set_load_directive(self, directive: str, value: str):
