@@ -47,17 +47,19 @@ _SUBOPTION_INDENT = 16  # px a folded-out display sub-option is inset from its p
 # inside a symmetry/constraint block counts too. Longer keywords precede the prefixes they contain.
 _STALE_TAIL = r"(?:[ \t]*\{.*?\}|[^\n]*)"
 _STALE_RE = re.compile(
-    r"(?m)^[ \t]*(?:load[ \t]*\{.*?\}|"
-    r"(?:merge|delete|rename|convert_to_symmetry|symmetry|constraint|constrain"
-    r"|autoconstraints|autoconstrain|copy_body|copy|split)\b" + _STALE_TAIL + r")",
+    r"(?m)^(?:[ \t]*(?:load[ \t]*\{.*?\}|"
+    r"(?:merge|delete|rename|convert_to_symmetry|constraint|constrain"
+    r"|autoconstraints|autoconstrain|copy_body|copy|split)\b)" + _STALE_TAIL
+    + r"|symmetry\b" + _STALE_TAIL + r")",
     re.DOTALL,
 )
 
 # Setup elements are emitted in declaration order by the backend. Newly staged structure-pane elements must therefore be appended after existing
 # setup elements rather than blindly inserted immediately after `load`; otherwise a staged rename can precede an existing symmetry declaration.
 _SETUP_RE = re.compile(
-    r"(?m)^[ \t]*(?:merge|delete|rename|convert_to_symmetry|symmetry|constraint|constrain"
-    r"|autoconstraints|autoconstrain|copy_body|copy|split)\b" + _STALE_TAIL,
+    r"(?m)^(?:[ \t]*(?:merge|delete|rename|convert_to_symmetry|constraint|constrain"
+    r"|autoconstraints|autoconstrain|copy_body|copy|split)\b" + _STALE_TAIL
+    + r"|symmetry\b" + _STALE_TAIL + r")",
     re.DOTALL,
 )
 

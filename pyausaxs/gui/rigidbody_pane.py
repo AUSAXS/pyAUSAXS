@@ -67,10 +67,11 @@ _LINE_START = r"^[ \t]*"
 
 # `load { ... }` — the mandatory brace block listing the bodies to refine
 _LOAD_BLOCK_RE = re.compile(f"load{_MANDATORY_BLOCK_FORMAT}", re.DOTALL)
-# a 'symmetry' element: either a brace block (symmetry { ... }) or a single inline line
-# (symmetry c6 / symmetry b1 c6), anchored to the first token on a line
+# a top-level 'symmetry' element: either a brace block (symmetry { ... }) or a single inline line
+# (symmetry c6 / symmetry b1 c6), anchored to column zero so parameter_generator's indented
+# `symmetry 1` value is not treated as a structural update
 _SYMMETRY_RE = re.compile(
-    rf"{_LINE_START}symmetry\b{_OPTIONAL_BLOCK_FORMAT}", re.MULTILINE | re.DOTALL
+    rf"^symmetry\b{_OPTIONAL_BLOCK_FORMAT}", re.MULTILINE | re.DOTALL
 )
 # a constraint element — autoconstrain/autoconstraints (inline) or constrain/constraint
 # (inline or a brace block) — anchored to the first token on a line. The whole { ... } block
