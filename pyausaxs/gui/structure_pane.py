@@ -402,14 +402,14 @@ class StructurePane(ttk.Frame):
             ready_check=lambda entry: bool(entry.get()) or len(self._selected_body_names()) >= 1,
         )
 
-        # --- symmetry: two distinct operations, the more common one (adding a symmetry to a single body) on top, decomposing several bodies 
-        # into a shared symmetry below
+        # --- symmetry: two distinct operations, the more common one (adding a symmetry to a single body) on top, decomposing one or more
+        # bodies into a shared, fitted symmetry below (a single body is split into copies itself; several are treated as ready-made copies)
         sym = self._section(parent, "Symmetry", expanded=False).body
         self._sym_add_entry = self._action_row(
             sym, "Add symmetry to a body", "body type", self._apply_add_symmetry, button="Apply"
         )
         self._sym_convert_entry = self._action_row(
-            sym, "Decompose bodies into a symmetry", "bodies... type", self._apply_convert_symmetry, button="Convert",
+            sym, "Decompose bodies into a symmetry", "body(s)... type", self._apply_convert_symmetry, button="Convert",
             advanced="tolerance (default 2.0 Å)"
         )
 
@@ -1314,13 +1314,18 @@ class StructurePane(ttk.Frame):
         self._sym_add_entry.clear()
 
     def _apply_convert_symmetry(self):
-        """Decompose several bodies into one shared symmetry, collapsing the copies into the first body plus a fitted symmetry:
-        `convert_to_symmetry { type <type> bodies <b…> }`. Typing just the type is enough when two or more whole bodies are selected
-        in the Bodies list. An optional tolerance (Å) typed into the field tucked behind the chevron overrides the backend's default
-        when the assembly's residual RMSD to the fitted symmetry is just barely out of range."""
-        tokens = self._with_selected_bodies(self._sym_convert_entry, minimum=2)
-        if len(tokens) < 3:
-            self._set_status("Decomposing needs at least two bodies and a type, e.g. b1 b2 c2.", ok=False)
+        """Decompose one or more bodies into one shared symmetry, collapsing the copies into the first body plus a fitted symmetry:
+        `convert_to_symmetry { type <type> bodies <b…> }`. A single body is fitted directly — the backend splits it into the
+        symmetry's own copy count itself, rather than needing several bodies handed to it as ready-made copies. Typing just the type
+        is enough when one or more whole bodies are selected in the Bodies list, or — with only one body in the whole system —
+        with nothing selected at all, since decomposing it is then the only sensible target. An optional tolerance (Å) typed into
+        the field tucked behind the chevron overrides the backend's default when the assembly's residual RMSD to the fitted
+        symmetry is just barely out of range."""
+        tokens = self._with_selected_bodies(self._sym_convert_entry, minimum=1)
+        if len(tokens) == 1 and len(self._bodies) == 1:
+            tokens = [self._bodies[0]["name"]] + tokens
+        if len(tokens) < 2:
+            self._set_status("Decomposing needs at least one body and a type, e.g. b1 c2.", ok=False)
             return
         *bodies, sym = tokens
         tolerance = self._sym_convert_entry.advanced.get().strip()
