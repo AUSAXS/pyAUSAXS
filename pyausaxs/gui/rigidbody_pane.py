@@ -17,7 +17,7 @@ from .panes import (
     make_on_load_structure, make_on_load_saxs,
     find_data_pane, release_data_pane,
 )
-from .plotting import draw_structure, fit_figure_from_curves
+from .plotting import draw_structure, nearest_ca_residue, fit_figure_from_curves
 from .runner import RigidbodyRunner
 from .structure_pane import StructurePane
 from .theme import FONTS, PALETTE
@@ -85,11 +85,17 @@ _UPDATE_RE = re.compile(rf"{_LINE_START}update\b", re.MULTILINE)
 # the top-level 'output' directive (output <dir>), captured as (prefix, path) so the path can be
 # rewritten to an absolute one at boot
 _OUTPUT_RE = re.compile(rf"({_LINE_START}output{_TABS_OR_SPACES})(\S+)", re.MULTILINE)
-# structurally relevant elements: the load block, symmetry block, constraint blocks, and delete element. 
-# Used to determine whether a script edit should trigger a preview redraw.
+# a top-level 'split' element: `split <body> <ids…>` on its own line. This is the sequencer element that
+# partitions an already-loaded body into new bodies at the given residue ids (distinct from the load-block
+# 'split' directive, which lists ids for the load-time BodySplitter). Both change the body set, so both must
+# refresh the preview; anchored to the first token on a line so it won't match 'splitter' or a mid-line word.
+_SPLIT_RE = re.compile(rf"{_LINE_START}split\b[^\n]*", re.MULTILINE)
+# structurally relevant elements: the load block, symmetry block, constraint blocks, delete element, and the
+# split element. Used to determine whether a script edit should trigger a preview redraw.
 _DELETE_RE = re.compile(rf"{_LINE_START}delete\b{_OPTIONAL_BLOCK_FORMAT}", re.MULTILINE | re.DOTALL)
 _STRUCTURALLY_RELEVANT_RE = re.compile(
-    rf"(?:{_LOAD_BLOCK_RE.pattern}|{_SYMMETRY_RE.pattern}|{_CONSTRAINT_RE.pattern}|{_DELETE_RE.pattern})", re.MULTILINE | re.DOTALL
+    rf"(?:{_LOAD_BLOCK_RE.pattern}|{_SYMMETRY_RE.pattern}|{_CONSTRAINT_RE.pattern}|{_DELETE_RE.pattern}|{_SPLIT_RE.pattern})",
+    re.MULTILINE | re.DOTALL
 )
 
 
@@ -135,13 +141,13 @@ class RigidbodyPane(ttk.Frame):
         controls.pack_propagate(False)
         self.outer.add(controls, weight=0)
 
-        # the Input fields are a shortcut for editing the script's load block: each one writes only its own directive. The
-        # script itself is always the authority.
+        # the Input fields are a shortcut for editing the script's load block: each one writes only its own directive. The script itself 
+        # is always the authority.
         input_frame = ttk.Labelframe(controls, text="Input", padding=12)
         input_frame.pack(fill="x")
 
-        # each field carries its own inspection button: the structure opens the manage-structure
-        # tab, the SAXS field opens the data tab. Both light up only once the path is valid.
+        # each field carries its own inspection button: the structure opens the manage-structure tab, the SAXS field opens the data tab. 
+        # Both light up only once the path is valid.
         self.structure_field = FileField(
             input_frame, "Structure",
             validator=_make_validator(STRUCTURE_EXTENSIONS, "_is_pdb_file"),
@@ -193,12 +199,10 @@ class RigidbodyPane(ttk.Frame):
 
         editor_frame = ttk.Labelframe(editor_pane, padding=(2, 4))
         editor_frame.pack(side="left", fill="both", expand=True)
-        # Replace the labelframe's plain text title with a custom row so a reset cross can sit at its right end, on the same line
-        # as the "Refinement script" text.
+        # Replace the labelframe's plain text title with a custom row so a reset cross can sit at its right end, on the same line as the "Refinement script" text.
         title_row = ttk.Frame(editor_frame)
         ttk.Label(title_row, text="Refinement script", style="Heading.TLabel").pack(side="left")
-        # right-aligned icon actions. Packed right-to-left, so the visual order is load, save, clear,
-        # with the destructive reset cross furthest right.
+        # right-aligned icon actions. Packed right-to-left, so the visual order is load, save, clear, with the destructive reset cross furthest right.
         self.reset_button = self._make_icon_button(
             title_row, "✕", self._reset_clicked, "Reset to the default script",
             color=PALETTE["danger"], hover=PALETTE["danger_hover"], bold=True)
@@ -244,9 +248,8 @@ class RigidbodyPane(ttk.Frame):
         cached_script = self._load_cached_script()
         self.editor.insert("1.0", cached_script or DEFAULT_RIGIDBODY_SCRIPT)
         if cached_script is not None:
-            # the cached script may have been written from a different working directory; resolve
-            # its relative file paths against that directory so they still point at the right files,
-            # then mirror the load block into the Input fields once (later edits don't propagate back)
+            # the cached script may have been written from a different working directory; resolve its relative file paths against that directory 
+            # so they still point at the right files, then mirror the load block into the Input fields once (later edits don't propagate back)
             self._absolutize_script_paths(self._last_launch_directory())
             self._populate_inputs_from_script()
         self._last_saved_script = self.editor.get("1.0", "end-1c")
@@ -267,8 +270,7 @@ class RigidbodyPane(ttk.Frame):
         self.results = ttk.Notebook(self.results_pane)
         self.results.pack(fill="both", expand=True)
 
-        # a persistent "structure" tab: a 3D Cα backbone with the split residues in red,
-        # kept across runs (the fit tabs are added alongside it)
+        # a persistent "structure" tab: a 3D Cα backbone with the split residues in red, kept across runs (the fit tabs are added alongside it)
         self.structure_tab = tk.Frame(self.results, background=PALETTE["surface"])
         struct_toolbar = tk.Frame(self.structure_tab, background=PALETTE["surface"])
         struct_toolbar.pack(side="top", fill="x", padx=4, pady=(2, 0))
@@ -277,10 +279,16 @@ class RigidbodyPane(ttk.Frame):
         )
         home_btn.configure(font=(FONTS["base"][0], 18), padding=(10, 0))
         home_btn.pack(side="left", padx=2, pady=2)
+        # readout of the residue under the cursor
+        self._struct_hover = tk.Label(struct_toolbar, text="", background=PALETTE["surface"], foreground=PALETTE["muted"], font=FONTS["base"])
+        self._struct_hover.pack(side="left", padx=(10, 0))
         self._struct_fig = Figure(facecolor=PALETTE["surface"])
         self._struct_ax = self._struct_fig.add_subplot(111, projection="3d")
         self._struct_canvas = FigureCanvasTkAgg(self._struct_fig, master=self.structure_tab)
         self._struct_canvas.get_tk_widget().pack(fill="both", expand=True)
+        # hover to read the nearest residue. Deliberately read-only: this preview is rotated and zoomed constantly, so a click that edited
+        # the splits would be far too easy to trigger by accident — splitting by clicking belongs to the structure pane's preview.
+        self._struct_canvas.mpl_connect("motion_notify_event", self._on_struct_hover)
         self.results.add(self.structure_tab, text="structure")
         self.results.bind("<<NotebookTabChanged>>", lambda _e: self._schedule_preview_update())
 
@@ -289,8 +297,8 @@ class RigidbodyPane(ttk.Frame):
         self.after(60, self._restore_split)
         self.after(80, self._update_structure_preview)
         self._autosave_job = self.after(self._AUTOSAVE_INTERVAL_MS, self._autosave_script)
-        # carry the preview camera to/from the structure pane as the user switches top-level tabs;
-        # add="+" so we don't clobber the tab-persistence binding the main window installs
+        # carry the preview camera to/from the structure pane as the user switches top-level tabs; add="+" so we don't clobber the 
+        # tab-persistence binding the main window installs
         self.master.bind("<<NotebookTabChanged>>", self._on_toplevel_tab_changed, add="+")
         enable_file_drop(
             self, [self.structure_field, self.saxs_field],
@@ -308,9 +316,8 @@ class RigidbodyPane(ttk.Frame):
         self.console.append("Drag-and-drop didn't register — please try dropping the file again.\n")
 
     def _open_data_pane(self):
-        """Open (or focus) a data-inspection tab for the current SAXS file. Rebuilt if the
-        file has changed since it was opened; the rigid-body run is script-driven, so this
-        is purely for inspecting the data."""
+        """Open (or focus) a data-inspection tab for the current SAXS file. Rebuilt if the file has changed since it was opened; the 
+        rigid-body run is script-driven, so this is purely for inspecting the data."""
         path = self.saxs_field.get()
         if not path:
             return
@@ -329,8 +336,8 @@ class RigidbodyPane(ttk.Frame):
 
     # ----- structure pane management ------------------------------------------
     def _open_structure_pane(self):
-        """Open (or focus) the structure-management tab for the current PDB. It reads the live
-        script as its base and writes confirmed body changes back into the editor."""
+        """Open (or focus) the structure-management tab for the current PDB. It reads the live script as its base and writes confirmed body 
+        changes back into the editor."""
         path = self.structure_field.get() or (self._load_value("pdb") or "")
         if not path:
             return
@@ -359,8 +366,8 @@ class RigidbodyPane(ttk.Frame):
         self._structure_pane = None
 
     def _apply_structure_script(self, new_script: str):
-        """Replace the editor's script with one carrying the structure pane's body changes, then
-        refresh highlighting and the preview and switch focus back to this pane."""
+        """Replace the editor's script with one carrying the structure pane's body changes, then refresh highlighting and the preview and 
+        switch focus back to this pane."""
         self.editor.delete("1.0", "end")
         self.editor.insert("1.0", new_script)
         self.highlighter.highlight()
@@ -418,9 +425,9 @@ class RigidbodyPane(ttk.Frame):
     # ----- syntax highlighting ------------------------------------------------
     @staticmethod
     def _fetch_vocabulary() -> tuple[set, set]:
-        """Ask the backend for the valid script elements, split into line operations (the dict keys) and argument
-        keywords (values not themselves keys), mirroring the Qt setValidElements logic. Returns empty sets if the
-        backend is unavailable, in which case the highlighter still colours scopes/comments but flags nothing."""
+        """Ask the backend for the valid script elements, split into line operations (the dict keys) and argument keywords (values not 
+        themselves keys), mirroring the Qt setValidElements logic. Returns empty sets if the backend is unavailable, in which case the 
+        highlighter still colours scopes/comments but flags nothing."""
         try:
             from ..wrapper.Rigidbody import Rigidbody
             mapping = Rigidbody.get_valid_elements_and_arguments()
@@ -476,8 +483,7 @@ class RigidbodyPane(ttk.Frame):
         self._save_script()  # persist immediately so the default survives a restart
 
     def _make_icon_button(self, parent, glyph, command, tooltip, color=None, hover=None, bold=False):
-        """A clickable glyph styled like the reset cross: muted by default, brightening on hover,
-        with a tooltip (icon-only buttons need a label somewhere)."""
+        """A clickable glyph styled like the reset cross: muted by default, brightening on hover, with a tooltip (icon-only buttons need a label somewhere)."""
         color = color or PALETTE["muted"]
         hover = hover or PALETTE["text"]
         font = (FONTS["base"][0], 12, "bold") if bold else (FONTS["base"][0], 12)
@@ -490,8 +496,8 @@ class RigidbodyPane(ttk.Frame):
 
     # ----- load / save the script to a file (independent of the cache) --------
     def _save_to_file_clicked(self):
-        """Save the current script to a user-chosen file. This is separate from the cache: the periodic cache autosave 
-        continues untouched, and the file we write here is never overwritten by it."""
+        """Save the current script to a user-chosen file. This is separate from the cache: the periodic cache autosave continues untouched, 
+        and the file we write here is never overwritten by it."""
         path = filedialog.asksaveasfilename(
             parent=self, title="Save refinement script", defaultextension=".conf",
             initialdir=os.path.dirname(self._script_file_path) if self._script_file_path else None,
@@ -577,14 +583,14 @@ class RigidbodyPane(ttk.Frame):
     # ----- boot: restore paths and Input fields -------------------------------
     @staticmethod
     def _last_launch_directory() -> str:
-        """The directory the GUI was last launched from, used to resolve relative paths in the
-        cached script. Falls back to the current directory when no config has been written yet."""
+        """The directory the GUI was last launched from, used to resolve relative paths in the cached script. Falls back to the current 
+        directory when no config has been written yet."""
         from .session import load_config
         return load_config().get("last_launch_directory") or os.getcwd()
 
     def _absolutize_script_paths(self, base_dir: str):
-        """Rewrite the script's relative file paths (the load block's pdb/saxs and the top-level
-        output directive) into absolute paths anchored at `base_dir`. Absolute paths are left as-is."""
+        """Rewrite the script's relative file paths (the load block's pdb/saxs and the top-level output directive) into absolute paths 
+        anchored at `base_dir`. Absolute paths are left as-is."""
         def absolutize(path: str) -> str:
             path = path.strip()
             if not path or os.path.isabs(path):
@@ -611,10 +617,9 @@ class RigidbodyPane(ttk.Frame):
             self.highlighter.highlight()
 
     def _populate_inputs_from_script(self):
-        """Mirror the script's load block into the Input fields as a one-shot fill — run when a script
-        is restored from the cache at boot or loaded from a file. The fields are passive afterwards:
-        the file fields set here fire no commit callback, and later script edits don't propagate back,
-        so the script stays the single source of truth."""
+        """Mirror the script's load block into the Input fields as a one-shot fill — run when a script is restored from the cache at boot 
+        or loaded from a file. The fields are passive afterwards: the file fields set here fire no commit callback, and later script edits 
+        don't propagate back, so the script stays the single source of truth."""
         pdb = self._load_value("pdb")
         if pdb:
             self.structure_field.set(pdb)
@@ -629,10 +634,9 @@ class RigidbodyPane(ttk.Frame):
 
     # ----- script helpers -----------------------------------------------------
     def _set_load_directive(self, directive: str, value: str):
-        """Write a single load directive (pdb/saxs/split) into the script's load block, replacing any existing line for
-        that directive and leaving the rest of the script untouched. An empty value removes the directive. If no load
-        block exists, one is created. This only ever fires when the user directly commits an Input field, so a
-        hand-edited script is never silently overwritten."""
+        """Write a single load directive (pdb/saxs/split) into the script's load block, replacing any existing line for that directive and 
+        leaving the rest of the script untouched. An empty value removes the directive. If no load block exists, one is created. This only 
+        ever fires when the user directly commits an Input field, so a hand-edited script is never silently overwritten."""
         value = value.strip()
         text = self.editor.get("1.0", "end-1c")
         match = _LOAD_BLOCK_RE.search(text)
@@ -653,8 +657,7 @@ class RigidbodyPane(ttk.Frame):
 
     @staticmethod
     def _rewrite_directive(block: str, directive: str, value: str) -> str:
-        """Return the load block with `directive` set to `value` (or removed if empty),
-        preserving every other directive line and their order."""
+        """Return the load block with `directive` set to `value` (or removed if empty), preserving every other directive line and their order."""
         inner = re.match(r"load\s*\{(.*)\}", block, re.DOTALL).group(1)
         keyword = re.compile(rf"^\s*{re.escape(directive)}\b")
         new_line = f"{directive} {value}" if value else None
@@ -696,6 +699,16 @@ class RigidbodyPane(ttk.Frame):
             return []
         return [int(t) for t in re.split(r"[,\s]+", value.strip()) if t.isdigit()]
 
+    def _split_residues(self, script: str) -> list[int]:
+        """Residue ids to highlight as split points in the preview: the load-block `split` directive (load-time BodySplitter) together with 
+        every top-level `split` element (which partitions an already-loaded body). Both forms carry residue ids; non-numeric tokens such as 
+        the element's body name or the `split` keyword itself are ignored by _parse_splits, and draw_structure deduplicates, so a residue 
+        matched by both forms is marked once."""
+        ids = self._parse_splits(self._load_value("split"))
+        for m in _SPLIT_RE.finditer(script):
+            ids += self._parse_splits(m.group(0))
+        return ids
+
     def _schedule_preview_update(self):
         """Debounce preview redraws so rapid edits (e.g. typing splits) stay smooth."""
         if not hasattr(self, "_struct_ax"):
@@ -706,15 +719,13 @@ class RigidbodyPane(ttk.Frame):
 
     @staticmethod
     def _structural_signature(script: str) -> tuple:
-        """Distil the parts of the script that affect the preview — the load block, any symmetry elements,
-        constraint lines, and delete elements — so edits to unrelated lines (iterations, print, save, ...)
-        don't trigger a redraw or a backend rebuild."""
+        """Distil the parts of the script that affect the preview — the load block, any symmetry elements, constraint lines, and delete elements 
+        — so edits to unrelated lines (iterations, print, save, ...) don't trigger a redraw or a backend rebuild."""
         return tuple(m.group(0) for m in _STRUCTURALLY_RELEVANT_RE.finditer(script))
 
     def _preview_data(self, script: str, sig: tuple):
-        """Build the rigid body from the current script and return its preview structure
-        (coords + per-atom body/copy/residue/Cα metadata), or None if it can't be built. Cached on
-        the structural signature; skipped while a refinement runs to avoid a concurrent backend call."""
+        """Build the rigid body from the current script and return its preview structure (coords + per-atom body/copy/residue/Cα metadata), or 
+        None if it can't be built. Cached on the structural signature; skipped while a refinement runs to avoid a concurrent backend call."""
         if self.runner.running():
             return None
         if sig != self._preview_cache_key:
@@ -736,7 +747,7 @@ class RigidbodyPane(ttk.Frame):
         if self._live_meta is not None:
             return  # a live run owns the preview axis; don't draw the static preview over it
         script = self.editor.get("1.0", "end-1c")
-        splits = self._parse_splits(self._load_value("split"))
+        splits = self._split_residues(script)
 
         # redraw only when the load or symmetry elements change; everything else is ignored
         sig = self._structural_signature(script)
@@ -787,9 +798,8 @@ class RigidbodyPane(ttk.Frame):
             self._struct_ax.view_init(elev=elev, azim=azim)
 
     def _on_toplevel_tab_changed(self, _event=None):
-        """When the user switches to the structure pane, hand it this preview's camera angle; when
-        they switch back here, adopt the structure pane's. Gives the illusion of a shared camera
-        without keeping the two figures in lock-step."""
+        """When the user switches to the structure pane, hand it this preview's camera angle; when they switch back here, adopt the 
+        structure pane's. Gives the illusion of a shared camera without keeping the two figures in lock-step."""
         if self._structure_pane is None:
             return
         selected = self.master.select()
@@ -806,6 +816,21 @@ class RigidbodyPane(ttk.Frame):
         self._last_valid_lims = None
         self._preview_key = None  # force a redraw so the reset takes effect immediately
         self._update_structure_preview()
+
+    # ----- preview readout ----------------------------------------------------
+    def _pickable_preview(self):
+        """The preview-structure dict the cursor can pick against, or None: the cached static preview, unless a live run currently owns the
+        axis (its coordinates aren't tied to the editable split residues)."""
+        return None if self._live_meta is not None else self._preview_cache
+
+    def _on_struct_hover(self, event):
+        """Show the residue under the cursor in the toolbar readout (or clear it over empty space)."""
+        hit = nearest_ca_residue(self._struct_ax, self._pickable_preview(), event)
+        if hit is None:
+            if self._struct_hover["text"]:
+                self._struct_hover.configure(text="")
+            return
+        self._struct_hover.configure(text=f"b{hit['body'] + 1} · residue {hit['residue']}")
 
     # ----- actions ------------------------------------------------------------
     def _set_busy(self, busy: bool, label: str = "Run refinement"):
@@ -849,8 +874,8 @@ class RigidbodyPane(ttk.Frame):
     _LIVE_POLL_MS = 200
 
     def _begin_live_preview(self, script: str):
-        """If the script contains an `update` element, build the backbone mask once (atom order is
-        fixed after setup) so live frames can reuse it, and surface the structure tab."""
+        """If the script contains an `update` element, build the backbone mask once (atom order is fixed after setup) so live frames can 
+        reuse it, and surface the structure tab."""
         self._live_meta = None
         self._live_version = 0
         if not _UPDATE_RE.search(script):
@@ -880,7 +905,7 @@ class RigidbodyPane(ttk.Frame):
         lims = [ax.get_xlim(), ax.get_ylim(), ax.get_zlim()]
         ax.clear()
         ax.set_axis_off()
-        draw_structure(ax, data, self._parse_splits(self._load_value("split")))
+        draw_structure(ax, data, self._split_residues(self.editor.get("1.0", "end-1c")))
         self._struct_fig.set_layout_engine("tight")
         self._struct_canvas.draw_idle()
         ax.set_xlim(lims[0])
@@ -903,8 +928,8 @@ class RigidbodyPane(ttk.Frame):
 
     @staticmethod
     def _backend_message(err) -> str:
-        """Strip the wrapper that _check_error_code adds (`AUSAXS: "fn" failed with error code N: "..."`), leaving
-        just the backend's own message. Non-matching exceptions (e.g. library-unavailable) are returned unchanged."""
+        """Strip the wrapper that _check_error_code adds (`AUSAXS: "fn" failed with error code N: "..."`), leaving just the backend's own 
+        message. Non-matching exceptions (e.g. library-unavailable) are returned unchanged."""
         match = re.match(r'^AUSAXS: ".*?" failed with error code \d+:\s*"(.*)"\s*$', str(err), re.DOTALL)
         return match.group(1) if match else str(err)
 

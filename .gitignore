@@ -4,3 +4,4 @@ pyproject.toml
 *.egg-info
 build
 .vscode
+output

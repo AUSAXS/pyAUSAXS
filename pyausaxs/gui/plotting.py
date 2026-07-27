@@ -7,6 +7,7 @@ import matplotlib as mpl
 import numpy as np
 from matplotlib.figure import Figure
 from mpl_toolkits import mplot3d  # noqa: F401  (registers the '3d' projection)
+from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
 from ..plot.plot_helper import (
     PlotType, Dataset, Hline, Vline,
@@ -243,11 +244,66 @@ def pretty_plot_name(stem: str) -> str:
 # distinct body colours, deliberately excluding red (reserved for the split residues)
 _BODY_COLORS = ["#4a7dbd", "#e89a3c", "#46a86c", "#9467bd", "#17becf", "#8c564b", "#bcbd22", "#7f7f7f"]
 
+# "residue" colouring ramp. turbo spans the full hue range without wrapping, so the first and last residue of the ramp stay
+# distinguishable (hsv would return to red) and there is no jet-style banding. Its outermost tenth is near-black at both ends
+# and is trimmed off, which keeps the terminal residues as legible as the rest of the chain.
+_RESIDUE_CMAP = mpl.colormaps["turbo"]
+_RESIDUE_RAMP = (0.08, 0.92)
+_RESIDUE_UNRAMPED = "#8a8f98"   # bodies outside the selection, which the ramp does not span
+
+
+# ── interactive split-picking (hover + click) ──────────────────────────────────────────────────────────────
+# Manual-tuning knobs for the clickable preview, kept as module globals so they can be adjusted in one place
+# without touching the picking logic. (Imported by value into the panes, so edits take effect on the next launch.)
+PICK_PIXEL_RADIUS = 18          # max cursor→Cα distance, in screen pixels, that still counts as a hover/click hit
+PICK_CLICK_DRAG_TOLERANCE = 4   # total px the cursor may move between press and release to still count as a click
+                                # (rather than a view rotation); larger = more forgiving, but easier to misfire
+SELECTION_COLOR = "#ff44cc"     # highlight colour for click-selected residues (distinct from split-red and the body palette)
+SELECTION_MARKER_RADIUS = 2.0   # radius (Å, data units) of the selected-residue spheres; data-unit so they don't
+                                # balloon when the view is zoomed out
+
+
+def nearest_ca_residue(ax, data: dict, event):
+    """Nearest drawable Cα to the mouse cursor, for hover/click residue picking on a 3D preview axis.
+
+    Projects every copy-0 Cα atom in `data` (a preview-structure dict; see Rigidbody.preview_structure) to screen pixels using the axis's 
+    *current* projection — so it stays correct after the view is rotated or zoomed — and returns the one closest to the cursor as 
+    {"residue": int, "body": int}, or None when the cursor is over empty space (nothing within PICK_PIXEL_RADIUS) or off the axis. Only copy-0 
+    (original, non-symmetry) Cα atoms with a known residue id are considered: those are the residues a split boundary can actually be placed at."""
+    if data is None or getattr(event, "inaxes", None) is not ax:
+        return None
+    mask = data["is_ca"] & (data["copy"] == 0) & (data["residue_seq"] >= 0)
+    if not mask.any():
+        return None
+    pts = data["coords"][mask]
+    res = data["residue_seq"][mask]
+    bodies = data["body"][mask]
+
+    # 3D -> projected 2D data coords -> display (pixel) coords, via the standard mplot3d projection recipe
+    from mpl_toolkits.mplot3d import proj3d
+    xs, ys, _ = proj3d.proj_transform(pts[:, 0], pts[:, 1], pts[:, 2], ax.get_proj())
+    disp = ax.transData.transform(np.column_stack([xs, ys]))
+    d = np.hypot(disp[:, 0] - event.x, disp[:, 1] - event.y)
+    i = int(np.argmin(d))
+    if d[i] > PICK_PIXEL_RADIUS:
+        return None
+    return {"residue": int(res[i]), "body": int(bodies[i])}
+
+
+def residue_bodies(data: dict, residues) -> set[int]:
+    """Body indices the given residue ids lie in, over the same copy-0 Cα atoms residue picking considers. Read from the current preview
+    data rather than remembered from pick time, so a rebuild that reshuffles bodies (a merge, a re-split) is reflected."""
+    if data is None or not len(residues):
+        return set()
+    mask = data["is_ca"] & (data["copy"] == 0) & np.isin(data["residue_seq"], sorted(residues))
+    return {int(b) for b in data["body"][mask]}
+
 
 def draw_structure(ax, data: dict, split_residues: list[int], *,
                    show_atoms: bool = False, show_copies: bool = True, show_backbone: bool = True,
                    show_constraints: bool = True, highlight: set[tuple[int, int | None]] | None = None,
-                   color_by: str = "body", body_names: dict[int, str] | None = None):
+                   color_by: str = "body", body_names: dict[int, str] | None = None,
+                   selected_residues=None):
     """Draw a rigid-body structure preview on a 3D axis from a backend preview-structure dict (see Rigidbody.preview_structure).
     The Cα backbone is drawn per body (one colour each) with symmetry copies faded, and the split residues marked in red.
     Authoritative body/Cα/residue metadata comes from the backend, so it works for wildcards, multi-file loads and symmetry alike.
@@ -261,7 +317,9 @@ def draw_structure(ax, data: dict, split_residues: list[int], *,
         highlight         — a set of (body, copy) selectors to keep lit while everything else is dimmed
                            (copy=None selects the whole body, i.e. every one of its copies); empty/None
                            means nothing is dimmed
-        color_by         — "body" (a colour per body) or "copy" (a colour per symmetry copy)
+        color_by         — "body" (a colour per body), "copy" (a colour per symmetry copy), or "residue" (a
+                           rainbow along the Cα chain). In "residue" mode the ramp spans the highlighted bodies
+                           only, if any; everything else is drawn in a neutral out-of-ramp grey.
         body_names       — body index -> display name, used to label bodies with no Cα atoms (falls back
                            to "b{index+1}" for any body missing from the mapping)
     """
@@ -279,8 +337,30 @@ def draw_structure(ax, data: dict, split_residues: list[int], *,
         return (b, None) not in highlight and (b, c) not in highlight
 
     def _colour(b: int, c: int) -> str:
+        if color_by == "residue":
+            return _RESIDUE_UNRAMPED  # atoms off the Cα trace have no place on the chain, so no hue to take
         idx = c if color_by == "copy" else b
         return _BODY_COLORS[idx % len(_BODY_COLORS)]
+
+    # Position of each Cα along its own copy's chain, in atom order, which is what the "residue" ramp runs over. Raw residue ids are
+    # unusable here: they restart per chain, so a multi-file structure would repeat the ramp.
+    chain_pos = np.full(len(coords), -1)
+    ramp_lo, ramp_span = 0.0, 1.0
+    if color_by == "residue":
+        for c in sorted(set(copy[is_ca].tolist())):
+            m = is_ca & (copy == c)
+            chain_pos[m] = np.arange(int(m.sum()))
+        # the ramp spans the highlighted bodies only, so selecting a few bodies stretches the full rainbow over them
+        ramped = is_ca & (copy == 0)
+        if highlight:
+            ramped &= np.isin(body, sorted({b for b, _c in highlight}))
+        if ramped.any():
+            ramp_lo = float(chain_pos[ramped].min())
+            ramp_span = max(float(chain_pos[ramped].max()) - ramp_lo, 1.0)
+
+    def _residue_colours(mask) -> np.ndarray:
+        lo, hi = _RESIDUE_RAMP
+        return _RESIDUE_CMAP(lo + (hi - lo) * np.clip((chain_pos[mask] - ramp_lo) / ramp_span, 0.0, 1.0))
 
     # optional faint all-atom cloud, drawn beneath the backbone; copies included only if shown. only the selected bodies are drawn 
     # (all of them, if nothing is selected) to keep a multi-body structure from turning into an unreadable point cloud.
@@ -304,7 +384,8 @@ def draw_structure(ax, data: dict, split_residues: list[int], *,
         for c in sorted(set(copy[is_ca & (body == b)].tolist())):
             if not show_copies and c != 0:
                 continue
-            pts = coords[is_ca & (body == b) & (copy == c)]
+            m = is_ca & (body == b) & (copy == c)
+            pts = coords[m]
             if len(pts) == 0:
                 continue
             original = (c == 0)
@@ -312,6 +393,14 @@ def draw_structure(ax, data: dict, split_residues: list[int], *,
                 lw, alpha, z = 0.8, 0.12, 1
             else:
                 lw, alpha, z = (1.0, 1.0, 2) if original else (0.8, 0.65, 1)
+            # a gradient trace needs a colour per segment, which a single Line3DCollection carries and ax.plot cannot; dimmed bodies fall
+            # back to the flat out-of-ramp grey, as they sit outside the ramp anyway
+            if color_by == "residue" and not _dimmed(b, c) and len(pts) > 1:
+                segments = np.stack([pts[:-1], pts[1:]], axis=1)
+                lc = Line3DCollection(segments, colors=_residue_colours(m)[:-1], linewidths=lw, alpha=alpha, zorder=z)
+                ax.add_collection3d(lc)
+                ax.auto_scale_xyz(pts[:, 0], pts[:, 1], pts[:, 2], had_data=True)  # collections, unlike plot(), don't grow the limits
+                continue
             ax.plot(pts[:, 0], pts[:, 1], pts[:, 2], color=_colour(b, c), lw=lw, alpha=alpha, zorder=z)
 
     # bodies with no Cα atoms at all (e.g. a non-protein hetero group) draw nothing in the trace above and would otherwise be completely invisible; 
@@ -368,6 +457,19 @@ def draw_structure(ax, data: dict, split_residues: list[int], *,
             coords[highlight, 0], coords[highlight, 1], coords[highlight, 2], s=80,
             color="red", edgecolors="black", linewidths=0.6, depthshade=False, zorder=3
         )
+
+    # click-selected residues (see the structure pane), in a distinct colour. Drawn as small spheres sized in data units (Å) rather than a 
+    # screen-space scatter, so they track the structure on zoom instead of ballooning out of proportion
+    selected = sorted({int(s) for s in (selected_residues or [])})
+    if selected:
+        sel_pts = coords[is_ca & (copy == 0) & np.isin(res, selected)]
+        if len(sel_pts):
+            r = SELECTION_MARKER_RADIUS
+            u, v = np.meshgrid(np.linspace(0, 2 * np.pi, 10), np.linspace(0, np.pi, 6))
+            sx, sy, sz = np.cos(u) * np.sin(v), np.sin(u) * np.sin(v), np.cos(v)
+            for p in sel_pts:
+                ax.plot_surface(p[0] + r * sx, p[1] + r * sy, p[2] + r * sz,
+                                color=SELECTION_COLOR, alpha=0.95, linewidth=0, shade=True, zorder=4)
 
     # active constraints, all in black: a dashed tether for backbone (0) / centre-of-mass (1) constraints (told apart by length — CM ones
     # span much further), and a solid line with directional arrowheads for attractors (2, pointing inward) and repulsors (3, outward). 
