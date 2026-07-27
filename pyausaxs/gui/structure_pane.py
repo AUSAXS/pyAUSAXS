@@ -603,9 +603,17 @@ class StructurePane(ttk.Frame):
         return self._base_signature(base)
 
     def check_stale(self):
-        """Flag the view as stale when the base script has changed since it was built (e.g. the user edited the load block in the main editor). 
-        Called when the pane is switched back to."""
-        self._set_stale(self._built_sig is not None and self._base_sig() != self._built_sig)
+        """Flag the view as stale when the base script has changed since it was built (e.g. the user edited the load block in the main editor).
+        If the structure has never loaded successfully, retry instead of just flagging: there is no built view or staged edits to protect, so
+        a load-time setting relaxed elsewhere (see load_recovery.RelaxedLoads) — which changes nothing _base_sig() can see — gets a chance to
+        take effect. Called when the pane is switched back to."""
+        if self._built_sig is None:
+            ok, msg = self._rebuild(self._elements)
+            if not ok:
+                self._set_status(f"Could not load the structure: {msg}", ok=False)
+                self._redraw()
+            return
+        self._set_stale(self._base_sig() != self._built_sig)
 
     def _set_stale(self, stale: bool):
         if not hasattr(self, "_refresh_bar") or not self._sections:
