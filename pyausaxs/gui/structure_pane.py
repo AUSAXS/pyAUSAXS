@@ -29,7 +29,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.figure import Figure
 
 from . import plotting
-from .plotting import draw_structure, nearest_ca_residue, residue_bodies, _BODY_COLORS
+from .plotting import draw_structure, nearest_ca_residue, residue_ca_mask, _BODY_COLORS
 from .theme import FONTS, PALETTE, blend
 from .widgets import CollapsibleSection, PlaceholderEntry, ScrollableFrame, ellipsize_label
 
@@ -47,25 +47,28 @@ _SUBOPTION_INDENT = 16  # px a folded-out display sub-option is inset from its p
 # inside a symmetry/constraint block counts too. Longer keywords precede the prefixes they contain.
 _STALE_TAIL = r"(?:[ \t]*\{.*?\}|[^\n]*)"
 _STALE_RE = re.compile(
-    r"(?m)^[ \t]*(?:load[ \t]*\{.*?\}|"
-    r"(?:merge|delete|rename|convert_to_symmetry|symmetry|constraint|constrain"
-    r"|autoconstraints|autoconstrain|copy_body|copy|split)\b" + _STALE_TAIL + r")",
+    r"(?m)^(?:[ \t]*(?:load[ \t]*\{.*?\}|"
+    r"(?:merge|delete|rename|convert_to_symmetry|constraint|constrain"
+    r"|autoconstraints|autoconstrain|copy_body|copy|split)\b)" + _STALE_TAIL
+    + r"|symmetry\b" + _STALE_TAIL + r")",
     re.DOTALL,
 )
 
 # Setup elements are emitted in declaration order by the backend. Newly staged structure-pane elements must therefore be appended after existing
 # setup elements rather than blindly inserted immediately after `load`; otherwise a staged rename can precede an existing symmetry declaration.
 _SETUP_RE = re.compile(
-    r"(?m)^[ \t]*(?:merge|delete|rename|convert_to_symmetry|symmetry|constraint|constrain"
-    r"|autoconstraints|autoconstrain|copy_body|copy|split)\b" + _STALE_TAIL,
+    r"(?m)^(?:[ \t]*(?:merge|delete|rename|convert_to_symmetry|constraint|constrain"
+    r"|autoconstraints|autoconstrain|copy_body|copy|split)\b" + _STALE_TAIL
+    + r"|symmetry\b" + _STALE_TAIL + r")",
     re.DOTALL,
 )
 
-# Constraint declarations, and the staged elements that must be declared before them: the backend indexes constraints (and the symmetry
-# target pool) by body, so it rejects any element changing the set of bodies once a constraint has been declared. See _insert_elements.
+# Constraint declarations and the staged elements that must remain after existing setup declarations. Every other structure element must
+# be declared before the first constraint, because constraints are indexed by the structure that exists when they are declared. See
+# _insert_elements.
 _CONSTRAINT_RE = re.compile(
     r"(?m)^[ \t]*(?:autoconstraints|autoconstrain|constraint|constrain)\b" + _STALE_TAIL, re.DOTALL)
-_BODY_SET_ELEMENTS = frozenset({"split", "delete", "merge", "convert_to_symmetry", "copy", "copy_body"})
+_CONSTRAINT_ELEMENTS = frozenset({"autoconstraints", "autoconstrain", "constraint", "constrain"})
 # Status-line fade-out: hold the message legible, then fade it away over the rest of the budget (see _set_status).
 _STATUS_HOLD_MS, _STATUS_FADE_MS, _STATUS_FADE_STEPS = 2500, 2500, 25
 
@@ -145,10 +148,9 @@ def _insert_elements(base: str, elements: list[str]) -> str:
     The staged list itself remains in the order in which the user applied its elements, and existing declarations are left untouched. Two
     anchors are used, since the two ends of the setup block have opposite requirements:
 
-      * elements that change the set of bodies go immediately *before* the first constraint declaration. Constraints (and the symmetry
-        target pool) are indexed by body, so the backend rejects any body-set change declared after them.
-      * everything else goes *after* the last existing setup declaration, so a staged rename can't precede the symmetry declaration that
-        created the name it renames.
+            * structural elements go immediately *before* the first constraint declaration. Constraints are indexed by the structure that exists
+                when they are declared, so later structural changes can be rejected by the backend.
+            * staged constraint elements go *after* the last existing setup declaration, so they remain after any existing structural changes.
 
     With no constraints in the base script the two anchors coincide, and the staged block is appended whole.
     """
@@ -175,11 +177,11 @@ def _insert_elements(base: str, elements: list[str]) -> str:
     if body_set_at == setup_end:  # the anchors coincide, so the staged block stays whole and in the order it was applied
         return insert(base, setup_end, elements)
 
-    body_set, rest = [], []
+    structural, constraints = [], []
     for e in elements:
-        (body_set if e.split()[:1] and e.split()[0] in _BODY_SET_ELEMENTS else rest).append(e)
+        (constraints if e.split()[:1] and e.split()[0] in _CONSTRAINT_ELEMENTS else structural).append(e)
     # the later insertion first, so the earlier offset is still valid when it is applied
-    return insert(insert(base, setup_end, rest), body_set_at, body_set)
+    return insert(insert(base, setup_end, constraints), body_set_at, structural)
 
 
 class StructurePane(ttk.Frame):
@@ -191,10 +193,15 @@ class StructurePane(ttk.Frame):
         base_script: Optional[Callable[[], str]] = None,
         on_apply_script: Optional[Callable[[str], None]] = None,
         base_signature: Optional[Callable[[str], object]] = None,
+        relaxed_loads=None,
     ):
         super().__init__(parent)
         self.pdb_path = pdb_path
         self._splits = splits
+        # relaxed-load grants, shared with every other pane by default, so a structure the user already accepted with relaxed settings
+        # elsewhere doesn't start failing again here.
+        from .load_recovery import RELAXED_LOADS
+        self._relaxed_loads = relaxed_loads if relaxed_loads is not None else RELAXED_LOADS
         self._base_script = base_script          # target script to diff/patch, or None
         self._on_apply_script = on_apply_script   # apply a confirmed new script, or None
         # reduce the base script to a structural fingerprint, so a later edit to the same body/split setup is detected as "stale". Defaults to
@@ -204,10 +211,11 @@ class StructurePane(ttk.Frame):
         self.title = "Structure: " + pdb_path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
 
         self._elements: list[str] = []            # setup elements the user has applied, in order
-        # Residues each staged `split` element's target body covered when it was staged, keyed by that target's name. Fragments are
-        # registered as brand-new bodies and inherit nothing from their parent, so their residue ids are the only link back to it; this
-        # map is what lets a later split of a fragment be folded into the element that produced it (see _apply_body_split).
-        self._split_coverage: dict[str, frozenset[int]] = {}
+        # Cα positions each staged `split` element's target body covered when it was staged, keyed by that target's name. Fragments are
+        # registered as brand-new bodies and inherit nothing from their parent, so the atoms themselves are the only link back to it; this
+        # map is what lets a later split of a fragment be folded into the element that produced it (see _apply_body_split). Positions, not
+        # residue ids: a chain-split structure repeats its ids across chains, so ids would match a sibling chain's split element too.
+        self._split_coverage: dict[str, frozenset[tuple[float, ...]]] = {}
         self._data: dict | None = None            # last good preview-structure dict
         self._names: list[str] = []               # body names aligned to body indices
         self._bodies: list[dict] = []             # per-body summary rows (index/name/atoms/res/copies)
@@ -218,10 +226,11 @@ class StructurePane(ttk.Frame):
         # selects every row between the last clicked row (the "anchor", see _select_anchor) and the one just clicked, in list order — the OS 
         # convention for range-selecting. Together these let several bodies be selected at once (e.g. to merge them) without typing every name out.
         self._highlighted: set[tuple[int, int | None]] = set()
-        # residues click-selected in the preview, highlighted with their own colour. Like the Bodies-list selection
+        # residues click-selected in the preview, highlighted with their own colour, as (body, residue id) pairs — an id alone does not
+        # identify a residue, since a chain-split structure repeats the same numbering in every chain. Like the Bodies-list selection
         # above (but for residues, not bodies), it stands in for an empty residue field: hitting Apply / Add with no
         # residues typed splits at the selected residues instead. Consumed (and cleared) when a split is applied.
-        self._selected_residues: set[int] = set()
+        self._selected_residues: set[tuple[int, int]] = set()
         self._select_anchor: tuple[int, int | None] | None = None  # last plain/ctrl-clicked row, the shift-click range's fixed end
         self._ready_checks: list[tuple[ttk.Button, PlaceholderEntry, Callable]] = []  # action buttons that light up green
         self._expanded_bodies: set[int] = set()   # body indices whose replica children are unfolded
@@ -285,6 +294,17 @@ class StructurePane(ttk.Frame):
                                      anchor="w", font=FONTS["base"])
         self._hover_label.pack(side="top", fill="x", padx=6)
         self._canvas.get_tk_widget().pack(fill="both", expand=True)
+
+        # A "clear selection" chip floating in the plot's top-right corner, placed over the canvas rather than parked in the control column:
+        # it belongs next to what it clears (the lit bodies and the pink residue spheres). Shown only while something is selected, see
+        # _refresh_clear_chip. As a real Tk widget it also swallows the clicks that land on it, so pressing it can't pick a residue underneath.
+        self._clear_chip = tk.Label(
+            self._canvas.get_tk_widget(), text="✕  Clear selection", background=PALETTE["surface_alt"],
+            foreground=PALETTE["muted"], font=FONTS["small"], padx=8, pady=4, cursor="hand2",
+            borderwidth=1, relief="solid")
+        self._clear_chip.bind("<Button-1>", lambda _e: self._clear_all_selection())
+        self._clear_chip.bind("<Enter>", lambda _e: self._clear_chip.configure(background=PALETTE["accent_soft"], foreground=PALETTE["text"]))
+        self._clear_chip.bind("<Leave>", lambda _e: self._clear_chip.configure(background=PALETTE["surface_alt"], foreground=PALETTE["muted"]))
 
         # clickable preview: hover to read the nearest residue, click to toggle a split there. A left press is
         # recorded and only treated as a click if the cursor barely moved by release (otherwise it was a rotation).
@@ -382,14 +402,14 @@ class StructurePane(ttk.Frame):
             ready_check=lambda entry: bool(entry.get()) or len(self._selected_body_names()) >= 1,
         )
 
-        # --- symmetry: two distinct operations, the more common one (adding a symmetry to a single body) on top, decomposing several bodies 
-        # into a shared symmetry below
+        # --- symmetry: two distinct operations, the more common one (adding a symmetry to a single body) on top, decomposing one or more
+        # bodies into a shared, fitted symmetry below (a single body is split into copies itself; several are treated as ready-made copies)
         sym = self._section(parent, "Symmetry", expanded=False).body
         self._sym_add_entry = self._action_row(
             sym, "Add symmetry to a body", "body type", self._apply_add_symmetry, button="Apply"
         )
         self._sym_convert_entry = self._action_row(
-            sym, "Decompose bodies into a symmetry", "bodies... type", self._apply_convert_symmetry, button="Convert",
+            sym, "Decompose bodies into a symmetry", "body(s)... type", self._apply_convert_symmetry, button="Convert",
             advanced="tolerance (default 2.0 Å)"
         )
 
@@ -544,12 +564,13 @@ class StructurePane(ttk.Frame):
         script = self._compose(elements)
         try:
             from ..wrapper.Rigidbody import Rigidbody
-            rb = Rigidbody(script)
-            data = rb.preview_structure()
-            if not len(data["coords"]):
-                return False, "the structure is empty"
-            names = rb.body_names()
-            layout = rb.symmetry_layout()
+            with self._relaxed_loads.applied(self.pdb_path):
+                rb = Rigidbody(script)
+                data = rb.preview_structure()
+                if not len(data["coords"]):
+                    return False, "the structure is empty"
+                names = rb.body_names()
+                layout = rb.symmetry_layout()
         except Exception as e:
             return False, str(e)
 
@@ -558,12 +579,14 @@ class StructurePane(ttk.Frame):
             (int(body), int(copy)): {"type": t, "name": nm}
             for body, copy, t, nm in zip(layout["body"], layout["copy"], layout["type"], layout["name"])
         }
+        before = self._body_structure()
         self._compute_bodies()
-        valid = {(b["index"], None) for b in self._bodies}
-        valid |= {(b["index"], c) for b in self._bodies for c in b["copies"]}
-        self._highlighted &= valid  # drop any selector merged/deleted/de-symmetrised away
-        if self._select_anchor is not None and self._select_anchor not in valid:
-            self._select_anchor = None
+        # Bodies are addressed by index, and a merge/delete/split/convert renumbers them: the indices a selection holds would silently
+        # re-point at unrelated bodies (and residues) once the operation goes through. So both selections survive only a rebuild that
+        # leaves the body/copy structure exactly as it was — e.g. a rename, which changes nothing but a name.
+        if self._body_structure() != before:
+            self._highlighted, self._select_anchor = set(), None
+            self._selected_residues = set()
         if rebuild_widgets:
             self._rebuild_body_list()
         self._refresh_action_readiness()
@@ -580,9 +603,17 @@ class StructurePane(ttk.Frame):
         return self._base_signature(base)
 
     def check_stale(self):
-        """Flag the view as stale when the base script has changed since it was built (e.g. the user edited the load block in the main editor). 
-        Called when the pane is switched back to."""
-        self._set_stale(self._built_sig is not None and self._base_sig() != self._built_sig)
+        """Flag the view as stale when the base script has changed since it was built (e.g. the user edited the load block in the main editor).
+        If the structure has never loaded successfully, retry instead of just flagging: there is no built view or staged edits to protect, so
+        a load-time setting relaxed elsewhere (see load_recovery.RelaxedLoads) — which changes nothing _base_sig() can see — gets a chance to
+        take effect. Called when the pane is switched back to."""
+        if self._built_sig is None:
+            ok, msg = self._rebuild(self._elements)
+            if not ok:
+                self._set_status(f"Could not load the structure: {msg}", ok=False)
+                self._redraw()
+            return
+        self._set_stale(self._base_sig() != self._built_sig)
 
     def _set_stale(self, stale: bool):
         if not hasattr(self, "_refresh_bar") or not self._sections:
@@ -612,6 +643,11 @@ class StructurePane(ttk.Frame):
         ok, msg = self._rebuild(self._elements)
         self._set_status("Reloaded from the current script." if ok
                          else f"Could not reload from the script: {msg}", ok=ok)
+
+    def _body_structure(self) -> list[tuple[int, tuple[int, ...]]]:
+        """The body/copy layout every selector is addressed against, as (body index, copy indices). Compared across a rebuild to tell a
+        structural change (merge/delete/split/…) from one that only relabels — see _rebuild."""
+        return [(b["index"], tuple(b["copies"])) for b in self._bodies]
 
     def _compute_bodies(self):
         import numpy as np
@@ -959,8 +995,27 @@ class StructurePane(ttk.Frame):
         self._preserve_view = True
         self._fig.set_layout_engine("tight")
         self._canvas.draw_idle()
+        self._refresh_clear_chip()  # the chip tracks what the plot shows, so it follows the same path as the drawing itself
 
     _preserve_view = False
+
+    def _refresh_clear_chip(self):
+        """Show the floating "clear selection" chip while either selection the plot reflects is non-empty, and hide it again once neither is."""
+        show = bool(self._selected_residues or self._highlighted)
+        if show and not self._clear_chip.winfo_ismapped():
+            self._clear_chip.place(relx=1.0, y=8, x=-8, anchor="ne")
+        elif not show and self._clear_chip.winfo_ismapped():
+            self._clear_chip.place_forget()
+
+    def _clear_all_selection(self):
+        """Drop both selections in one go: the click-selected residues and the Bodies-list highlight. They are separate selections, but the
+        chip sits in the plot, where they read as one — everything lit up is dropped."""
+        self._selected_residues = set()
+        self._highlighted, self._select_anchor = set(), None
+        self._refresh_row_highlight()
+        self._refresh_action_readiness()
+        self._schedule_redraw()
+        self._set_status("Selection cleared.", ok=True)
 
     # ----- clickable preview ---------------------------------------------------
     def _on_preview_hover(self, event):
@@ -971,7 +1026,7 @@ class StructurePane(ttk.Frame):
                 self._hover_label.configure(text="")
             return
         name = next((b["name"] for b in self._bodies if b["index"] == hit["body"]), f"b{hit['body'] + 1}")
-        verb = "deselect" if hit["residue"] in self._selected_residues else "select"
+        verb = "deselect" if (hit["body"], hit["residue"]) in self._selected_residues else "select"
         self._hover_label.configure(text=f"{name} · residue {hit['residue']} · click to {verb}")
 
     def _on_preview_press(self, event):
@@ -989,13 +1044,15 @@ class StructurePane(ttk.Frame):
             return
         hit = nearest_ca_residue(self._ax, self._data, event)
         if hit is not None:
-            self._toggle_selected_residue(hit["residue"])
+            self._toggle_selected_residue(hit["body"], hit["residue"])
 
-    def _toggle_selected_residue(self, resid: int):
-        """Add `resid` to the click-selection, or remove it if already selected. Nothing is applied — the selection just stands in for an
-        empty residue field when a split is applied (see _apply_splits / _apply_body_split), mirroring how a Bodies-list selection stands
-        in for an empty Merge/Delete field."""
-        self._selected_residues.discard(resid) if resid in self._selected_residues else self._selected_residues.add(resid)
+    def _toggle_selected_residue(self, body: int, resid: int):
+        """Add the residue to the click-selection, or remove it if already selected. It is keyed by the body it was picked in as well as its
+        id, so clicking residue 100 of one chain marks that one residue rather than every chain's residue 100. Nothing is applied — the
+        selection just stands in for an empty residue field when a split is applied (see _apply_splits / _apply_body_split), mirroring how a
+        Bodies-list selection stands in for an empty Merge/Delete field."""
+        pick = (body, resid)
+        self._selected_residues.discard(pick) if pick in self._selected_residues else self._selected_residues.add(pick)
         self._schedule_redraw()
         self._refresh_action_readiness()  # the click-selection can stand in for a typed field, so it changes what is clickable
         # once the load-block split would override rather than establish the partition, the per-body split is the only thing a click can
@@ -1011,15 +1068,19 @@ class StructurePane(ttk.Frame):
         hint = f", or Add to split {target} there" if target else ""
         self._set_status(f"{n} residue{'' if n == 1 else 's'} selected — Apply to split the whole structure there{hint}.", ok=True)
 
+    def _selected_bodies(self) -> set[int]:
+        """Body indices the click-selected residues lie in."""
+        return {body for body, _resid in self._selected_residues}
+
     def _selection_body_name(self) -> str | None:
         """Name of the body every click-selected residue lies in, or None when there is no selection or it spans several bodies."""
-        bodies = residue_bodies(self._data, self._selected_residues)
+        bodies = self._selected_bodies()
         return self._name_of(next(iter(bodies)), None) if len(bodies) == 1 else None
 
     def _split_target_name(self) -> str | None:
         """Body an Add would split the click-selection at: the original target of a staged split that already covers the selection (whose
         fragments count as one body's business), otherwise the single live body the residues lie in."""
-        staged = self._staged_split_for(set(self._selected_residues))
+        staged = self._staged_split_for(self._selected_residues)
         return staged[1] if staged is not None else self._selection_body_name()
 
     def _clear_selection(self):
@@ -1101,7 +1162,8 @@ class StructurePane(ttk.Frame):
         the preview and hit Apply, no typing — matching how a Bodies-list selection stands in for an empty Merge/Delete field."""
         typed = self._splits_var.get().strip()
         from_selection = not typed and bool(self._selected_residues)
-        new = " ".join(str(r) for r in sorted(self._selected_residues)) if from_selection else typed
+        # the load-block split cuts the file as a whole, so only the ids matter here; two chains' residue 100 collapse to one cut
+        new = " ".join(str(r) for r in sorted({r for _b, r in self._selected_residues})) if from_selection else typed
         if _norm_splits(new) == _norm_splits(self._splits):
             self._splits_var.set(new)
             if from_selection:
@@ -1138,16 +1200,22 @@ class StructurePane(ttk.Frame):
         else:  # nothing names a body; whatever was typed is then all residues, and the body follows from them
             named, typed_residues = None, tokens
         from_selection = not typed_residues and bool(self._selected_residues)
-        residues = [str(r) for r in sorted(self._selected_residues)] if from_selection else typed_residues
-        if not residues:
-            self._set_status("Splitting a body needs residue ids — type them or click residues in the preview.", ok=False)
-            return
-        if not all(_is_residue_id(r) for r in residues):
-            self._set_status("Split residue ids must be integers, e.g. b1 100 200.", ok=False)
-            return
-        cuts = {int(r) for r in residues}
+        if from_selection:
+            picks = set(self._selected_residues)
+        else:
+            if not typed_residues:
+                self._set_status("Splitting a body needs residue ids — type them or click residues in the preview.", ok=False)
+                return
+            if not all(_is_residue_id(r) for r in typed_residues):
+                self._set_status("Split residue ids must be integers, e.g. b1 100 200.", ok=False)
+                return
+            # typed ids are only residues of the body they are typed against, so pair them with it; with no body to pair them with there is
+            # nothing to match or split, and the "needs a body" branch below reports it
+            index = self._index_of(named or self._selection_body_name() or "")
+            picks = {(index, int(r)) for r in typed_residues} if index is not None else set()
+        cuts = {r for _b, r in picks}
 
-        staged = self._staged_split_for(cuts)
+        staged = self._staged_split_for(picks)
         if staged is not None:
             i, target, existing = staged
             merged = sorted(existing | cuts)
@@ -1158,12 +1226,11 @@ class StructurePane(ttk.Frame):
         else:
             body = named or self._selection_body_name()
             if body is None:
-                spans = len(residue_bodies(self._data, self._selected_residues)) > 1
                 self._set_status(
-                    "The selected residues span several bodies — split one body at a time." if spans else
+                    "The selected residues span several bodies — split one body at a time." if len(self._selected_bodies()) > 1 else
                     "Splitting a body needs a body — type one, select it in the Bodies list, or click residues on it.", ok=False)
                 return
-            coverage = self._residues_of_body(body)  # read before the rebuild replaces the body with its fragments
+            coverage = self._coverage_of_body(body)  # read before the rebuild replaces the body with its fragments
             ok = self._apply_element("split " + body + " " + " ".join(str(c) for c in sorted(cuts)))
             if ok:
                 self._split_coverage[body] = coverage
@@ -1172,22 +1239,36 @@ class StructurePane(ttk.Frame):
             if from_selection:
                 self._clear_selection()
 
-    def _staged_split_for(self, residues: set[int]) -> tuple[int, str, frozenset[int]] | None:
-        """(index, target body, existing cuts) of the staged `split` element whose target body contains every one of `residues`, or None
-        when they fall outside every staged split. Targets are whole bodies, so at most one element can ever match."""
+    def _staged_split_for(self, picks: set[tuple[int, int]]) -> tuple[int, str, frozenset[int]] | None:
+        """(index, target body, existing cuts) of the staged `split` element whose target body contained every one of the (body, residue)
+        `picks`, or None when they fall outside every staged split. Targets are whole bodies, so at most one element can ever match."""
+        positions = self._ca_positions(residue_ca_mask(self._data, picks))
+        if not positions:
+            return None
         for i, element in enumerate(self._elements):
             parsed = _parse_split(element)
-            if parsed is not None and residues <= self._split_coverage.get(parsed[0], frozenset()):
+            if parsed is not None and positions <= self._split_coverage.get(parsed[0], frozenset()):
                 return i, parsed[0], frozenset(parsed[1])
         return None
 
-    def _residues_of_body(self, name: str) -> frozenset[int]:
-        """Every residue id in the named body, as it stands right now — the coverage a `split` element staged against it takes over."""
-        index = next((b["index"] for b in self._bodies if b["name"] == name), None)
+    def _index_of(self, name: str) -> int | None:
+        """Index of the body with this display name, or None if no body has it (a replica name included: replicas aren't bodies)."""
+        return next((b["index"] for b in self._bodies if b["name"] == name), None)
+
+    def _ca_positions(self, mask) -> frozenset[tuple[float, ...]]:
+        """The masked atoms' positions, rounded to a stable key. Positions identify residues where ids and body indices cannot: ids repeat
+        across chains, and indices are renumbered by every merge/delete/split — the atoms themselves are only ever re-partitioned."""
+        if self._data is None:
+            return frozenset()
+        return frozenset(tuple(round(float(v), 3) for v in p) for p in self._data["coords"][mask])
+
+    def _coverage_of_body(self, name: str) -> frozenset[tuple[float, ...]]:
+        """Every Cα position in the named body, as it stands right now — the coverage a `split` element staged against it takes over."""
+        index = self._index_of(name)
         if index is None or self._data is None:
             return frozenset()
         d = self._data
-        return frozenset(int(r) for r in d["residue_seq"][d["is_ca"] & (d["copy"] == 0) & (d["body"] == index)])
+        return self._ca_positions(d["is_ca"] & (d["copy"] == 0) & (d["body"] == index))
 
     def _apply_rename(self):
         """Rename a body: `rename <old> <new>`, the same element the inline double-click-to-rename (see _start_rename) applies. Either typed 
@@ -1241,13 +1322,18 @@ class StructurePane(ttk.Frame):
         self._sym_add_entry.clear()
 
     def _apply_convert_symmetry(self):
-        """Decompose several bodies into one shared symmetry, collapsing the copies into the first body plus a fitted symmetry:
-        `convert_to_symmetry { type <type> bodies <b…> }`. Typing just the type is enough when two or more whole bodies are selected
-        in the Bodies list. An optional tolerance (Å) typed into the field tucked behind the chevron overrides the backend's default
-        when the assembly's residual RMSD to the fitted symmetry is just barely out of range."""
-        tokens = self._with_selected_bodies(self._sym_convert_entry, minimum=2)
-        if len(tokens) < 3:
-            self._set_status("Decomposing needs at least two bodies and a type, e.g. b1 b2 c2.", ok=False)
+        """Decompose one or more bodies into one shared symmetry, collapsing the copies into the first body plus a fitted symmetry:
+        `convert_to_symmetry { type <type> bodies <b…> }`. A single body is fitted directly — the backend splits it into the
+        symmetry's own copy count itself, rather than needing several bodies handed to it as ready-made copies. Typing just the type
+        is enough when one or more whole bodies are selected in the Bodies list, or — with only one body in the whole system —
+        with nothing selected at all, since decomposing it is then the only sensible target. An optional tolerance (Å) typed into
+        the field tucked behind the chevron overrides the backend's default when the assembly's residual RMSD to the fitted
+        symmetry is just barely out of range."""
+        tokens = self._with_selected_bodies(self._sym_convert_entry, minimum=1)
+        if len(tokens) == 1 and len(self._bodies) == 1:
+            tokens = [self._bodies[0]["name"]] + tokens
+        if len(tokens) < 2:
+            self._set_status("Decomposing needs at least one body and a type, e.g. b1 c2.", ok=False)
             return
         *bodies, sym = tokens
         tolerance = self._sym_convert_entry.advanced.get().strip()

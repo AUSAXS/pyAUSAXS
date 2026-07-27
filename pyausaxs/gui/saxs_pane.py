@@ -122,6 +122,9 @@ class SaxsFitterPane(FitterPane):
     def _input_fields(self):
         return [self.structure_field, self.saxs_field]
 
+    def _structure_load_path(self):
+        return self.structure_field.get()
+
     def _build_command(self):
         if self._data_pane is not None:
             qmin, qmax = self._data_pane.qrange()
