@@ -391,13 +391,13 @@ class SaxsDataPane(ttk.Frame):
         self._cancel_axis_slide()
         old_qs, old_Is, old_lim = self._qs, self._Is, (self._vmin, self._vmax)
         old_qmin, old_qmax = self._qmin, self._qmax
-        ratio = self.UNIT_FACTORS[new_unit] / self.UNIT_FACTORS[self._unit]
         self._unit = new_unit
         self._qs, self._Is, self._sigs = data
         self._has_sigma = any(s > 0 for s in self._sigs)
         self._vmin, self._vmax = min(self._qs), max(self._qs)
-        self._qmin *= ratio
-        self._qmax *= ratio
+        new_qmin = self._vmin if old_qmin <= old_lim[0] else min(max(old_qmin, self._vmin), self._vmax)
+        new_qmax = self._vmax if old_qmax >= old_lim[1] else min(max(old_qmax, self._vmin), self._vmax)
+        self._qmin, self._qmax = (self._vmin, self._vmax) if new_qmin >= new_qmax else (new_qmin, new_qmax)
 
         # ghost the previous interpretation at its old positions, and widen the axis to
         # span both ranges so the data is seen sliding across before the view settles
