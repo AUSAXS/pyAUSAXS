@@ -198,10 +198,10 @@ class StructurePane(ttk.Frame):
         super().__init__(parent)
         self.pdb_path = pdb_path
         self._splits = splits
-        # relaxed-load grants owned by the pane that opened this one, so a structure the user already accepted with relaxed settings doesn't
-        # start failing again here. Defaults to an empty set of grants when the pane is opened standalone.
-        from .load_recovery import RelaxedLoads
-        self._relaxed_loads = relaxed_loads if relaxed_loads is not None else RelaxedLoads()
+        # relaxed-load grants, shared with every other pane by default, so a structure the user already accepted with relaxed settings
+        # elsewhere doesn't start failing again here.
+        from .load_recovery import RELAXED_LOADS
+        self._relaxed_loads = relaxed_loads if relaxed_loads is not None else RELAXED_LOADS
         self._base_script = base_script          # target script to diff/patch, or None
         self._on_apply_script = on_apply_script   # apply a confirmed new script, or None
         # reduce the base script to a structural fingerprint, so a later edit to the same body/split setup is detected as "stale". Defaults to

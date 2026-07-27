@@ -6,9 +6,11 @@ import os
 import tkinter as tk
 from tkinter import ttk
 from pathlib import Path
+from typing import Optional
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
+from .load_recovery import RELAXED_LOADS, ensure_structure_loads
 from .plotting import fit_figure, plot_file_figure, pretty_plot_name
 from .runner import CliRunner
 from .theme import FONTS, PALETTE
@@ -213,6 +215,7 @@ class FitterPane(ttk.Frame):
     def __init__(self, parent):
         super().__init__(parent)
         self.runner = CliRunner(self)
+        self._run_overrides = None  # settings the active run relaxed (see load_recovery.RELAXED_LOADS), held until it finishes
 
         paned = ttk.Panedwindow(self, orient="horizontal")
         paned.pack(fill="both", expand=True, padx=6, pady=6)
@@ -267,6 +270,11 @@ class FitterPane(ttk.Frame):
         """Return the library CLI function name and its argv (including the program name)."""
         raise NotImplementedError
 
+    def _structure_load_path(self) -> Optional[str]:
+        """Path of a structure field this pane hands to the backend, checked for loadability (with a relaxed-load offer if refused) before
+        Run fit — see load_recovery.ensure_structure_loads. None (the default) skips the check for panes with nothing structure-shaped."""
+        return None
+
     def _result_dir(self) -> str:
         raise NotImplementedError
 
@@ -306,15 +314,22 @@ class FitterPane(ttk.Frame):
             self.console.append("Missing or invalid input files.\n")
             return
 
+        path = self._structure_load_path()
+        if path and not ensure_structure_loads(self, path, self.console):
+            return
+
         func_name, argv = self._build_command()
         self.console.clear()
         self.console.append(" ".join(argv) + "\n\n")
         self.run_button.configure(text="Running…", state="disabled")
         self.progress.pack(side="left", fill="x", expand=True, padx=(12, 0))
         self.progress.start(15)
+        self._run_overrides = RELAXED_LOADS.apply(path)
         self.runner.start(func_name, argv, on_line=self.console.append, on_done=self._run_finished)
 
     def _run_finished(self, returncode: int):
+        RELAXED_LOADS.restore(self._run_overrides)  # the run is over; put the global settings back
+        self._run_overrides = None
         self.progress.stop()
         self.progress.pack_forget()
         self.run_button.configure(text="Run fit", state="normal")

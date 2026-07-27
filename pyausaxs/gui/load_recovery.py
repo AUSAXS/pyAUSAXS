@@ -11,6 +11,7 @@ one for a file loaded here would otherwise silently change how every other pane 
 Currently one relaxation is offered; see temp/rigidbody-load-recovery-plan.md in the ausaxs repo for the intended extensions.
 """
 
+import re
 import tkinter as tk
 from tkinter import ttk
 from typing import Optional
@@ -149,3 +150,48 @@ class LoadRecoveryDialog(tk.Toplevel):
 def offer_relaxed_load(parent, path: str, message: str, options: Optional[list[LoadOption]] = None) -> Optional[LoadOption]:
     """Show the recovery dialog for a failed load; returns the chosen option, or None if the user cancelled."""
     return LoadRecoveryDialog(parent, path, message, options or [ALLOW_UNKNOWN_RESIDUES]).chosen
+
+
+# Shared across every pane in the process: a grant made anywhere (rigidbody pane, its structure pane, a fitter pane, ...) applies everywhere
+# else too, since it is keyed by file path rather than by whichever pane happened to ask first.
+RELAXED_LOADS = RelaxedLoads()
+
+
+def backend_message(err) -> str:
+    """Strip the wrapper _check_error_code adds (`AUSAXS: "fn" failed with error code N: "..."`), leaving just the backend's own message.
+    Non-matching exceptions (e.g. library-unavailable) are returned unchanged."""
+    match = re.match(r'^AUSAXS: ".*?" failed with error code \d+:\s*"(.*)"\s*$', str(err), re.DOTALL)
+    return match.group(1) if match else str(err)
+
+
+def ensure_structure_loads(parent, path: str, console=None) -> bool:
+    """Whether `path` can be read by the backend right now, offering a relaxed-load retry through RELAXED_LOADS if it can't. Loads the bare
+    file through Molecule, the same plain (non-rigidbody) structure loader the SAXS fitter itself uses — the rigidbody sequencer's `load`
+    element belongs to a different subsystem entirely (it also requires a "saxs" argument that has nothing to do with this check) and must
+    not be used here. RigidbodyPane checks this itself, built around its own live rigidbody-script preview cache."""
+    from ..wrapper.Molecule import Molecule
+
+    def try_load():
+        with RELAXED_LOADS.applied(path):
+            Molecule(path)
+
+    try:
+        try_load()
+        return True
+    except Exception as error:
+        message = backend_message(error)  # `error` itself is unbound once the except block ends
+
+    option = offer_relaxed_load(parent, path, message)
+    if option is None:
+        if console is not None:
+            console.append(f"Could not read structure: {message}\n", tag="error")
+        return False
+    RELAXED_LOADS.grant(path, option)
+
+    try:
+        try_load()
+        return True
+    except Exception as error:
+        if console is not None:
+            console.append(f"Still could not read structure: {backend_message(error)}\n", tag="error")
+        return False

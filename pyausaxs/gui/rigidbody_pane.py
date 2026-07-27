@@ -12,7 +12,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
 from .data_pane import SaxsDataPane
-from .load_recovery import RelaxedLoads, offer_relaxed_load
+from .load_recovery import RELAXED_LOADS, offer_relaxed_load
 from .panes import (
     SAXS_EXTENSIONS, STRUCTURE_EXTENSIONS, _make_validator, add_figure_tab,
     make_on_load_structure, make_on_load_saxs,
@@ -133,7 +133,7 @@ class RigidbodyPane(ttk.Frame):
         self._data_pane = None           # SaxsDataPane tab for inspecting the SAXS data, or None
         self._structure_pane = None      # StructurePane tab for inspecting/managing bodies, or None
         self._syncing_splits = False     # set while the Splits field is being filled *from* the script, so it isn't written straight back
-        self._relaxed_loads = RelaxedLoads()  # files the user has granted a relaxed load after the backend refused them
+        self._relaxed_loads = RELAXED_LOADS  # shared across every pane: files the user has granted a relaxed load after the backend refused them
         self._preview_error = None       # exception from the last preview build, kept so a deliberate load can report what the preview hides
         self._report_load_errors = False  # armed by a structure-field commit: surface the next preview failure instead of swallowing it
         self._run_overrides = None       # settings the active run relaxed, held until it finishes
