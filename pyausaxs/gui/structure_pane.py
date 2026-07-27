@@ -61,11 +61,12 @@ _SETUP_RE = re.compile(
     re.DOTALL,
 )
 
-# Constraint declarations, and the staged elements that must be declared before them: the backend indexes constraints (and the symmetry
-# target pool) by body, so it rejects any element changing the set of bodies once a constraint has been declared. See _insert_elements.
+# Constraint declarations and the staged elements that must remain after existing setup declarations. Every other structure element must
+# be declared before the first constraint, because constraints are indexed by the structure that exists when they are declared. See
+# _insert_elements.
 _CONSTRAINT_RE = re.compile(
     r"(?m)^[ \t]*(?:autoconstraints|autoconstrain|constraint|constrain)\b" + _STALE_TAIL, re.DOTALL)
-_BODY_SET_ELEMENTS = frozenset({"split", "delete", "merge", "convert_to_symmetry", "copy", "copy_body"})
+_CONSTRAINT_ELEMENTS = frozenset({"autoconstraints", "autoconstrain", "constraint", "constrain"})
 # Status-line fade-out: hold the message legible, then fade it away over the rest of the budget (see _set_status).
 _STATUS_HOLD_MS, _STATUS_FADE_MS, _STATUS_FADE_STEPS = 2500, 2500, 25
 
@@ -145,10 +146,9 @@ def _insert_elements(base: str, elements: list[str]) -> str:
     The staged list itself remains in the order in which the user applied its elements, and existing declarations are left untouched. Two
     anchors are used, since the two ends of the setup block have opposite requirements:
 
-      * elements that change the set of bodies go immediately *before* the first constraint declaration. Constraints (and the symmetry
-        target pool) are indexed by body, so the backend rejects any body-set change declared after them.
-      * everything else goes *after* the last existing setup declaration, so a staged rename can't precede the symmetry declaration that
-        created the name it renames.
+            * structural elements go immediately *before* the first constraint declaration. Constraints are indexed by the structure that exists
+                when they are declared, so later structural changes can be rejected by the backend.
+            * staged constraint elements go *after* the last existing setup declaration, so they remain after any existing structural changes.
 
     With no constraints in the base script the two anchors coincide, and the staged block is appended whole.
     """
@@ -175,11 +175,11 @@ def _insert_elements(base: str, elements: list[str]) -> str:
     if body_set_at == setup_end:  # the anchors coincide, so the staged block stays whole and in the order it was applied
         return insert(base, setup_end, elements)
 
-    body_set, rest = [], []
+    structural, constraints = [], []
     for e in elements:
-        (body_set if e.split()[:1] and e.split()[0] in _BODY_SET_ELEMENTS else rest).append(e)
+        (constraints if e.split()[:1] and e.split()[0] in _CONSTRAINT_ELEMENTS else structural).append(e)
     # the later insertion first, so the earlier offset is still valid when it is applied
-    return insert(insert(base, setup_end, rest), body_set_at, body_set)
+    return insert(insert(base, setup_end, constraints), body_set_at, structural)
 
 
 class StructurePane(ttk.Frame):
