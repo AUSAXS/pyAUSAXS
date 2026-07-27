@@ -77,6 +77,11 @@ FONTS: dict[str, tuple] = {
 }
 
 
+def blend(a: str, b: str, t: float) -> str:
+    """Mix two #rrggbb colours; t=0 gives a, t=1 gives b. Used for fades, where ttk offers no opacity."""
+    return "#%02x%02x%02x" % tuple(round(int(a[i:i + 2], 16) * (1 - t) + int(b[i:i + 2], 16) * t) for i in (1, 3, 5))
+
+
 def _resolve_fonts():
     """Derive fonts from the system defaults so we inherit a clean sans wherever we run."""
     sans = tkfont.nametofont("TkDefaultFont").actual("family")

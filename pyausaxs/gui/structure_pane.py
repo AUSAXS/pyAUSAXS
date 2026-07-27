@@ -30,7 +30,7 @@ from matplotlib.figure import Figure
 
 from . import plotting
 from .plotting import draw_structure, nearest_ca_residue, residue_bodies, _BODY_COLORS
-from .theme import FONTS, PALETTE
+from .theme import FONTS, PALETTE, blend
 from .widgets import CollapsibleSection, PlaceholderEntry, ScrollableFrame, ellipsize_label
 
 # the load block whose bodies we manage; setup elements are inserted just after it
@@ -66,6 +66,8 @@ _SETUP_RE = re.compile(
 _CONSTRAINT_RE = re.compile(
     r"(?m)^[ \t]*(?:autoconstraints|autoconstrain|constraint|constrain)\b" + _STALE_TAIL, re.DOTALL)
 _BODY_SET_ELEMENTS = frozenset({"split", "delete", "merge", "convert_to_symmetry", "copy", "copy_body"})
+# Status-line fade-out: hold the message legible, then fade it away over the rest of the budget (see _set_status).
+_STATUS_HOLD_MS, _STATUS_FADE_MS, _STATUS_FADE_STEPS = 2500, 2500, 25
 
 
 def _structure_signature(script: str) -> tuple:
@@ -229,6 +231,7 @@ class StructurePane(ttk.Frame):
         self._body_chevrons: dict[int, tk.Label] = {}         # body index -> its fold chevron, flipped in place
         self._replica_row_frames: dict[int, list[tk.Frame]] = {}  # body index -> its currently-built replica rows
         self._redraw_job: Optional[str] = None    # pending after_idle handle for a deferred _redraw()
+        self._status_fade_job: Optional[str] = None  # pending after handle for the status line's fade-out
 
         self._show_atoms = tk.BooleanVar(value=False)
         self._show_copies = tk.BooleanVar(value=True)
@@ -255,6 +258,9 @@ class StructurePane(ttk.Frame):
         if self._redraw_job is not None:
             self.after_cancel(self._redraw_job)
             self._redraw_job = None
+        if self._status_fade_job is not None:
+            self.after_cancel(self._status_fade_job)
+            self._status_fade_job = None
         super().destroy()
 
     # ----- layout -------------------------------------------------------------
@@ -1323,7 +1329,24 @@ class StructurePane(ttk.Frame):
             self._set_status(f"Could not remove: {msg}", ok=False)
 
     def _set_status(self, text: str, *, ok: bool):
-        self._status.configure(text=text, foreground=PALETTE["ok_border"] if ok else PALETTE["danger"])
+        """Show a transient status message. It holds at full strength, fades into the background, and then clears itself: the status line is
+        pinned to the bottom of the control column, so a long message wraps to several lines and squeezes the sections above it out of reach
+        until the window is resized."""
+        if self._status_fade_job is not None:
+            self.after_cancel(self._status_fade_job)
+            self._status_fade_job = None
+        colour = PALETTE["ok_border"] if ok else PALETTE["danger"]
+        self._status.configure(text=text, foreground=colour)
+        if text:
+            self._status_fade_job = self.after(_STATUS_HOLD_MS, lambda: self._fade_status(colour, 1))
+
+    def _fade_status(self, colour: str, step: int):
+        if step > _STATUS_FADE_STEPS:  # fully faded; drop the text so the line collapses back to its empty height
+            self._status_fade_job = None
+            self._status.configure(text="")
+            return
+        self._status.configure(foreground=blend(colour, PALETTE["bg"], step / _STATUS_FADE_STEPS))
+        self._status_fade_job = self.after(_STATUS_FADE_MS // _STATUS_FADE_STEPS, lambda: self._fade_status(colour, step + 1))
 
     # ----- send to script -----------------------------------------------------
     def _send_to_script(self):
