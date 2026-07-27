@@ -290,13 +290,17 @@ def nearest_ca_residue(ax, data: dict, event):
     return {"residue": int(res[i]), "body": int(bodies[i])}
 
 
-def residue_bodies(data: dict, residues) -> set[int]:
-    """Body indices the given residue ids lie in, over the same copy-0 Cα atoms residue picking considers. Read from the current preview
-    data rather than remembered from pick time, so a rebuild that reshuffles bodies (a merge, a re-split) is reflected."""
-    if data is None or not len(residues):
-        return set()
-    mask = data["is_ca"] & (data["copy"] == 0) & np.isin(data["residue_seq"], sorted(residues))
-    return {int(b) for b in data["body"][mask]}
+def residue_ca_mask(data: dict, selection) -> np.ndarray:
+    """Boolean mask over `data`'s atoms selecting the copy-0 Cα of every (body, residue) pair in `selection`. A residue id is only unique
+    within its own body — a chain-split structure repeats the same numbering in every chain — so a picked residue is identified by its body
+    as well as its id, and only the one that was actually clicked is marked."""
+    if data is None:
+        return np.zeros(0, dtype=bool)
+    mask = np.zeros(len(data["coords"]), dtype=bool)
+    base = data["is_ca"] & (data["copy"] == 0)
+    for body, residue in selection:
+        mask |= base & (data["body"] == body) & (data["residue_seq"] == residue)
+    return mask
 
 
 def draw_structure(ax, data: dict, split_residues: list[int], *,
@@ -322,6 +326,7 @@ def draw_structure(ax, data: dict, split_residues: list[int], *,
                            only, if any; everything else is drawn in a neutral out-of-ramp grey.
         body_names       — body index -> display name, used to label bodies with no Cα atoms (falls back
                            to "b{index+1}" for any body missing from the mapping)
+        selected_residues — click-selected residues to mark, as (body, residue id) pairs (see residue_ca_mask)
     """
     body_names = body_names or {}
     highlight = highlight or set()
@@ -450,26 +455,31 @@ def draw_structure(ax, data: dict, split_residues: list[int], *,
                 label = body_names.get(b, f"b{b + 1}")
                 ax.text(*centroid, f" {label}", color=colour, alpha=alpha, fontsize=7, zorder=2)
 
-    # split-residue markers on the originals, in red
-    highlight = is_ca & (copy == 0) & np.isin(res, splits)
-    if highlight.any():
+    # Split-residue markers on the originals, in red. Every split in the script has already been applied to `data`, and a cut always lands on
+    # a body boundary — so an id is marked only where it actually starts a body. Marking it wherever the id occurs would show four cuts for a
+    # one-body `split b1 764` on a chain-split structure, whose chains all repeat the same residue numbering.
+    body_start = np.zeros(len(coords), dtype=bool)
+    base_ca = is_ca & (copy == 0)
+    for b in sorted(set(body[base_ca].tolist())):
+        rows = np.flatnonzero(base_ca & (body == b))
+        body_start[rows[0]] = True
+    marked = body_start & np.isin(res, splits)
+    if marked.any():
         ax.scatter(
-            coords[highlight, 0], coords[highlight, 1], coords[highlight, 2], s=80,
+            coords[marked, 0], coords[marked, 1], coords[marked, 2], s=80,
             color="red", edgecolors="black", linewidths=0.6, depthshade=False, zorder=3
         )
 
     # click-selected residues (see the structure pane), in a distinct colour. Drawn as small spheres sized in data units (Å) rather than a 
     # screen-space scatter, so they track the structure on zoom instead of ballooning out of proportion
-    selected = sorted({int(s) for s in (selected_residues or [])})
-    if selected:
-        sel_pts = coords[is_ca & (copy == 0) & np.isin(res, selected)]
-        if len(sel_pts):
-            r = SELECTION_MARKER_RADIUS
-            u, v = np.meshgrid(np.linspace(0, 2 * np.pi, 10), np.linspace(0, np.pi, 6))
-            sx, sy, sz = np.cos(u) * np.sin(v), np.sin(u) * np.sin(v), np.cos(v)
-            for p in sel_pts:
-                ax.plot_surface(p[0] + r * sx, p[1] + r * sy, p[2] + r * sz,
-                                color=SELECTION_COLOR, alpha=0.95, linewidth=0, shade=True, zorder=4)
+    sel_pts = coords[residue_ca_mask(data, selected_residues or ())]
+    if len(sel_pts):
+        r = SELECTION_MARKER_RADIUS
+        u, v = np.meshgrid(np.linspace(0, 2 * np.pi, 10), np.linspace(0, np.pi, 6))
+        sx, sy, sz = np.cos(u) * np.sin(v), np.sin(u) * np.sin(v), np.cos(v)
+        for p in sel_pts:
+            ax.plot_surface(p[0] + r * sx, p[1] + r * sy, p[2] + r * sz,
+                            color=SELECTION_COLOR, alpha=0.95, linewidth=0, shade=True, zorder=4)
 
     # active constraints, all in black: a dashed tether for backbone (0) / centre-of-mass (1) constraints (told apart by length — CM ones
     # span much further), and a solid line with directional arrowheads for attractors (2, pointing inward) and repulsors (3, outward). 
