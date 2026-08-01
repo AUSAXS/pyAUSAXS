@@ -31,7 +31,9 @@ from matplotlib.figure import Figure
 from . import plotting
 from .plotting import draw_structure, nearest_ca_residue, residue_ca_mask, _BODY_COLORS
 from .theme import FONTS, PALETTE, blend
-from .widgets import CollapsibleSection, PlaceholderEntry, ScrollableFrame, ellipsize_label
+from .widgets import (
+    CollapsibleSection, PlaceholderEntry, ScrollableFrame, ellipsize_label, quote_script_value,
+)
 
 # the load block whose bodies we manage; setup elements are inserted just after it
 _LOAD_BLOCK_RE = re.compile(r"load\s*\{.*?\}", re.DOTALL)
@@ -81,7 +83,7 @@ def _structure_signature(script: str) -> tuple:
 
 
 def _synth_load_block(pdb_path: str, splits: str) -> str:
-    inner = [f"    pdb {pdb_path}"]
+    inner = [f"    pdb {quote_script_value(pdb_path)}"]
     if splits.strip():
         inner.append(f"    split {splits.strip()}")
     return "load {\n" + "\n".join(inner) + "\n}"
