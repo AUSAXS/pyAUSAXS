@@ -570,6 +570,7 @@ class ConsolePane(ttk.Frame):
         mono = FONTS["mono"]
         self.text.tag_configure("error", foreground=ANSI_COLORS[31], font=(mono[0], mono[1], "bold"))
         self.text.tag_configure("success", foreground=ANSI_COLORS[32])
+        self.text.tag_configure("warning", foreground=ANSI_COLORS[33])
         scroll = ttk.Scrollbar(self, command=self.text.yview)
         self.text.configure(yscrollcommand=scroll.set)
         self.text.grid(row=0, column=0, sticky="nsew")
