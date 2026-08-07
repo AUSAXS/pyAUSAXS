@@ -658,8 +658,10 @@ class RigidbodyHighlighter:
         self._scope_tags = [f"scope{i}" for i in range(len(SYNTAX["scope"]))]
         self._token_tags = ("op", "keyword", "comment", "error", "error_line", *self._scope_tags)
 
-        mono = FONTS["mono"]
-        mono_bold = (mono[0], mono[1], "bold")
+        # read the size off the editor's own font (rather than hardcoding FONTS["mono"]) so a caller that resizes the editor's
+        # font before construction — or later, via set_font_size — gets matching bold tags
+        self._mono_family = FONTS["mono"][0]
+        mono_bold = (self._mono_family, tkfont.Font(font=editor.cget("font")).cget("size"), "bold")
         editor.tag_configure("op", foreground=SYNTAX["operation"], font=mono_bold)
         editor.tag_configure("keyword", foreground=SYNTAX["keyword"])
         editor.tag_configure("comment", foreground=SYNTAX["comment"])
@@ -678,6 +680,15 @@ class RigidbodyHighlighter:
         self.operations = set(operations or ())
         self.keywords = set(keywords or ())
         self.highlight()
+
+    def set_font_size(self, size: int):
+        """Resize the bold tags ("op", "error", the scope colours) to match a new editor font size. The editor's own (untagged) text
+        follows automatically if its font is a tkinter Font object, but tag fonts don't track that object and must be updated here."""
+        mono_bold = (self._mono_family, size, "bold")
+        self.editor.tag_configure("op", font=mono_bold)
+        self.editor.tag_configure("error", font=mono_bold)
+        for tag in self._scope_tags:
+            self.editor.tag_configure(tag, font=mono_bold)
 
     def _scope_tag(self, depth: int) -> str:
         return self._scope_tags[depth % len(self._scope_tags)]

@@ -122,6 +122,8 @@ class RigidbodyPane(ttk.Frame):
     chosen files, plus Validate and Run actions that stream the backend's output into a log and plot the resulting fit."""
 
     title = "Rigidbody"
+    _EDITOR_FONT_MIN = 7
+    _EDITOR_FONT_MAX = 24
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -148,8 +150,7 @@ class RigidbodyPane(ttk.Frame):
         self._structure_pane = None      # StructurePane tab for inspecting/managing bodies, or None
         self._syncing_splits = False     # set while the Splits field is being filled *from* the script, so it isn't written straight back
         self._relaxed_loads = RELAXED_LOADS  # shared across every pane: files the user has granted a relaxed load after the backend refused them
-        self._preview_error = None       # exception from the last preview build, kept so a deliberate load can report what the preview hides
-        self._report_load_errors = False  # armed by a structure-field commit: surface the next preview failure instead of swallowing it
+        self._preview_error = None       # exception from the last preview build, kept so Validate/Run can report what the preview hides
         self._run_overrides = None       # settings the active run relaxed, held until it finishes
 
         # three panes: controls | script editor | results. The editor can expand over the results pane (and collapses again
@@ -234,6 +235,12 @@ class RigidbodyPane(ttk.Frame):
         self._make_icon_button(
             title_row, "🗁", self._load_from_file_clicked, "Load script from a file…"
         ).pack(side="right", padx=(0, 8))
+        self._make_icon_button(
+            title_row, "A+", lambda: self._adjust_editor_font_size(1), "Increase editor text size"
+        ).pack(side="right", padx=(0, 2))
+        self._make_icon_button(
+            title_row, "A−", lambda: self._adjust_editor_font_size(-1), "Decrease editor text size"
+        ).pack(side="right", padx=(0, 8))
         editor_frame.configure(labelwidget=title_row)
         # Stretch the title row to the frame width (the labelframe won't do it) so the reset cross sits flush right.
         def _stretch_title_row():
@@ -242,21 +249,20 @@ class RigidbodyPane(ttk.Frame):
             title_row.configure(width=row_w, height=row_h)
             editor_frame.bind("<Configure>", lambda e: title_row.configure(width=max(e.width - 16, row_w)))
         self.after_idle(_stretch_title_row)
+        # a dedicated Font object (rather than the shared FONTS["mono"] tuple) so the A-/A+ buttons can resize just this editor,
+        # not every other widget that happens to use the mono font
+        from .session import load_config
+        saved_size = load_config().get("editor_font_size")
+        size = saved_size if isinstance(saved_size, int) and self._EDITOR_FONT_MIN <= saved_size <= self._EDITOR_FONT_MAX \
+            else FONTS["mono"][1]
+        self._editor_font = tkfont.Font(family=FONTS["mono"][0], size=size)
         self.editor = tk.Text(
-            editor_frame, wrap="none", undo=True, font=FONTS["mono"], height=12,
+            editor_frame, wrap="none", undo=True, font=self._editor_font, height=12,
             relief="flat", borderwidth=0, padx=8, pady=6,
             background=PALETTE["surface"], foreground=PALETTE["text"],
             insertbackground=PALETTE["text"], selectbackground=PALETTE["accent"],
         )
-        # Show tabs as 4 spaces: compute pixel width of a space in the editor font
-        try:
-            _mono_font = tkfont.Font(font=FONTS["mono"])
-            _space_px = _mono_font.measure(" ") or 8
-            # configure tab stops to 4 * space width
-            self.editor.configure(tabs=(_space_px * 4,))
-        except Exception:
-            # fall back silently if font metrics aren't available
-            pass
+        self._resize_editor_tabs()
 
         editor_scroll = ttk.Scrollbar(editor_frame, command=self.editor.yview)
         self.editor.configure(yscrollcommand=editor_scroll.set)
@@ -358,8 +364,8 @@ class RigidbodyPane(ttk.Frame):
     # ----- failed loads -------------------------------------------------------
     def _on_structure_committed(self, path: str):
         """A structure file was deliberately chosen (typed, browsed, or dropped). The preview swallows load failures by design — the script is
-        usually mid-edit — so arm it to report this one, which is the single moment where a failure is unambiguously about the file."""
-        self._report_load_errors = True
+        usually mid-edit — so this only mirrors the path into the SAXS field; whether it actually loads is reported by _structure_loads(),
+        called before Validate/Run, not here."""
         self._on_load_structure(path)
 
     def _offer_load_recovery(self) -> bool:
@@ -558,6 +564,24 @@ class RigidbodyPane(ttk.Frame):
         button.bind("<Leave>", lambda _e: button.configure(foreground=color))
         Tooltip(button, tooltip)
         return button
+
+    def _resize_editor_tabs(self):
+        """Show tabs as 4 spaces: set the tab stop to 4x the current font's space width."""
+        try:
+            self.editor.configure(tabs=(self._editor_font.measure(" ") * 4 or 32,))
+        except Exception:
+            pass  # fall back silently if font metrics aren't available
+
+    def _adjust_editor_font_size(self, delta: int):
+        """Grow/shrink the script editor's text size (the A-/A+ buttons), clamped to a sane range and persisted across sessions."""
+        size = max(self._EDITOR_FONT_MIN, min(self._EDITOR_FONT_MAX, self._editor_font.cget("size") + delta))
+        if size == self._editor_font.cget("size"):
+            return
+        self._editor_font.configure(size=size)
+        self.highlighter.set_font_size(size)
+        self._resize_editor_tabs()
+        from .session import update_config
+        update_config(editor_font_size=size)
 
     # ----- load / save the script to a file (independent of the cache) --------
     def _save_to_file_clicked(self):
@@ -832,17 +856,12 @@ class RigidbodyPane(ttk.Frame):
         self._preview_job = None
         if self._live_meta is not None:
             return  # a live run owns the preview axis; don't draw the static preview over it
-        # consumed up front so every exit below clears it, and so the redraw the retry itself triggers can't reopen the dialog
-        report = self._report_load_errors
-        self._report_load_errors = False
         script = self.editor.get("1.0", "end-1c")
         splits = self._split_residues(script)
 
         # redraw only when the load or symmetry elements change; everything else is ignored
         sig = self._structural_signature(script)
         if sig == self._preview_key:
-            if report:  # re-committing the same file changes nothing, but the failure still deserves an answer
-                self._maybe_offer_load_recovery()
             return
         self._preview_key = sig
 
@@ -870,14 +889,6 @@ class RigidbodyPane(ttk.Frame):
             self._last_valid_lims = [ax.get_xlim(), ax.get_ylim(), ax.get_zlim()]
         self._struct_fig.set_layout_engine("tight")
         self._struct_canvas.draw_idle()
-        if report:
-            self._maybe_offer_load_recovery()
-
-    def _maybe_offer_load_recovery(self):
-        """Open the recovery dialog if the last preview build failed. Deferred to idle so the placeholder is painted before the modal grabs
-        the display — otherwise the dialog sits over a stale figure."""
-        if self._preview_cache is None and self._preview_error is not None:
-            self.after_idle(self._offer_load_recovery)
 
     # ----- camera sync with the structure pane --------------------------------
     # The structure pane shows the same structure in its own figure. Rather than truly sync the two, each adopts the other's 

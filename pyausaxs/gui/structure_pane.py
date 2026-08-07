@@ -1286,8 +1286,8 @@ class StructurePane(ttk.Frame):
         if old == new:
             self._set_status("The new name is the same as the current one.", ok=False)
             return
-        self._apply_element(f"rename {old} {new}")
-        self._rename_entry.clear()
+        if self._apply_element(f"rename {old} {new}"):
+            self._rename_entry.clear()
         self._refresh_action_readiness()
 
     def _apply_merge(self):
@@ -1297,8 +1297,8 @@ class StructurePane(ttk.Frame):
         if len(tokens) < 2:
             self._set_status("Merge needs a target body and at least one other.", ok=False)
             return
-        self._apply_element("merge " + " ".join(tokens))
-        self._merge_entry.clear()
+        if self._apply_element("merge " + " ".join(tokens)):
+            self._merge_entry.clear()
         self._refresh_action_readiness()
 
     def _apply_delete(self):
@@ -1306,8 +1306,8 @@ class StructurePane(ttk.Frame):
         if not tokens:
             self._set_status("Delete needs at least one body.", ok=False)
             return
-        self._apply_element("delete " + " ".join(tokens))
-        self._delete_entry.clear()
+        if self._apply_element("delete " + " ".join(tokens)):
+            self._delete_entry.clear()
         self._refresh_action_readiness()
 
     def _apply_add_symmetry(self):
@@ -1320,8 +1320,8 @@ class StructurePane(ttk.Frame):
         if len(tokens) > 2:
             self._set_status("Add symmetry takes one body and one type, e.g. b1 c4.", ok=False)
             return
-        self._apply_element("symmetry " + " ".join(tokens))
-        self._sym_add_entry.clear()
+        if self._apply_element("symmetry " + " ".join(tokens)):
+            self._sym_add_entry.clear()
 
     def _apply_convert_symmetry(self):
         """Decompose one or more bodies into one shared symmetry, collapsing the copies into the first body plus a fitted symmetry:
@@ -1348,16 +1348,16 @@ class StructurePane(ttk.Frame):
                 return
             extra = "\n    tolerance " + tolerance
         element = "convert_to_symmetry {\n    type " + sym + "\n    bodies " + " ".join(bodies) + extra + "\n}"
-        self._apply_element(element)
-        self._sym_convert_entry.clear()
-        self._sym_convert_entry.advanced.clear()
+        if self._apply_element(element):
+            self._sym_convert_entry.clear()
+            self._sym_convert_entry.advanced.clear()
 
     def _apply_autoconstrain(self):
         """Auto-generate a set of constraints: `autoconstrain <backbone|none>`. Defaults to backbone, the usual choice; `none` clears 
         any auto-generated set."""
         choice = self._autoconstrain_entry.get().strip() or "backbone"
-        self._apply_element(f"autoconstrain {choice}")
-        self._autoconstrain_entry.clear()
+        if self._apply_element(f"autoconstrain {choice}"):
+            self._autoconstrain_entry.clear()
 
     def _apply_add_constraint(self):
         """Add a distance constraint between two bodies: `<body1> <body2> <type> [distance]`. `bond` and `cm` need only the two bodies;
@@ -1377,8 +1377,8 @@ class StructurePane(ttk.Frame):
         elif rest:
             self._set_status(f"A {ctype} constraint takes no arguments beyond the two bodies.", ok=False)
             return
-        self._apply_element("constrain {\n" + "\n".join(lines) + "\n}")
-        self._constraint_entry.clear()
+        if self._apply_element("constrain {\n" + "\n".join(lines) + "\n}"):
+            self._constraint_entry.clear()
 
     def _prune_split_coverage(self):
         """Drop residue coverage for bodies no staged `split` targets any more, e.g. after one is removed from the applied list."""
