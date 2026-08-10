@@ -1,7 +1,8 @@
 __pycache__/
 pyausaxs/resources
-pyproject.toml
 *.egg-info
 build
+dist/
+.pixi/
 .vscode
 output
