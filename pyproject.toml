@@ -40,12 +40,13 @@ Homepage = "https://github.com/AUSAXS/pyAUSAXS"
 where = ["."]
 include = ["pyausaxs*"]
 
+# the shared library is placed here by the wheel-build workflow; the glob matches
+# nothing in source builds, which then rely on an externally provided library
 [tool.setuptools.package-data]
-"pyausaxs" = ["LIBRARY_PLACEHOLDER"]
+"pyausaxs" = ["resources/libausaxs.*"]
 
 [tool.setuptools]
 include-package-data = false
-license-files = []
 
 [project.entry-points."pyinstaller40"]
 hook-dirs = "pyausaxs.__pyinstaller.pyinstaller:get_hook_dirs"
