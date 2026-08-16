@@ -253,20 +253,29 @@ def enable_file_drop(
 
 class PlaceholderEntry(ttk.Entry):
     """A ttk.Entry that shows greyed-out hint text while it is empty and unfocused, cleared the moment the user types. The placeholder is 
-    never part of the value — get() returns "" while  shows — so it can carry a field's hint inline instead of a separate label, saving 
+    never part of the value — get() returns "" while  shows — so it can carry a field's hint inline instead of a separate label, saving
     vertical  Pass a StringVar via `textvariable` and it is kept empty while the placeholder is showing.
+
+    `initial`, if given, prefills the field with a real (non-placeholder) value instead: it is returned by get() and restored by clear(),
+    so a field with one sensible answer can simply be submitted as-is.
     """
 
-    def __init__(self, parent, placeholder: str = "", *, textvariable: Optional[tk.StringVar] = None, **kwargs):
+    def __init__(self, parent, placeholder: str = "", *, initial: str = "",
+                 textvariable: Optional[tk.StringVar] = None, **kwargs):
         super().__init__(parent, textvariable=textvariable, **kwargs)
         self._placeholder = placeholder
+        self._initial = initial
         self._var = textvariable
         self._showing = False
         self._normal_fg = PALETTE["text"]
         self._placeholder_fg = PALETTE["muted"]
         self.bind("<FocusIn>", self._clear_placeholder, add="+")
         self.bind("<FocusOut>", self._add_placeholder, add="+")
-        self._add_placeholder()
+        if initial:  # a real value, not a hint: it is returned by get() and restored by clear()
+            self.insert(0, initial)
+            self.configure(foreground=self._normal_fg)
+        else:
+            self._add_placeholder()
 
     def _clear_placeholder(self, _event=None):
         if self._showing:
@@ -285,11 +294,14 @@ class PlaceholderEntry(ttk.Entry):
         return "" if self._showing else super().get()
 
     def clear(self):
-        """Empty the field, restoring the placeholder when the field is not focused."""
+        """Reset the field to its `initial` value, or empty it and restore the placeholder when there is none and the field is not
+        focused."""
         self.delete(0, "end")
         self._showing = False
         self.configure(foreground=self._normal_fg)
-        if self.focus_get() is not self:
+        if self._initial:
+            self.insert(0, self._initial)
+        elif self.focus_get() is not self:
             self._add_placeholder()
 
 
@@ -570,6 +582,7 @@ class ConsolePane(ttk.Frame):
         mono = FONTS["mono"]
         self.text.tag_configure("error", foreground=ANSI_COLORS[31], font=(mono[0], mono[1], "bold"))
         self.text.tag_configure("success", foreground=ANSI_COLORS[32])
+        self.text.tag_configure("warning", foreground=ANSI_COLORS[33])
         scroll = ttk.Scrollbar(self, command=self.text.yview)
         self.text.configure(yscrollcommand=scroll.set)
         self.text.grid(row=0, column=0, sticky="nsew")
@@ -658,8 +671,10 @@ class RigidbodyHighlighter:
         self._scope_tags = [f"scope{i}" for i in range(len(SYNTAX["scope"]))]
         self._token_tags = ("op", "keyword", "comment", "error", "error_line", *self._scope_tags)
 
-        mono = FONTS["mono"]
-        mono_bold = (mono[0], mono[1], "bold")
+        # read the size off the editor's own font (rather than hardcoding FONTS["mono"]) so a caller that resizes the editor's
+        # font before construction — or later, via set_font_size — gets matching bold tags
+        self._mono_family = FONTS["mono"][0]
+        mono_bold = (self._mono_family, tkfont.Font(font=editor.cget("font")).cget("size"), "bold")
         editor.tag_configure("op", foreground=SYNTAX["operation"], font=mono_bold)
         editor.tag_configure("keyword", foreground=SYNTAX["keyword"])
         editor.tag_configure("comment", foreground=SYNTAX["comment"])
@@ -678,6 +693,15 @@ class RigidbodyHighlighter:
         self.operations = set(operations or ())
         self.keywords = set(keywords or ())
         self.highlight()
+
+    def set_font_size(self, size: int):
+        """Resize the bold tags ("op", "error", the scope colours) to match a new editor font size. The editor's own (untagged) text
+        follows automatically if its font is a tkinter Font object, but tag fonts don't track that object and must be updated here."""
+        mono_bold = (self._mono_family, size, "bold")
+        self.editor.tag_configure("op", font=mono_bold)
+        self.editor.tag_configure("error", font=mono_bold)
+        for tag in self._scope_tags:
+            self.editor.tag_configure(tag, font=mono_bold)
 
     def _scope_tag(self, depth: int) -> str:
         return self._scope_tags[depth % len(self._scope_tags)]
@@ -834,6 +858,7 @@ class ScrollableFrame(ttk.Frame):
     def __init__(self, parent, height: Optional[int] = None, max_height: Optional[int] = None, **kwargs):
         super().__init__(parent, **kwargs)
         self._max_height = max_height
+        self._refresh_pending = False
         canvas_kwargs = {"height": height} if height is not None else {}
         self._canvas = tk.Canvas(self, background=PALETTE["surface"], highlightthickness=0, bd=0, **canvas_kwargs)
         self._scroll = ttk.Scrollbar(self, orient="vertical", command=self._canvas.yview)
@@ -846,17 +871,43 @@ class ScrollableFrame(ttk.Frame):
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
 
-        self.body.bind("<Configure>", self._on_body_configure)
+        self.body.bind("<Configure>", lambda _e: self.refresh())
         self._canvas.bind("<Configure>", lambda e: self._canvas.itemconfigure(self._window, width=e.width))
         # only scroll while the pointer is inside, so wheel events elsewhere are untouched
         self._canvas.bind("<Enter>", lambda _e: self._bind_wheel())
         self._canvas.bind("<Leave>", lambda _e: self._unbind_wheel())
 
-    def _on_body_configure(self, _event=None):
+    def refresh(self):
+        """Re-fit the viewport and scrollbar to the current content. The <Configure> binding covers this
+        for content that changes size while it is on screen, but Tk skips resizing an embedded window that
+        is scrolled out of view, so a list that shrinks while scrolled down never announces its new size.
+        Call this after adding or removing rows to make sure the geometry follows."""
+        self._sync_geometry()
+        # requested sizes settle at the next idle point, so do it once more when they have
+        if not self._refresh_pending:
+            self._refresh_pending = True
+            self.after_idle(self._deferred_refresh)
+
+    def _deferred_refresh(self):
+        self._refresh_pending = False
+        if self.winfo_exists():
+            self._sync_geometry()
+
+    def _sync_geometry(self):
         self._canvas.configure(scrollregion=self._canvas.bbox("all"))
         # grow the viewport with the content up to max_height, then let it scroll past that
         if self._max_height is not None:
             self._canvas.configure(height=min(self.body.winfo_reqheight(), self._max_height))
+        self._clamp_view()
+
+    def _clamp_view(self):
+        """Tk keeps the canvas' scroll offset even when the scrollregion shrinks under it — the confine
+        option is only enforced by the scrolling commands themselves. A list that loses rows while scrolled
+        down would otherwise keep showing the empty space past its new end (and keep its scrollbar) until
+        the user scrolls, so pull the view back into the region ourselves."""
+        lo, hi = self._canvas.yview()
+        if hi > 1.0 or lo < 0.0:
+            self._canvas.yview_moveto(max(0.0, min(lo, 1.0 - (hi - lo))))
 
     def _on_scroll_set(self, lo, hi):
         # hide the scrollbar entirely when everything fits

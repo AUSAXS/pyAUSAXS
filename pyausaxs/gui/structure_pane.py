@@ -412,14 +412,15 @@ class StructurePane(ttk.Frame):
         )
         self._sym_convert_entry = self._action_row(
             sym, "Decompose bodies into a symmetry", "body(s)... type", self._apply_convert_symmetry, button="Convert",
-            advanced="tolerance (default 2.0 Å)"
+            advanced="tolerance (default 5.0 Å)"
         )
 
         # --- constraints: auto-generate a set (backbone) on top, then add an individual constraint between two bodies below. Existing constraints
         # are edited by removing/re-adding via the applied-elements list, and shown in the view via the "Constraints" display toggle.
+        # `backbone` is prefilled since it is the only generator currently available: the row is then a one-click affair.
         con = self._section(parent, "Constraints", expanded=False).body
         self._autoconstrain_entry = self._action_row(
-            con, "Auto-generate constraints", "backbone", self._apply_autoconstrain, button="Generate"
+            con, "Auto-generate constraints", "backbone", self._apply_autoconstrain, button="Generate", prefill="backbone"
         )
         self._constraint_entry = self._action_row(
             con, "Constrain two bodies", "body1 body2 type", self._apply_add_constraint, button="Add"
@@ -499,7 +500,7 @@ class StructurePane(ttk.Frame):
         self._refresh_bar = bar  # created unpacked; _set_stale packs it above the sections
 
     def _action_row(self, parent, label, hint, command, button="Apply", ready_check=None,
-                     advanced: str | None = None) -> PlaceholderEntry:
+                     advanced: str | None = None, prefill: str = "") -> PlaceholderEntry:
         """An action row: a short label, a text entry whose greyed placeholder carries the format hint (so no separate hint line is needed),
         and a button. Returns the entry so the caller can read it with .get() and reset it with .clear().
 
@@ -509,11 +510,14 @@ class StructurePane(ttk.Frame):
 
         `advanced`, if given, is the placeholder text for an optional second field (e.g. a tolerance override) tucked behind a small
         chevron after the button, collapsed by default so it stays out of the way for the common case. It's reachable afterwards as
-        the returned entry's `.advanced` attribute (a PlaceholderEntry, or None if `advanced` wasn't given)."""
+        the returned entry's `.advanced` attribute (a PlaceholderEntry, or None if `advanced` wasn't given).
+
+        `prefill`, if given, seeds the entry with a real value rather than a hint — for a row whose one sensible answer can just be
+        submitted by clicking the button. It is restored whenever the entry is cleared."""
         row = ttk.Frame(parent)
         row.pack(fill="x", pady=(0, 6))
         ttk.Label(row, text=label, style="Muted.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
-        entry = PlaceholderEntry(row, hint)
+        entry = PlaceholderEntry(row, hint, initial=prefill)
         entry.grid(row=1, column=0, sticky="ew", padx=(0, 6))
         btn = ttk.Button(row, text=button, style="Icon.TButton", command=command)
         btn.grid(row=1, column=1)
@@ -689,6 +693,7 @@ class StructurePane(ttk.Frame):
                     self._build_replica_row(b, c) for c in b["copies"][1:]
                 ]
         self._refresh_row_highlight()
+        self._body_list.refresh()  # the row count just changed; re-fit the viewport and scroll position
 
     def _build_body_row(self, b: dict):
         replicas = b["copies"][1:]
@@ -792,6 +797,7 @@ class StructurePane(ttk.Frame):
                 for row in stale:
                     row.destroy()
         self._refresh_row_highlight()
+        self._body_list.refresh()  # folding changes the row count, so the viewport has to follow
 
     @staticmethod
     def _is_shift(event) -> bool:
@@ -1286,8 +1292,8 @@ class StructurePane(ttk.Frame):
         if old == new:
             self._set_status("The new name is the same as the current one.", ok=False)
             return
-        self._apply_element(f"rename {old} {new}")
-        self._rename_entry.clear()
+        if self._apply_element(f"rename {old} {new}"):
+            self._rename_entry.clear()
         self._refresh_action_readiness()
 
     def _apply_merge(self):
@@ -1297,8 +1303,8 @@ class StructurePane(ttk.Frame):
         if len(tokens) < 2:
             self._set_status("Merge needs a target body and at least one other.", ok=False)
             return
-        self._apply_element("merge " + " ".join(tokens))
-        self._merge_entry.clear()
+        if self._apply_element("merge " + " ".join(tokens)):
+            self._merge_entry.clear()
         self._refresh_action_readiness()
 
     def _apply_delete(self):
@@ -1306,8 +1312,8 @@ class StructurePane(ttk.Frame):
         if not tokens:
             self._set_status("Delete needs at least one body.", ok=False)
             return
-        self._apply_element("delete " + " ".join(tokens))
-        self._delete_entry.clear()
+        if self._apply_element("delete " + " ".join(tokens)):
+            self._delete_entry.clear()
         self._refresh_action_readiness()
 
     def _apply_add_symmetry(self):
@@ -1320,8 +1326,8 @@ class StructurePane(ttk.Frame):
         if len(tokens) > 2:
             self._set_status("Add symmetry takes one body and one type, e.g. b1 c4.", ok=False)
             return
-        self._apply_element("symmetry " + " ".join(tokens))
-        self._sym_add_entry.clear()
+        if self._apply_element("symmetry " + " ".join(tokens)):
+            self._sym_add_entry.clear()
 
     def _apply_convert_symmetry(self):
         """Decompose one or more bodies into one shared symmetry, collapsing the copies into the first body plus a fitted symmetry:
@@ -1330,7 +1336,7 @@ class StructurePane(ttk.Frame):
         is enough when one or more whole bodies are selected in the Bodies list, or — with only one body in the whole system —
         with nothing selected at all, since decomposing it is then the only sensible target. An optional tolerance (Å) typed into
         the field tucked behind the chevron overrides the backend's default when the assembly's residual RMSD to the fitted
-        symmetry is just barely out of range."""
+        symmetry is just barely out of range. The bodies are reordered so the largest leads — see _most_complete_first."""
         tokens = self._with_selected_bodies(self._sym_convert_entry, minimum=1)
         if len(tokens) == 1 and len(self._bodies) == 1:
             tokens = [self._bodies[0]["name"]] + tokens
@@ -1338,6 +1344,7 @@ class StructurePane(ttk.Frame):
             self._set_status("Decomposing needs at least one body and a type, e.g. b1 c2.", ok=False)
             return
         *bodies, sym = tokens
+        bodies = self._most_complete_first(bodies)
         tolerance = self._sym_convert_entry.advanced.get().strip()
         extra = ""
         if tolerance:
@@ -1348,16 +1355,28 @@ class StructurePane(ttk.Frame):
                 return
             extra = "\n    tolerance " + tolerance
         element = "convert_to_symmetry {\n    type " + sym + "\n    bodies " + " ".join(bodies) + extra + "\n}"
-        self._apply_element(element)
-        self._sym_convert_entry.clear()
-        self._sym_convert_entry.advanced.clear()
+        if self._apply_element(element):
+            self._sym_convert_entry.clear()
+            self._sym_convert_entry.advanced.clear()
+
+    def _most_complete_first(self, bodies: list[str]) -> list[str]:
+        """Reorder a decomposition's bodies so the one with the most atoms leads, leaving the rest in the given order. The backend keeps
+        the first-listed body and regenerates the others from it, so that body is the one that survives into the model — and copies of the
+        same molecule are routinely modelled to differing extents (a terminus resolved in some chains but not others), making the fullest
+        of them the one worth keeping. Left alone if any name is not a body we know the size of, since we then cannot judge; ties keep the
+        original leader."""
+        atoms = {b["name"]: b["atoms"] for b in self._bodies}
+        if not all(name in atoms for name in bodies):
+            return bodies
+        lead = max(range(len(bodies)), key=lambda i: atoms[bodies[i]])
+        return [bodies[lead]] + bodies[:lead] + bodies[lead + 1:]
 
     def _apply_autoconstrain(self):
         """Auto-generate a set of constraints: `autoconstrain <backbone|none>`. Defaults to backbone, the usual choice; `none` clears 
         any auto-generated set."""
         choice = self._autoconstrain_entry.get().strip() or "backbone"
-        self._apply_element(f"autoconstrain {choice}")
-        self._autoconstrain_entry.clear()
+        if self._apply_element(f"autoconstrain {choice}"):
+            self._autoconstrain_entry.clear()
 
     def _apply_add_constraint(self):
         """Add a distance constraint between two bodies: `<body1> <body2> <type> [distance]`. `bond` and `cm` need only the two bodies;
@@ -1377,8 +1396,8 @@ class StructurePane(ttk.Frame):
         elif rest:
             self._set_status(f"A {ctype} constraint takes no arguments beyond the two bodies.", ok=False)
             return
-        self._apply_element("constrain {\n" + "\n".join(lines) + "\n}")
-        self._constraint_entry.clear()
+        if self._apply_element("constrain {\n" + "\n".join(lines) + "\n}"):
+            self._constraint_entry.clear()
 
     def _prune_split_coverage(self):
         """Drop residue coverage for bodies no staged `split` targets any more, e.g. after one is removed from the applied list."""
