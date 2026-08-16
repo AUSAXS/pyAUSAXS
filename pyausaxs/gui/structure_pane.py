@@ -412,7 +412,7 @@ class StructurePane(ttk.Frame):
         )
         self._sym_convert_entry = self._action_row(
             sym, "Decompose bodies into a symmetry", "body(s)... type", self._apply_convert_symmetry, button="Convert",
-            advanced="tolerance (default 2.0 Å)"
+            advanced="tolerance (default 5.0 Å)"
         )
 
         # --- constraints: auto-generate a set (backbone) on top, then add an individual constraint between two bodies below. Existing constraints
@@ -1332,7 +1332,7 @@ class StructurePane(ttk.Frame):
         is enough when one or more whole bodies are selected in the Bodies list, or — with only one body in the whole system —
         with nothing selected at all, since decomposing it is then the only sensible target. An optional tolerance (Å) typed into
         the field tucked behind the chevron overrides the backend's default when the assembly's residual RMSD to the fitted
-        symmetry is just barely out of range."""
+        symmetry is just barely out of range. The bodies are reordered so the largest leads — see _most_complete_first."""
         tokens = self._with_selected_bodies(self._sym_convert_entry, minimum=1)
         if len(tokens) == 1 and len(self._bodies) == 1:
             tokens = [self._bodies[0]["name"]] + tokens
@@ -1340,6 +1340,7 @@ class StructurePane(ttk.Frame):
             self._set_status("Decomposing needs at least one body and a type, e.g. b1 c2.", ok=False)
             return
         *bodies, sym = tokens
+        bodies = self._most_complete_first(bodies)
         tolerance = self._sym_convert_entry.advanced.get().strip()
         extra = ""
         if tolerance:
@@ -1353,6 +1354,18 @@ class StructurePane(ttk.Frame):
         if self._apply_element(element):
             self._sym_convert_entry.clear()
             self._sym_convert_entry.advanced.clear()
+
+    def _most_complete_first(self, bodies: list[str]) -> list[str]:
+        """Reorder a decomposition's bodies so the one with the most atoms leads, leaving the rest in the given order. The backend keeps
+        the first-listed body and regenerates the others from it, so that body is the one that survives into the model — and copies of the
+        same molecule are routinely modelled to differing extents (a terminus resolved in some chains but not others), making the fullest
+        of them the one worth keeping. Left alone if any name is not a body we know the size of, since we then cannot judge; ties keep the
+        original leader."""
+        atoms = {b["name"]: b["atoms"] for b in self._bodies}
+        if not all(name in atoms for name in bodies):
+            return bodies
+        lead = max(range(len(bodies)), key=lambda i: atoms[bodies[i]])
+        return [bodies[lead]] + bodies[:lead] + bodies[lead + 1:]
 
     def _apply_autoconstrain(self):
         """Auto-generate a set of constraints: `autoconstrain <backbone|none>`. Defaults to backbone, the usual choice; `none` clears 
