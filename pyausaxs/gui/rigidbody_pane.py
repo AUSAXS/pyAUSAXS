@@ -36,7 +36,6 @@ load {
     saxs
     split
 }
-autoconstrain backbone
 save initial_state.pdb
 save trajectory.xyz
 parameter_generator {

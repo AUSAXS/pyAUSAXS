@@ -417,9 +417,10 @@ class StructurePane(ttk.Frame):
 
         # --- constraints: auto-generate a set (backbone) on top, then add an individual constraint between two bodies below. Existing constraints
         # are edited by removing/re-adding via the applied-elements list, and shown in the view via the "Constraints" display toggle.
+        # `backbone` is prefilled since it is the only generator currently available: the row is then a one-click affair.
         con = self._section(parent, "Constraints", expanded=False).body
         self._autoconstrain_entry = self._action_row(
-            con, "Auto-generate constraints", "backbone", self._apply_autoconstrain, button="Generate"
+            con, "Auto-generate constraints", "backbone", self._apply_autoconstrain, button="Generate", prefill="backbone"
         )
         self._constraint_entry = self._action_row(
             con, "Constrain two bodies", "body1 body2 type", self._apply_add_constraint, button="Add"
@@ -499,7 +500,7 @@ class StructurePane(ttk.Frame):
         self._refresh_bar = bar  # created unpacked; _set_stale packs it above the sections
 
     def _action_row(self, parent, label, hint, command, button="Apply", ready_check=None,
-                     advanced: str | None = None) -> PlaceholderEntry:
+                     advanced: str | None = None, prefill: str = "") -> PlaceholderEntry:
         """An action row: a short label, a text entry whose greyed placeholder carries the format hint (so no separate hint line is needed),
         and a button. Returns the entry so the caller can read it with .get() and reset it with .clear().
 
@@ -509,11 +510,14 @@ class StructurePane(ttk.Frame):
 
         `advanced`, if given, is the placeholder text for an optional second field (e.g. a tolerance override) tucked behind a small
         chevron after the button, collapsed by default so it stays out of the way for the common case. It's reachable afterwards as
-        the returned entry's `.advanced` attribute (a PlaceholderEntry, or None if `advanced` wasn't given)."""
+        the returned entry's `.advanced` attribute (a PlaceholderEntry, or None if `advanced` wasn't given).
+
+        `prefill`, if given, seeds the entry with a real value rather than a hint — for a row whose one sensible answer can just be
+        submitted by clicking the button. It is restored whenever the entry is cleared."""
         row = ttk.Frame(parent)
         row.pack(fill="x", pady=(0, 6))
         ttk.Label(row, text=label, style="Muted.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
-        entry = PlaceholderEntry(row, hint)
+        entry = PlaceholderEntry(row, hint, initial=prefill)
         entry.grid(row=1, column=0, sticky="ew", padx=(0, 6))
         btn = ttk.Button(row, text=button, style="Icon.TButton", command=command)
         btn.grid(row=1, column=1)

@@ -253,20 +253,29 @@ def enable_file_drop(
 
 class PlaceholderEntry(ttk.Entry):
     """A ttk.Entry that shows greyed-out hint text while it is empty and unfocused, cleared the moment the user types. The placeholder is 
-    never part of the value — get() returns "" while  shows — so it can carry a field's hint inline instead of a separate label, saving 
+    never part of the value — get() returns "" while  shows — so it can carry a field's hint inline instead of a separate label, saving
     vertical  Pass a StringVar via `textvariable` and it is kept empty while the placeholder is showing.
+
+    `initial`, if given, prefills the field with a real (non-placeholder) value instead: it is returned by get() and restored by clear(),
+    so a field with one sensible answer can simply be submitted as-is.
     """
 
-    def __init__(self, parent, placeholder: str = "", *, textvariable: Optional[tk.StringVar] = None, **kwargs):
+    def __init__(self, parent, placeholder: str = "", *, initial: str = "",
+                 textvariable: Optional[tk.StringVar] = None, **kwargs):
         super().__init__(parent, textvariable=textvariable, **kwargs)
         self._placeholder = placeholder
+        self._initial = initial
         self._var = textvariable
         self._showing = False
         self._normal_fg = PALETTE["text"]
         self._placeholder_fg = PALETTE["muted"]
         self.bind("<FocusIn>", self._clear_placeholder, add="+")
         self.bind("<FocusOut>", self._add_placeholder, add="+")
-        self._add_placeholder()
+        if initial:  # a real value, not a hint: it is returned by get() and restored by clear()
+            self.insert(0, initial)
+            self.configure(foreground=self._normal_fg)
+        else:
+            self._add_placeholder()
 
     def _clear_placeholder(self, _event=None):
         if self._showing:
@@ -285,11 +294,14 @@ class PlaceholderEntry(ttk.Entry):
         return "" if self._showing else super().get()
 
     def clear(self):
-        """Empty the field, restoring the placeholder when the field is not focused."""
+        """Reset the field to its `initial` value, or empty it and restore the placeholder when there is none and the field is not
+        focused."""
         self.delete(0, "end")
         self._showing = False
         self.configure(foreground=self._normal_fg)
-        if self.focus_get() is not self:
+        if self._initial:
+            self.insert(0, self._initial)
+        elif self.focus_get() is not self:
             self._add_placeholder()
 
 
