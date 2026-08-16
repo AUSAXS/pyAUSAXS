@@ -56,6 +56,6 @@ def test_debye_fit():
     mol = ausaxs.create_molecule("tests/files/2epe.pdb")
     data = ausaxs.read_data("tests/files/2epe.dat")
     res = mol.fit(data)
-    res.plot()
+    # res.plot()
     # import matplotlib.pyplot as plt
     # plt.show()
