@@ -846,6 +846,7 @@ class ScrollableFrame(ttk.Frame):
     def __init__(self, parent, height: Optional[int] = None, max_height: Optional[int] = None, **kwargs):
         super().__init__(parent, **kwargs)
         self._max_height = max_height
+        self._refresh_pending = False
         canvas_kwargs = {"height": height} if height is not None else {}
         self._canvas = tk.Canvas(self, background=PALETTE["surface"], highlightthickness=0, bd=0, **canvas_kwargs)
         self._scroll = ttk.Scrollbar(self, orient="vertical", command=self._canvas.yview)
@@ -858,17 +859,43 @@ class ScrollableFrame(ttk.Frame):
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
 
-        self.body.bind("<Configure>", self._on_body_configure)
+        self.body.bind("<Configure>", lambda _e: self.refresh())
         self._canvas.bind("<Configure>", lambda e: self._canvas.itemconfigure(self._window, width=e.width))
         # only scroll while the pointer is inside, so wheel events elsewhere are untouched
         self._canvas.bind("<Enter>", lambda _e: self._bind_wheel())
         self._canvas.bind("<Leave>", lambda _e: self._unbind_wheel())
 
-    def _on_body_configure(self, _event=None):
+    def refresh(self):
+        """Re-fit the viewport and scrollbar to the current content. The <Configure> binding covers this
+        for content that changes size while it is on screen, but Tk skips resizing an embedded window that
+        is scrolled out of view, so a list that shrinks while scrolled down never announces its new size.
+        Call this after adding or removing rows to make sure the geometry follows."""
+        self._sync_geometry()
+        # requested sizes settle at the next idle point, so do it once more when they have
+        if not self._refresh_pending:
+            self._refresh_pending = True
+            self.after_idle(self._deferred_refresh)
+
+    def _deferred_refresh(self):
+        self._refresh_pending = False
+        if self.winfo_exists():
+            self._sync_geometry()
+
+    def _sync_geometry(self):
         self._canvas.configure(scrollregion=self._canvas.bbox("all"))
         # grow the viewport with the content up to max_height, then let it scroll past that
         if self._max_height is not None:
             self._canvas.configure(height=min(self.body.winfo_reqheight(), self._max_height))
+        self._clamp_view()
+
+    def _clamp_view(self):
+        """Tk keeps the canvas' scroll offset even when the scrollregion shrinks under it — the confine
+        option is only enforced by the scrolling commands themselves. A list that loses rows while scrolled
+        down would otherwise keep showing the empty space past its new end (and keep its scrollbar) until
+        the user scrolls, so pull the view back into the region ourselves."""
+        lo, hi = self._canvas.yview()
+        if hi > 1.0 or lo < 0.0:
+            self._canvas.yview_moveto(max(0.0, min(lo, 1.0 - (hi - lo))))
 
     def _on_scroll_set(self, lo, hi):
         # hide the scrollbar entirely when everything fits

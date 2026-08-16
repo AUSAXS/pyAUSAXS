@@ -689,6 +689,7 @@ class StructurePane(ttk.Frame):
                     self._build_replica_row(b, c) for c in b["copies"][1:]
                 ]
         self._refresh_row_highlight()
+        self._body_list.refresh()  # the row count just changed; re-fit the viewport and scroll position
 
     def _build_body_row(self, b: dict):
         replicas = b["copies"][1:]
@@ -792,6 +793,7 @@ class StructurePane(ttk.Frame):
                 for row in stale:
                     row.destroy()
         self._refresh_row_highlight()
+        self._body_list.refresh()  # folding changes the row count, so the viewport has to follow
 
     @staticmethod
     def _is_shift(event) -> bool:
