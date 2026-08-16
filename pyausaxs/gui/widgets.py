@@ -610,6 +610,34 @@ class ConsolePane(ttk.Frame):
         self.text.configure(state="disabled")
 
 
+# ----- sequencer-script value quoting -----------------------------------------
+# The backend tokenizes a script line on whitespace unless the value is quoted, so any value containing a
+# space has to be written with quotes around it. This is near-universal on Windows, where the user profile
+# directory routinely contains one (C:\Users\John Doe\...). The backend treats backslash as a path separator
+# rather than an escape character, so a path ending in one needs no special handling here.
+_SCRIPT_QUOTES = ('"', "'")
+
+
+def _is_quoted(value: str) -> bool:
+    return len(value) > 1 and value[0] in _SCRIPT_QUOTES and value[-1] == value[0]
+
+
+def quote_script_value(value: str) -> str:
+    """Quote a value for a sequencer script line if it contains whitespace. Values that are already quoted, or
+    that need no quoting, are returned unchanged, so this is safe to apply more than once."""
+    value = value.strip()
+    if not value or _is_quoted(value):
+        return value
+    return f'"{value}"' if any(c.isspace() for c in value) else value
+
+
+def unquote_script_value(value: str) -> str:
+    """Strip one matching pair of surrounding quotes from a script value — the inverse of quote_script_value,
+    giving back the value as the backend's tokenizer would see it."""
+    value = value.strip()
+    return value[1:-1] if _is_quoted(value) else value
+
+
 class RigidbodyHighlighter:
     """Syntax highlighting for the rigid-body sequencer script in a tk.Text editor.
 

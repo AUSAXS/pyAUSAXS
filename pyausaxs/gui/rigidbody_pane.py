@@ -22,7 +22,10 @@ from .plotting import draw_structure, nearest_ca_residue, fit_figure_from_curves
 from .runner import RigidbodyRunner
 from .structure_pane import StructurePane
 from .theme import FONTS, PALETTE
-from .widgets import ConsolePane, FileField, RigidbodyHighlighter, Tooltip, enable_file_drop
+from .widgets import (
+    ConsolePane, FileField, RigidbodyHighlighter, Tooltip, enable_file_drop,
+    quote_script_value, unquote_script_value,
+)
 
 
 DEFAULT_RIGIDBODY_SCRIPT = """\
@@ -84,9 +87,15 @@ _CONSTRAINT_RE = re.compile(
 # an 'update' element (e.g. `update structure`) as the first token on a line; its presence makes
 # the GUI poll the backend for the live structure during a run
 _UPDATE_RE = re.compile(rf"{_LINE_START}update\b", re.MULTILINE)
+# a directive's value: either a quoted string — the only way to write a path containing spaces — or a bare
+# run of non-space characters
+_VALUE = r"\"[^\"\n]*\"|'[^'\n]*'|\S+"
 # the top-level 'output' directive (output <dir>), captured as (prefix, path) so the path can be
 # rewritten to an absolute one at boot
-_OUTPUT_RE = re.compile(rf"({_LINE_START}output{_TABS_OR_SPACES})(\S+)", re.MULTILINE)
+_OUTPUT_RE = re.compile(rf"({_LINE_START}output{_TABS_OR_SPACES})({_VALUE})", re.MULTILINE)
+# the load-block directives whose value is a path, and so must be quoted when it contains spaces. 'split'
+# is a list of residue ids and has to stay bare.
+_PATH_DIRECTIVES = ("pdb", "saxs")
 # a top-level 'split' element: `split <body> <ids…>` on its own line. This is the sequencer element that
 # partitions an already-loaded body into new bodies at the given residue ids (distinct from the load-block
 # 'split' directive, which lists ids for the load-time BodySplitter). Both change the body set, so both must
@@ -99,6 +108,11 @@ _STRUCTURALLY_RELEVANT_RE = re.compile(
     rf"(?:{_LOAD_BLOCK_RE.pattern}|{_SYMMETRY_RE.pattern}|{_CONSTRAINT_RE.pattern}|{_DELETE_RE.pattern}|{_SPLIT_RE.pattern})",
     re.MULTILINE | re.DOTALL
 )
+
+
+def _directive_value(directive: str, value: str) -> str:
+    """Render a load-block value for writing into the script, quoting it if it is a path that needs it."""
+    return quote_script_value(value) if directive in _PATH_DIRECTIVES else value
 
 
 class RigidbodyPane(ttk.Frame):
@@ -640,10 +654,10 @@ class RigidbodyPane(ttk.Frame):
         return load_config().get("last_launch_directory") or os.getcwd()
 
     def _absolutize_script_paths(self, base_dir: str):
-        """Rewrite the script's relative file paths (the load block's pdb/saxs and the top-level output directive) into absolute paths 
-        anchored at `base_dir`. Absolute paths are left as-is."""
+        """Rewrite the script's relative file paths (the load block's pdb/saxs and the top-level output directive) into absolute paths anchored 
+        at `base_dir`. Absolute paths are left as-is. Returns bare paths; the caller quotes them for whichever line they are written back to."""
         def absolutize(path: str) -> str:
-            path = path.strip()
+            path = unquote_script_value(path)
             if not path or os.path.isabs(path):
                 return path
             # preserve a trailing separator: the backend appends file stems to the output dir
@@ -651,7 +665,7 @@ class RigidbodyPane(ttk.Frame):
             return absolute + os.sep if path.endswith(("/", os.sep)) else absolute
 
         text = self.editor.get("1.0", "end-1c")
-        new_text = _OUTPUT_RE.sub(lambda m: m.group(1) + absolutize(m.group(2)), text, count=1)
+        new_text = _OUTPUT_RE.sub(lambda m: m.group(1) + quote_script_value(absolutize(m.group(2))), text, count=1)
 
         match = _LOAD_BLOCK_RE.search(new_text)
         if match:
@@ -711,7 +725,7 @@ class RigidbodyPane(ttk.Frame):
             new_block = self._rewrite_directive(match.group(0), directive, value)
             new_text = text[:match.start()] + new_block + text[match.end():]
         elif value:
-            new_text = f"load {{\n    {directive} {value}\n}}\n" + text
+            new_text = f"load {{\n    {directive} {_directive_value(directive, value)}\n}}\n" + text
         else:
             return  # nothing to add and no block to edit
 
@@ -727,7 +741,7 @@ class RigidbodyPane(ttk.Frame):
         """Return the load block with `directive` set to `value` (or removed if empty), preserving every other directive line and their order."""
         inner = re.match(r"load\s*\{(.*)\}", block, re.DOTALL).group(1)
         keyword = re.compile(rf"^\s*{re.escape(directive)}\b")
-        new_line = f"{directive} {value}" if value else None
+        new_line = f"{directive} {_directive_value(directive, value)}" if value else None
 
         kept: list[str] = []
         replaced = False
@@ -749,7 +763,8 @@ class RigidbodyPane(ttk.Frame):
 
     # ----- structure preview --------------------------------------------------
     def _load_value(self, directive: str):
-        """Return the argument of a directive in the script's load block, or None."""
+        """Return the argument of a directive in the script's load block, or None. The value is unquoted, i.e. as
+        the backend's tokenizer would see it, so it can be handed straight to os.path and to the file fields."""
         match = _LOAD_BLOCK_RE.search(self.editor.get("1.0", "end-1c"))
         if not match:
             return None
@@ -757,7 +772,7 @@ class RigidbodyPane(ttk.Frame):
         for line in inner.splitlines():
             tokens = line.split(None, 1)
             if tokens and tokens[0] == directive:
-                return tokens[1].strip() if len(tokens) == 2 else ""
+                return unquote_script_value(tokens[1]) if len(tokens) == 2 else ""
         return None
 
     @staticmethod
