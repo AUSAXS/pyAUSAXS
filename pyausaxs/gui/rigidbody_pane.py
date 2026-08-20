@@ -17,7 +17,7 @@ from .load_recovery import RELAXED_LOADS, ensure_structure_loads
 from .panes import (
     SAXS_EXTENSIONS, STRUCTURE_EXTENSIONS, _make_validator, add_figure_tab,
     make_on_load_structure, make_on_load_saxs,
-    find_data_pane, release_data_pane,
+    add_closable_tab, find_data_pane, release_data_pane,
 )
 from .plotting import draw_structure, nearest_ca_residue, fit_figure_from_curves
 from .runner import RigidbodyRunner
@@ -357,7 +357,7 @@ class RigidbodyPane(ttk.Frame):
             self._data_pane = find_data_pane(notebook, path)
             if self._data_pane is None:
                 self._data_pane = SaxsDataPane(notebook, path)
-                notebook.add(self._data_pane, text=self._data_pane.title)
+                add_closable_tab(notebook, self._data_pane)
         self.master.select(self._data_pane)
 
     def _close_data_pane(self):
@@ -430,7 +430,7 @@ class RigidbodyPane(ttk.Frame):
                 on_apply_script=self._apply_structure_script,
                 relaxed_loads=self._relaxed_loads,
             )
-            notebook.add(self._structure_pane, text=self._structure_pane.title)
+            add_closable_tab(notebook, self._structure_pane)
         # selecting fires <<NotebookTabChanged>>, which re-checks staleness and syncs the camera
         self.master.select(self._structure_pane)
 

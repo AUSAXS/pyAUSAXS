@@ -10,7 +10,7 @@ from .panes import (
     FitterPane, _make_validator, _file_stem, _output_arg,
     QMIN, QMAX, SAXS_EXTENSIONS, STRUCTURE_EXTENSIONS,
     make_on_load_structure, make_on_load_saxs,
-    find_data_pane, release_data_pane,
+    add_closable_tab, find_data_pane, release_data_pane,
 )
 from .widgets import FileField
 
@@ -111,7 +111,7 @@ class SaxsFitterPane(FitterPane):
             self._data_pane = find_data_pane(notebook, path)
             if self._data_pane is None:
                 self._data_pane = SaxsDataPane(notebook, path)
-                notebook.add(self._data_pane, text=self._data_pane.title)
+                add_closable_tab(notebook, self._data_pane)
         self.master.select(self._data_pane)
 
     def _close_data_pane(self):

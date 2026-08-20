@@ -49,19 +49,17 @@ _SUBOPTION_INDENT = 16  # px a folded-out display sub-option is inset from its p
 # inside a symmetry/constraint block counts too. Longer keywords precede the prefixes they contain.
 _STALE_TAIL = r"(?:[ \t]*\{.*?\}|[^\n]*)"
 _STALE_RE = re.compile(
-    r"(?m)^(?:[ \t]*(?:load[ \t]*\{.*?\}|"
+    r"(?m)^[ \t]*(?:load[ \t]*\{.*?\}|"
     r"(?:merge|delete|rename|convert_to_symmetry|constraint|constrain"
-    r"|autoconstraints|autoconstrain|copy_body|copy|split)\b)" + _STALE_TAIL
-    + r"|symmetry\b" + _STALE_TAIL + r")",
+    r"|autoconstraints|autoconstrain|copy_body|copy|split|symmetry)\b)" + _STALE_TAIL,
     re.DOTALL,
 )
 
 # Setup elements are emitted in declaration order by the backend. Newly staged structure-pane elements must therefore be appended after existing
 # setup elements rather than blindly inserted immediately after `load`; otherwise a staged rename can precede an existing symmetry declaration.
 _SETUP_RE = re.compile(
-    r"(?m)^(?:[ \t]*(?:merge|delete|rename|convert_to_symmetry|constraint|constrain"
-    r"|autoconstraints|autoconstrain|copy_body|copy|split)\b" + _STALE_TAIL
-    + r"|symmetry\b" + _STALE_TAIL + r")",
+    r"(?m)^[ \t]*(?:merge|delete|rename|convert_to_symmetry|constraint|constrain"
+    r"|autoconstraints|autoconstrain|copy_body|copy|split|symmetry)\b" + _STALE_TAIL,
     re.DOTALL,
 )
 
@@ -142,6 +140,20 @@ def _parse_split(element: str) -> tuple[str, list[int]] | None:
     if len(tokens) < 3 or tokens[0] != "split" or not all(_is_residue_id(t) for t in tokens[2:]):
         return None
     return tokens[1], [int(t) for t in tokens[2:]]
+
+
+def _structural_only(script: str) -> str:
+    """`script` reduced to the elements that shape the structure: the load block and the body-affecting setup elements, i.e. exactly what
+    _STALE_RE matches. Everything else — `parameter`, `loop`, `optimize_once`, `save`, `print`, `output`, ... — is dropped.
+
+    None of it changes what the preview shows, and leaving it in makes the preview hostage to parts of the script that have nothing to do
+    with the structure: a `parameter` block carrying symmetry amplitudes, left behind from a structure that had symmetries, is refused
+    outright by the backend for one that has none, which would fail the whole preview rather than just that element.
+
+    Only ever fed to the backend. The script written back to the editor is composed separately, in _send_to_script, from the untouched
+    base — that one must keep every element the user wrote.
+    """
+    return "".join(m.group(0).rstrip() + "\n" for m in _STALE_RE.finditer(script))
 
 
 def _insert_elements(base: str, elements: list[str]) -> str:
@@ -554,12 +566,15 @@ class StructurePane(ttk.Frame):
 
     # ----- backend rebuild ----------------------------------------------------
     def _compose(self, elements: list[str]) -> str:
+        """The setup-only script fed to the backend to build this pane's view. See _structural_only: this is deliberately not the script
+        the user gets back — _send_to_script composes that one from the full base."""
         base = self._base_script() if self._base_script else _synth_load_block(self.pdb_path, self._splits)
         if _LOAD_BLOCK_RE.search(base) is None:  # target has no load block: fall back to a synthetic one
             base = _synth_load_block(self.pdb_path, self._splits)
         else:  # honour the pane's (possibly edited) splits over whatever the base load block carries
             base = _with_split(base, self._splits)
-        return _insert_elements(base, elements)
+        # stripped before the staged elements go in, not after, so a staged element is never dropped by the filter
+        return _insert_elements(_structural_only(base), elements)
 
     def _rebuild(self, elements: list[str], *, rebuild_widgets: bool = True) -> tuple[bool, str]:
         """Load the composed setup script through the backend and refresh the view/body list from the bodies that remain.
@@ -1457,6 +1472,8 @@ class StructurePane(ttk.Frame):
 
     # ----- send to script -----------------------------------------------------
     def _send_to_script(self):
+        # deliberately not _compose(): that one strips every non-structural element, which is right for a preview and would silently
+        # delete the user's parameter/loop/save elements here
         base = self._base_script() if self._base_script else _synth_load_block(self.pdb_path, self._splits)
         new_base = _with_split(base, self._splits) if _LOAD_BLOCK_RE.search(base) else base
         new = _insert_elements(new_base, self._elements)

@@ -12,6 +12,7 @@ matplotlib.use("TkAgg")
 from tkinterdnd2 import TkinterDnD
 
 from .em_pane import EmFitterPane
+from .panes import enable_closable_tabs
 from .rigidbody_pane import RigidbodyPane
 from .saxs_pane import SaxsFitterPane
 from .session import SettingsBackup, load_config, snapshot_default_settings, update_config
@@ -46,6 +47,8 @@ class App(TkinterDnD.Tk):
 
         notebook = ttk.Notebook(self)
         notebook.pack(side="top", fill="both", expand=True, padx=14, pady=(0, 4))
+        # the three panes below are permanent; the structure/data panes opened later carry a ✕ this acts on
+        enable_closable_tabs(notebook)
         titles = []
         for pane_cls in (SaxsFitterPane, EmFitterPane, RigidbodyPane):
             pane = pane_cls(notebook)
