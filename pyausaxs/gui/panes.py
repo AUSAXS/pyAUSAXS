@@ -108,6 +108,36 @@ def _read_saxs_data(path: str, unit: str = "A") -> tuple[list, list, list] | Non
 
 
 
+def adopt_dataset(path: str) -> None:
+    """Point the backend's q-range (and the rest of its settings) at `path`.
+
+    The q-range lives in the backend's global settings, not in the run invocation, so whatever dataset was last
+    adopted governs *every* subsequent run — including a rigid-body refinement whose script never mentions a
+    q-range. Without this, loading a second dataset silently inherits the first one's range: fitting e.g. LAR with
+    PA2's [0.0305, 0.3642] still in force drops 82 of its 205 points and quietly reports a far better chi2 over
+    the survivors.
+
+    Loading the *same* dataset again is left alone, so a deliberate slider selection (or one restored with a
+    session) survives a reload of the file it belongs to.
+    """
+    from .session import load_config, reset_settings_to_defaults, update_config
+    if not path or load_config().get("last_dataset_path") == path:
+        return
+    try:
+        reset_settings_to_defaults()
+        # _read_saxs_data widens the backend range to the full axis before reading, so this sees every row in the
+        # file; narrowing to what it actually contains is then the same range the data pane would settle on.
+        data = _read_saxs_data(path)
+        if data is None:
+            return  # unreadable: leave the freshly-restored defaults in place rather than guessing a range
+        from ..wrapper.settings import settings as backend_settings
+        qs = data[0]
+        backend_settings.histogram(qmin=min(qs), qmax=max(qs))
+        update_config(last_dataset_path=path)
+    except Exception:
+        pass  # library unavailable: the run will fall back to the backend's own defaults
+
+
 def make_on_load_structure(set_load_directive=None, saxs_field=None):
     """Return a handler that mirrors a chosen structure file into the SAXS field.
 
@@ -152,6 +182,10 @@ def make_on_load_saxs(set_load_directive=None, structure_field=None):
     set_load_directive("pdb", candidate)` when a candidate is found. `structure_field` is a FileField to populate.
     """
     def _on_load_saxs(p: str):
+        # done before anything else, and regardless of whether a structure is matched below: every pane that can
+        # start a run reaches the backend through this handler, so this is the one place a newly chosen dataset is
+        # guaranteed to become the one the backend is pointed at
+        adopt_dataset(p)
         if set_load_directive:
             set_load_directive("saxs", p)
         if not p or structure_field is None or structure_field.valid:
