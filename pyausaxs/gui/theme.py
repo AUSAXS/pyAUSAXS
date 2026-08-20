@@ -139,6 +139,11 @@ def apply_theme(root):
     style.configure("Accent.TButton", background=p["accent"], foreground="#ffffff", font=heading, relief="flat", borderwidth=0, padding=(18, 8))
     style.map("Accent.TButton", background=[("active", p["accent_hover"]), ("pressed", p["accent_hover"]), ("disabled", p["border"])], foreground=[("disabled", p["muted"])])
 
+    # stop button: the run button turns into this while a refinement is in flight. Identical in shape to Accent.TButton
+    # so swapping between the two doesn't shift the row.
+    style.configure("Danger.TButton", background=p["danger"], foreground="#ffffff", font=heading, relief="flat", borderwidth=0, padding=(18, 8))
+    style.map("Danger.TButton", background=[("active", p["danger_hover"]), ("pressed", p["danger_hover"]), ("disabled", p["border"])], foreground=[("disabled", p["muted"])])
+
     # icon-sized browse button
     style.configure("Icon.TButton", padding=(8, 6))
 

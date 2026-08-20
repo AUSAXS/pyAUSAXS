@@ -45,6 +45,7 @@ class CliRunner:
             return
 
         self._busy = True
+        self._stopping = False
         self._on_line = on_line
         self._on_done = on_done
         self._queue = queue.Queue()
@@ -128,12 +129,26 @@ class RigidbodyRunner:
     def __init__(self, tk_widget):
         self._widget = tk_widget
         self._busy = False
+        self._stopping = False
         self._queue: queue.Queue = queue.Queue()
         self._on_line: Optional[Callable[[str], None]] = None
         self._on_done: Optional[Callable[["_Done"], None]] = None
 
     def running(self) -> bool:
         return self._busy
+
+    def stopping(self) -> bool:
+        return self._stopping
+
+    def request_stop(self) -> bool:
+        """Ask a running refinement to stop after its current iteration. The run then finishes normally with the best
+        conformation found so far, so on_done still fires with a result. Returns False if there is nothing to stop."""
+        if not self._busy or self._stopping:
+            return False
+        from ..wrapper.Rigidbody import Rigidbody
+        Rigidbody.stop_run()
+        self._stopping = True
+        return True
 
     def start(self, script: str, validate_only: bool,
               on_line: Callable[[str], None], on_done: Callable[["_Done"], None]):
@@ -197,6 +212,7 @@ class RigidbodyRunner:
                 break
             if isinstance(item, _Done):
                 self._busy = False
+                self._stopping = False
                 if self._on_done:
                     self._on_done(item)
                 return
