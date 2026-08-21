@@ -67,6 +67,12 @@ register({
         ],
         ct.c_int                                 # return data id
     ),
+    "rigidbody_stop_run": (
+        [
+            ct.POINTER(ct.c_int) # status (0 = success)
+        ],
+        None
+    ),
     "rigidbody_get_valid_elements": (
         [
             ct.POINTER(ct.POINTER(ct.c_char_p)), # elements (output)
@@ -300,6 +306,16 @@ class Rigidbody(BackendObject):
             _ptr_to_array(I_interp, n),
         ))
         return result
+
+    @staticmethod
+    def stop_run() -> None:
+        """Ask a running refinement to stop. The request is picked up at the start of the next loop iteration, after which run()
+        returns normally with the best conformation found so far. Safe to call from a different thread than the one in run(), and
+        a no-op if nothing is running."""
+        ausaxs = AUSAXS()
+        status = ct.c_int()
+        ausaxs.lib().functions.rigidbody_stop_run(ct.byref(status))
+        _check_error_code(status, "rigidbody_stop_run")
 
     @staticmethod
     def get_valid_elements() -> list[str]:

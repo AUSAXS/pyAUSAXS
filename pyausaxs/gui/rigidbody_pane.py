@@ -17,7 +17,7 @@ from .load_recovery import RELAXED_LOADS, ensure_structure_loads
 from .panes import (
     SAXS_EXTENSIONS, STRUCTURE_EXTENSIONS, _make_validator, add_figure_tab,
     make_on_load_structure, make_on_load_saxs,
-    find_data_pane, release_data_pane,
+    add_closable_tab, find_data_pane, release_data_pane,
 )
 from .plotting import draw_structure, nearest_ca_residue, fit_figure_from_curves
 from .runner import RigidbodyRunner
@@ -132,6 +132,7 @@ class RigidbodyPane(ttk.Frame):
         from ..wrapper.Rigidbody import Rigidbody
         Rigidbody.set_live_consumer(True)
         self._mode = "run"
+        self._stop_requested = False  # set when the user stops a run, so _on_done can say so
         self._expanded = False
         self._fit_tabs: list = []        # result tabs added by a run (the structure tab persists)
         self._preview_job = None         # pending debounced preview redraw
@@ -356,7 +357,7 @@ class RigidbodyPane(ttk.Frame):
             self._data_pane = find_data_pane(notebook, path)
             if self._data_pane is None:
                 self._data_pane = SaxsDataPane(notebook, path)
-                notebook.add(self._data_pane, text=self._data_pane.title)
+                add_closable_tab(notebook, self._data_pane)
         self.master.select(self._data_pane)
 
     def _close_data_pane(self):
@@ -429,7 +430,7 @@ class RigidbodyPane(ttk.Frame):
                 on_apply_script=self._apply_structure_script,
                 relaxed_loads=self._relaxed_loads,
             )
-            notebook.add(self._structure_pane, text=self._structure_pane.title)
+            add_closable_tab(notebook, self._structure_pane)
         # selecting fires <<NotebookTabChanged>>, which re-checks staleness and syncs the camera
         self.master.select(self._structure_pane)
 
@@ -971,9 +972,15 @@ class RigidbodyPane(ttk.Frame):
         self._struct_hover.configure(text=f"b{hit['body'] + 1} · residue {hit['residue']}")
 
     # ----- actions ------------------------------------------------------------
-    def _set_busy(self, busy: bool, label: str = "Run refinement"):
+    def _set_busy(self, busy: bool, stoppable: bool = False):
+        """Toggle the running state. A refinement (unlike a validation) is stoppable, so its run button stays enabled and
+        turns into a red Stop that ends the run early, keeping the best conformation found so far."""
         state = "disabled" if busy else "normal"
-        self.run_button.configure(state=state, text="Running…" if busy else "Run refinement")
+        if busy and stoppable:
+            self.run_button.configure(state="normal", text="Stop", style="Danger.TButton", command=self._stop_clicked)
+        else:
+            self.run_button.configure(state=state, text="Running…" if busy else "Run refinement",
+                                      style="Accent.TButton", command=self._run_clicked)
         self.validate_button.configure(state=state)
         if busy:
             self.progress.pack(side="left", fill="x", expand=True, padx=(12, 0))
@@ -1003,6 +1010,7 @@ class RigidbodyPane(ttk.Frame):
         if self.runner.running():
             return
         self._mode = "run"
+        self._stop_requested = False
         self.console.clear()
         if not self._structure_loads():  # see _validate_clicked for the ordering
             return
@@ -1014,10 +1022,24 @@ class RigidbodyPane(ttk.Frame):
         # if the script publishes its structure (`update structure`), prepare to watch it live.
         # Done before starting the run so the run's parse is the last to reset the live buffer.
         self._begin_live_preview(script)
-        self._set_busy(True)
+        self._set_busy(True, stoppable=True)
         self.runner.start(script, validate_only=False, on_line=self.console.append, on_done=self._on_done)
         if self._live_meta is not None:
             self._live_job = self.after(self._LIVE_POLL_MS, self._poll_live)
+
+    def _stop_clicked(self):
+        """Ask the backend to end the run after its current iteration. The run then completes normally, so _on_done still fires
+        and the (partial) results are plotted as usual."""
+        if not self.runner.running() or self.runner.stopping():
+            return
+        try:
+            self.runner.request_stop()
+        except Exception as e:
+            self.console.append(f"\nCould not stop the refinement: {self._backend_message(e)}\n", tag="error")
+            return
+        self._stop_requested = True
+        self.console.append("\nStopping after the current iteration…\n")
+        self.run_button.configure(state="disabled", text="Stopping…")
 
     # ----- live structure preview during a run --------------------------------
     _LIVE_POLL_MS = 200
@@ -1104,7 +1126,10 @@ class RigidbodyPane(ttk.Frame):
             self.console.append("\nValidation successful.\n", tag="success")
             return
 
-        self.console.append("\nRefinement completed.\n", tag="success")
+        if self._stop_requested:
+            self.console.append("\nRefinement stopped. The results below are the best conformation found so far.\n", tag="success")
+        else:
+            self.console.append("\nRefinement completed.\n", tag="success")
         if done.result is None or done.result.size == 0:
             self.console.append("No fit curves were returned.\n")
             return

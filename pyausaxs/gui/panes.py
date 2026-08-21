@@ -4,6 +4,7 @@
 import glob
 import os
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk
 from pathlib import Path
 from typing import Optional
@@ -107,6 +108,36 @@ def _read_saxs_data(path: str, unit: str = "A") -> tuple[list, list, list] | Non
 
 
 
+def adopt_dataset(path: str) -> None:
+    """Point the backend's q-range (and the rest of its settings) at `path`.
+
+    The q-range lives in the backend's global settings, not in the run invocation, so whatever dataset was last
+    adopted governs *every* subsequent run — including a rigid-body refinement whose script never mentions a
+    q-range. Without this, loading a second dataset silently inherits the first one's range: fitting e.g. LAR with
+    PA2's [0.0305, 0.3642] still in force drops 82 of its 205 points and quietly reports a far better chi2 over
+    the survivors.
+
+    Loading the *same* dataset again is left alone, so a deliberate slider selection (or one restored with a
+    session) survives a reload of the file it belongs to.
+    """
+    from .session import load_config, reset_settings_to_defaults, update_config
+    if not path or load_config().get("last_dataset_path") == path:
+        return
+    try:
+        reset_settings_to_defaults()
+        # _read_saxs_data widens the backend range to the full axis before reading, so this sees every row in the
+        # file; narrowing to what it actually contains is then the same range the data pane would settle on.
+        data = _read_saxs_data(path)
+        if data is None:
+            return  # unreadable: leave the freshly-restored defaults in place rather than guessing a range
+        from ..wrapper.settings import settings as backend_settings
+        qs = data[0]
+        backend_settings.histogram(qmin=min(qs), qmax=max(qs))
+        update_config(last_dataset_path=path)
+    except Exception:
+        pass  # library unavailable: the run will fall back to the backend's own defaults
+
+
 def make_on_load_structure(set_load_directive=None, saxs_field=None):
     """Return a handler that mirrors a chosen structure file into the SAXS field.
 
@@ -151,6 +182,10 @@ def make_on_load_saxs(set_load_directive=None, structure_field=None):
     set_load_directive("pdb", candidate)` when a candidate is found. `structure_field` is a FileField to populate.
     """
     def _on_load_saxs(p: str):
+        # done before anything else, and regardless of whether a structure is matched below: every pane that can
+        # start a run reaches the backend through this handler, so this is the one place a newly chosen dataset is
+        # guaranteed to become the one the backend is pointed at
+        adopt_dataset(p)
         if set_load_directive:
             set_load_directive("saxs", p)
         if not p or structure_field is None or structure_field.valid:
@@ -176,6 +211,160 @@ def make_on_load_saxs(set_load_directive=None, structure_field=None):
                 set_load_directive("pdb", struct_candidates[0])
 
     return _on_load_saxs
+
+
+# ----- closable notebook tabs -------------------------------------------------
+# Only the dynamically opened panes (structure / data) can be closed; the three fitter panes are permanent.
+# A ttk style belongs to the whole notebook rather than to one tab, so a close button built as a style element
+# would appear on those three as well, and a tab's label is drawn in a single colour, so a red ✕ cannot simply
+# be part of its text. A per-tab *image* is the one thing here that is genuinely per-tab and carries its own
+# colour, so that is what the ✕ is: a small red cross drawn once and set on the tabs that may be closed.
+# Space held between the title and the ✕, carried as transparent pixels on the left of the ✕ image: ttk pins the
+# whole label block (title + image) inside the tab's padding, and that padding belongs to the notebook rather
+# than to one tab, so this is the only way to push the ✕ right without moving every other tab's title too.
+# It doubles as the reach of the click zone beyond the image, which is dead space either way.
+_TAB_CLOSE_GAP_PX = 8
+# ttk element names reported over the tab's text and image. An unselected text-only tab reports its label
+# directly; a selected one can report the focus ring drawn over that label instead, so both mean "content here".
+_TAB_LABEL_ELEMENTS = ("label", "focus")
+
+_close_image_cache: dict[int, tk.PhotoImage] = {}
+
+
+def _close_image() -> tk.PhotoImage:
+    """A red ✕, sized to the interface font and sitting at the right end of its own image, behind
+    _TAB_CLOSE_GAP_PX of transparent lead-in that holds it clear of the title.
+
+    Drawn through matplotlib rather than plotted pixel by pixel into a PhotoImage, because Tk can only switch a
+    pixel's transparency on or off, which would leave the diagonals visibly jagged; a PNG carries the alpha
+    channel that smooths them. Cached: one image serves every tab.
+    """
+    size = max(11, min(20, round(tkfont.Font(font=FONTS["base"]).metrics("linespace") * 0.62)))
+    if size not in _close_image_cache:
+        from matplotlib.figure import Figure
+        import base64
+        import io
+        dpi = 100
+        width, height = size + _TAB_CLOSE_GAP_PX, size
+        fig = Figure(figsize=(width / dpi, height / dpi), dpi=dpi)
+        fig.patch.set_alpha(0)
+        ax = fig.add_axes([0, 0, 1, 1])
+        ax.set_axis_off()
+        ax.set_xlim(0, width)
+        ax.set_ylim(0, height)
+        margin, stroke = size * 0.16, max(1.4, size * 0.135)
+        x0, x1 = _TAB_CLOSE_GAP_PX + margin, width - margin
+        y0, y1 = margin, height - margin
+        for ys in ((y0, y1), (y1, y0)):
+            ax.plot((x0, x1), ys, color=PALETTE["danger"], lw=stroke, solid_capstyle="round")
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", transparent=True, dpi=dpi)
+        _close_image_cache[size] = tk.PhotoImage(data=base64.b64encode(buf.getvalue()))
+    return _close_image_cache[size]
+
+
+def add_closable_tab(notebook: ttk.Notebook, pane) -> None:
+    """Add `pane` to `notebook` under its own title, with a red ✕ beside it that closes it again."""
+    notebook.add(pane, text=pane.title, image=_close_image(), compound="right")
+
+
+def enable_closable_tabs(notebook: ttk.Notebook) -> None:
+    """Make every tab carrying a ✕ closable by clicking it. Call once per notebook."""
+    notebook.bind("<Button-1>", lambda e: _on_tab_click(notebook, e), add="+")
+
+
+def _tab_at(notebook: ttk.Notebook, x: int, y: int) -> Optional[int]:
+    try:
+        return notebook.index(f"@{x},{y}")
+    except tk.TclError:
+        return None  # no tab under that point
+
+
+def _is_label(notebook: ttk.Notebook, x: int, y: int) -> bool:
+    return notebook.identify(x, y).endswith(_TAB_LABEL_ELEMENTS)
+
+
+def _text_row(notebook: ttk.Notebook, index: int, x: int, y: int) -> int:
+    """A y through the middle of the tab, where its text is. ttk reports the label element only on the rows the
+    text actually crosses, so a click a few pixels above or below the glyph has to be answered from a row that
+    does — otherwise the top and bottom edges of the tab would be dead."""
+    top = bottom = y
+    while _tab_at(notebook, x, top - 1) == index:
+        top -= 1
+    while _tab_at(notebook, x, bottom + 1) == index:
+        bottom += 1
+    return (top + bottom) // 2
+
+
+def _close_glyph_clicked(notebook: ttk.Notebook, event) -> Optional[int]:
+    """Index of the tab whose ✕ the click landed on, or None for any other click.
+
+    The glyph is the tail of the tab's text, so the zone is anchored to where that text ends — asked of ttk
+    rather than derived from the style's padding, which clam applies differently to a selected tab (6px) than
+    to an unselected one (20px); assuming one padding for both put the zone a whole glyph-width off the mark.
+    From there the zone runs generously outward: right to the tab's own edge, since only dead padding lies
+    that way, and left across the gap that separates the glyph from the title, but never into the title
+    itself. Nobody clicks that strip except to close the tab.
+    """
+    index = _tab_at(notebook, event.x, event.y)
+    if index is None or not notebook.tab(index, "image"):
+        return None  # no ✕ on this tab, so it cannot be closed
+    y = _text_row(notebook, index, event.x, event.y)
+
+    # out to both of the tab's edges, noting where its content (title + ✕) begins and ends on the way
+    label_start = label_end = None
+    x = tab_start = tab_end = event.x
+    while _tab_at(notebook, x, y) == index:
+        if _is_label(notebook, x, y):
+            label_end = x
+            label_start = x if label_start is None else label_start
+        tab_end, x = x, x + 1
+    x = event.x - 1
+    while _tab_at(notebook, x, y) == index:
+        if _is_label(notebook, x, y):
+            label_start = x
+            label_end = x if label_end is None else label_end
+        tab_start, x = x, x - 1
+    if label_start is None:
+        return None
+
+    # the ✕ is the last thing in the label, so it ends where the label does. Reaching a little further left
+    # brings in the gap before it — but never past the title, whose width is known from the font.
+    image = _close_image()
+    title_end = label_start + tkfont.Font(font=_tab_font(notebook, index)).measure(notebook.tab(index, "text"))
+    start = max(label_end - image.width() - _TAB_CLOSE_GAP_PX, title_end)
+    return index if start <= event.x <= tab_end else None
+
+
+def _tab_font(notebook: ttk.Notebook, index: int):
+    """The font that tab's title is drawn in; the selected tab gets the heading (bold) one."""
+    return FONTS["heading"] if notebook.index("current") == index else FONTS["base"]
+
+
+def _on_tab_click(notebook: ttk.Notebook, event):
+    index = _close_glyph_clicked(notebook, event)
+    if index is None:
+        return None  # an ordinary click; let the notebook select the tab as usual
+    close_tab(notebook, notebook.nametowidget(notebook.tabs()[index]))
+    return "break"  # the tab is gone, so the default handler must not go on to select it
+
+
+def close_tab(notebook: ttk.Notebook, pane) -> None:
+    """Close a dynamically opened tab through whichever pane opened it, so that pane's reference is cleared
+    too — otherwise it believes the tab is still open and never reopens one."""
+    for tab_id in notebook.tabs():
+        owner = notebook.nametowidget(tab_id)
+        if getattr(owner, "_structure_pane", None) is pane:
+            owner._close_structure_pane()
+            return
+        if getattr(owner, "_data_pane", None) is pane:
+            release_data_pane(owner)
+            return
+    try:  # nothing claims it; drop it directly rather than leaving an unclosable tab behind
+        notebook.forget(pane)
+    except tk.TclError:
+        pass
+    pane.destroy()
 
 
 def find_data_pane(notebook: ttk.Notebook, path: str):
