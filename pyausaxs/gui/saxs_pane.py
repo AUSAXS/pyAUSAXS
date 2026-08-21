@@ -144,6 +144,8 @@ class SaxsFitterPane(FitterPane):
             argv += ["--fit"]
         if self.fit_density_var.get():
             argv += ["--fit-density"]
+        if self.exv_var.get() == "grid":
+            argv += ["--save"]
         argv += ["solv", "--model", self.hydration_var.get()]
         return "cli_saxs_fitter", argv
 
