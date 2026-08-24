@@ -29,19 +29,6 @@ jobs:
           latest: true
           extract: true
 
-      - name: Install backend and GUI dependencies
-        shell: bash
-        run: |
-          mkdir -p pyausaxs/resources
-          library_path=$(find . -name 'libausaxs.dylib' -type f | head -n 1)
-          if [ -z "$library_path" ]; then
-            echo 'Could not find libausaxs.dylib in the downloaded archive'
-            exit 1
-          fi
-          cp "$library_path" pyausaxs/resources/libausaxs.dylib
-          python -m pip install --upgrade pip
-          python -m pip install -e '.[all]' pytest
-
       - name: Open SSH debug session
         uses: mxschmitt/action-tmate@v3
         with:
