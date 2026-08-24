@@ -1,0 +1,48 @@
+name: Debug macOS GUI with tmate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: macos-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Download macOS backend
+        uses: robinraju/release-downloader@v1
+        with:
+          repository: AUSAXS/AUSAXS
+          fileName: macos-universal-binaries.zip
+          token: ${{ secrets.GITHUB_TOKEN }}
+          latest: true
+          extract: true
+
+      - name: Install backend and GUI dependencies
+        shell: bash
+        run: |
+          mkdir -p pyausaxs/resources
+          library_path=$(find . -name 'libausaxs.dylib' -type f | head -n 1)
+          if [ -z "$library_path" ]; then
+            echo 'Could not find libausaxs.dylib in the downloaded archive'
+            exit 1
+          fi
+          cp "$library_path" pyausaxs/resources/libausaxs.dylib
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[all]' pytest
+
+      - name: Open SSH debug session
+        uses: mxschmitt/action-tmate@v3
+        with:
+          limit-access-to-actor: true
