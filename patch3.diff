@@ -1,0 +1,29 @@
+diff --git a/source/core/fitter/FitResult.cpp b/source/core/fitter/FitResult.cpp
+index 16e0b153..05de1729 100644
+--- a/source/core/fitter/FitResult.cpp
++++ b/source/core/fitter/FitResult.cpp
+@@ -8,6 +8,7 @@
+ #include <utility/Utility.h>
+ #include <mini/detail/FittedParameter.h>
+ #include <mini/detail/Evaluation.h>
++#include <utility/Console.h>
+ 
+ #include <sstream>
+ 
+@@ -39,6 +40,16 @@ void FitResult::set_data_curves(std::vector<double>&& q, std::vector<double>&& data, std::vector<double>&& data_err, std::vector<double>&& model, std::vector<double>&& residuals) {
+         {{std::move(q), std::move(data), std::move(data_err), std::move(model), std::move(residuals)}},
+         {"q", "I", "I_err", "I_fit", "residuals"}
+     );
++    console::print_text(
++        "FitResult::set_data_curves: rows=" + std::to_string(curves.size_rows())
++        + ", columns=" + std::to_string(curves.size_cols())
++    );
++    for (unsigned int column = 0; column < curves.size_cols(); ++column) {
++        console::print_text(
++            "FitResult::set_data_curves: column " + std::to_string(column)
++            + " size=" + std::to_string(curves.col(column).size())
++        );
++    }
+ }
+ 
+ std::string FitResult::to_string() const noexcept {
