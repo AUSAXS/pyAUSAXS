@@ -1,0 +1,35 @@
+diff --git a/source/core/fitter/SmartFitter.cpp b/source/core/fitter/SmartFitter.cpp
+index de7af4d1..0de1559a 100644
+--- a/source/core/fitter/SmartFitter.cpp
++++ b/source/core/fitter/SmartFitter.cpp
+@@ -171,13 +171,25 @@ std::unique_ptr<FitResult> SmartFitter::fit() {
+ 
+     auto linear_fitter = prepare_linear_fitter(res.get_parameter_values());
+     auto linear_fit = linear_fitter.fit();
++    auto q = data.x();
++    auto intensity = data.y();
++    auto errors = data.yerr();
++    auto model_curve = linear_fitter.get_model_curve(linear_fit->get_parameter_values());
++    auto residuals = linear_fitter.get_residuals(linear_fit->get_parameter_values());
++    console::print_text(
++        "SmartFitter::fit curves: q=" + std::to_string(q.size())
++        + ", I=" + std::to_string(intensity.size())
++        + ", I_err=" + std::to_string(errors.size())
++        + ", I_fit=" + std::to_string(model_curve.size())
++        + ", residuals=" + std::to_string(residuals.size())
++    );
+ 
+     auto fit_result = std::make_unique<FitResult>(res, dof()+2);            // start with the fit performed here
+     fit_result->add_fit(linear_fit.get(), true);                            // add the a,b inner fit
+     fit_result->set_data_curves(
+-        data.x(),                                                           // q
+-        data.y(),                                                           // I
+-        data.yerr(),                                                        // I_err
+-        linear_fitter.get_model_curve(linear_fit->get_parameter_values()),  // I_fit
+-        linear_fitter.get_residuals(linear_fit->get_parameter_values())     // residuals
++        std::move(q),                                                       // q
++        std::move(intensity),                                               // I
++        std::move(errors),                                                   // I_err
++        std::move(model_curve),                                              // I_fit
++        std::move(residuals)                                                 // residuals
+     );
