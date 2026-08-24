@@ -1,0 +1,30 @@
+diff --git a/source/api/pyausaxs/api_rigidbody.cpp b/source/api/pyausaxs/api_rigidbody.cpp
+index 8b740cab..f8b34e19 100644
+--- a/source/api/pyausaxs/api_rigidbody.cpp
++++ b/source/api/pyausaxs/api_rigidbody.cpp
+@@ -251,13 +251,25 @@ int rigidbody_run(
+     data_obj.q = data.col(0);
+     data_obj.I = data.col(1);
+     data_obj.I_err = data.col(2);
+     data_obj.I_inter = data.col(3);
++    console::print_text(
++        "rigidbody_run data object before register: q=" + std::to_string(data_obj.q.size())
++        + ", I=" + std::to_string(data_obj.I.size())
++        + ", I_err=" + std::to_string(data_obj.I_err.size())
++        + ", I_interp=" + std::to_string(data_obj.I_inter.size())
++    );
+     int data_id = api::ObjectStorage::register_object(std::move(data_obj));
+     auto ref = api::ObjectStorage::get_object<_data_get_data_obj>(data_id);
++    console::print_text(
++        "rigidbody_run data object after register: q=" + std::to_string(ref->q.size())
++        + ", I=" + std::to_string(ref->I.size())
++        + ", I_err=" + std::to_string(ref->I_err.size())
++        + ", I_interp=" + std::to_string(ref->I_inter.size())
++    );
+     *q = ref->q.data();
+     *I = ref->I.data();
+     *I_err = ref->I_err.data();
+     *I_interp = ref->I_inter.data();
+     *n_points = static_cast<int>(ref->q.size());
+     return data_id;
+ }, status);}
