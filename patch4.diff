@@ -1,0 +1,42 @@
+diff --git a/source/api/pyausaxs/api_rigidbody.cpp b/source/api/pyausaxs/api_rigidbody.cpp
+index e669226b..8b740cab 100644
+--- a/source/api/pyausaxs/api_rigidbody.cpp
++++ b/source/api/pyausaxs/api_rigidbody.cpp
+@@ -22,6 +22,7 @@
+ #include <data/symmetry/BodySymmetryFacade.h>
+ #include <data/detail/SimpleBody.h>
+ #include <settings/MoleculeSettings.h>
++#include <utility/Console.h>
+ #include <utility/Exceptions.h>
+ 
+ using namespace ausaxs;
+@@ -228,7 +229,28 @@ int rigidbody_run(
+     auto sequencer = rigidbody::sequencer::SequenceParser().parse_text(script_obj->script);
+     sequencer->execute();
+ 
+-    auto data = sequencer->_get_controller()->get_fitter()->fit()->curves.select_columns({0, 1, 2, 3});
++    auto fit_result = sequencer->_get_controller()->get_fitter()->fit();
++    console::print_text(
++        "rigidbody_run curves before select: rows=" + std::to_string(fit_result->curves.size_rows())
++        + ", columns=" + std::to_string(fit_result->curves.size_cols())
++    );
++    for (unsigned int column = 0; column < fit_result->curves.size_cols(); ++column) {
++        console::print_text(
++            "rigidbody_run curves before select: column " + std::to_string(column)
++            + " size=" + std::to_string(fit_result->curves.col(column).size())
++        );
++    }
++    auto data = fit_result->curves.select_columns({0, 1, 2, 3});
++    console::print_text(
++        "rigidbody_run curves after select: rows=" + std::to_string(data.size_rows())
++        + ", columns=" + std::to_string(data.size_cols())
++    );
++    for (unsigned int column = 0; column < data.size_cols(); ++column) {
++        console::print_text(
++            "rigidbody_run curves after select: column " + std::to_string(column)
++            + " size=" + std::to_string(data.col(column).size())
++        );
++    }
+     _data_get_data_obj data_obj;
+     data_obj.q = data.col(0);
+     data_obj.I = data.col(1);
