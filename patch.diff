@@ -1,0 +1,33 @@
+diff --git a/source/core/fitter/SmartFitter.cpp b/source/core/fitter/SmartFitter.cpp
+index 0eddeb32..2a20a6b0 100644
+--- a/source/core/fitter/SmartFitter.cpp
++++ b/source/core/fitter/SmartFitter.cpp
+@@ -145,13 +145,27 @@ fitter::detail::LinearLeastSquares SmartFitter::prepare_linear_fitter(const std:
+ std::unique_ptr<FitResult> SmartFitter::fit() {
+     enabled_fit_parameters = EnabledFitParameters::initialize_from_settings();
+     enabled_fit_parameters.validate_model(model.get());
++    console::print_text(
++        "SmartFitter::fit: enabled optional parameters = "
++        + std::to_string(enabled_fit_parameters.get_enabled_pars_count())
++    );
+     if (guess.empty()) {guess = get_default_guess();}
+ 
+     if (enabled_fit_parameters.get_enabled_pars_count() == 0) {
++        console::print_text("SmartFitter::fit: taking linear-only fast path");
+         auto linear_fitter = prepare_linear_fitter({});
+-        return linear_fitter.fit();    
++        auto linear_fit = linear_fitter.fit();
++        linear_fit->set_data_curves(
++            data.x(),
++            data.y(),
++            data.yerr(),
++            linear_fitter.get_model_curve(linear_fit->get_parameter_values()),
++            linear_fitter.get_residuals(linear_fit->get_parameter_values())
++        );
++        return linear_fit;
+     }
+ 
++    console::print_text("SmartFitter::fit: taking iterative minimizer path");
+     auto f = std::bind(&SmartFitter::chi2, this, std::placeholders::_1);
+     auto mini = mini::create_minimizer(algorithm, std::move(f), guess);
+     auto res = mini->minimize();
