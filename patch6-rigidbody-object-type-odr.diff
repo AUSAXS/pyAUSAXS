@@ -1,20 +1,27 @@
 diff --git a/source/api/pyausaxs/api_rigidbody.cpp b/source/api/pyausaxs/api_rigidbody.cpp
 --- a/source/api/pyausaxs/api_rigidbody.cpp
 +++ b/source/api/pyausaxs/api_rigidbody.cpp
-@@ -218,3 +218,3 @@
+@@ -216,6 +216,6 @@ void rigidbody_validate(
+ }, status);}
+ 
 -struct _data_get_data_obj {
 +struct _rigidbody_get_data_obj {
      std::vector<double> q, I, I_err, I_inter;
  };
-@@ -231,3 +231,3 @@
-     auto data = sequencer->_get_controller()->get_fitter()->fit()->curves.select_columns({0, 1, 2, 3});
+ int rigidbody_run(
+@@ -251,6 +251,6 @@ int rigidbody_run(
+         );
+     }
 -    _data_get_data_obj data_obj;
 +    _rigidbody_get_data_obj data_obj;
      data_obj.q = data.col(0);
-@@ -237,4 +237,4 @@
+     data_obj.I = data.col(1);
+     data_obj.I_err = data.col(2);
+@@ -263,6 +263,6 @@ int rigidbody_run(
+         + ", I_interp=" + std::to_string(data_obj.I_inter.size())
+     );
      int data_id = api::ObjectStorage::register_object(std::move(data_obj));
 -    auto ref = api::ObjectStorage::get_object<_data_get_data_obj>(data_id);
 +    auto ref = api::ObjectStorage::get_object<_rigidbody_get_data_obj>(data_id);
-     *q = ref->q.data();
-     *I = ref->I.data();
-     *I_err = ref->I_err.data();
+     console::print_text(
+         "rigidbody_run data object after register: q=" + std::to_string(ref->q.size())
