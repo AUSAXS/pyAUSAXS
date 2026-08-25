@@ -1022,6 +1022,11 @@ class RigidbodyPane(ttk.Frame):
         # Done before starting the run so the run's parse is the last to reset the live buffer.
         self._begin_live_preview(script)
         self._set_busy(True, stoppable=True)
+
+        # automatically disable weighted bins if they are not required
+        # TODO move this to the backend
+        from ..wrapper.settings import settings
+        settings.set("weighted_bins", "auto")
         self.runner.start(script, validate_only=False, on_line=self.console.append, on_done=self._on_done)
         if self._live_meta is not None:
             self._live_job = self.after(self._LIVE_POLL_MS, self._poll_live)
