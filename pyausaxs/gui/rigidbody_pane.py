@@ -34,7 +34,6 @@ output output/rigidbody/
 load {
     pdb
     saxs
-    split
 }
 save initial_state.pdb
 save trajectory.xyz
