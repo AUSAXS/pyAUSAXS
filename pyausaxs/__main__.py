@@ -156,12 +156,24 @@ def _run_setup(ns):
     from .wrapper.AUSAXS import AUSAXS
 
     if ns.relink:
-        AUSAXS()
+        previous = loader.get_relink_path()
         try:
             cache = loader.set_relink_path(ns.relink)
         except (FileNotFoundError, ValueError) as e:
             print(f"Error: {e}", file=sys.stderr)
             return 1
+
+        # validate the newly relinked library actually loads before committing to it
+        if not AUSAXS.ready():
+            error = AUSAXS.init_error()
+            if previous is not None:
+                loader.set_relink_path(previous)
+            else:
+                loader.clear_relink_path()
+            AUSAXS.reset_singleton()
+            print(f"Error: '{ns.relink}' failed to load as an AUSAXS backend: {error}", file=sys.stderr)
+            return 1
+
         linked = loader.get_relink_path()
         if "ausaxs" not in Path(linked).stem.lower():
             print(
@@ -174,7 +186,6 @@ def _run_setup(ns):
         return 0
 
     if ns.reset:
-        AUSAXS()
         if loader.clear_relink_path():
             print("Reset: now using the bundled AUSAXS backend.")
         else:
@@ -182,7 +193,6 @@ def _run_setup(ns):
         return 0
 
     # default: --show
-    AUSAXS()
     path, origin = loader.resolve_lib()
     print(f"AUSAXS backend in use: {path}")
     print({
