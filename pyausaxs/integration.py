@@ -3,7 +3,7 @@ import ctypes as ct
 from enum import Enum
 
 from pyausaxs.config import architecture_runtime_validation
-from pyausaxs.loader import bundled_lib_path, get_relink_path
+from pyausaxs.loader import resolve_lib
 from pyausaxs.architecture import CPUFeatures, is_architecture_compatible
 from pyausaxs.signatures import LazyLib
 
@@ -17,16 +17,13 @@ class AUSAXSLIB:
     def __init__(self):
         self.functions: LazyLib = None # type: ignore[assignment]
         self.state = self.STATE.UNINITIALIZED
-        self.lib_path = bundled_lib_path()
+        self.lib_path, origin = resolve_lib()
 
-        self._check_cpu_compatibility()
+        # the CPU gate reflects the build flags of the bundled wheel libraries;
+        # relinked, environment, or conda-installed libraries are built to match their system
+        if origin == "bundled":
+            self._check_cpu_compatibility()
         self._attach_hooks()
-
-        relink = get_relink_path()
-        if relink:
-            self.lib_path = relink
-            self._attach_hooks()
-
         self._test_integration()
 
     def _check_cpu_compatibility(self):

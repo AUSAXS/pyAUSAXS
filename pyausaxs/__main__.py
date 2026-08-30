@@ -183,11 +183,14 @@ def _run_setup(ns):
 
     # default: --show
     AUSAXS()
-    print(f"AUSAXS backend in use: {loader.find_lib_path()}")
-    if loader.get_relink_path():
-        print("  (relinked; reset with: ausaxs setup --reset)")
-    else:
-        print("  (bundled)")
+    path, origin = loader.resolve_lib()
+    print(f"AUSAXS backend in use: {path}")
+    print({
+        "relink": "  (relinked; reset with: ausaxs setup --reset)",
+        "environment": "  (set via the AUSAXS_LIB environment variable)",
+        "bundled": "  (bundled)",
+        "prefix": "  (installed in the environment prefix)",
+    }[origin])
     return 0
 
 
