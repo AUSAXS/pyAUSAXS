@@ -50,6 +50,7 @@ class CPUFeatures:
         
         def is_compatible_linux():
             arch = CPUFeatures.get_architecture()
+            if arch in ['aarch64', 'arm64']: return True
             return arch in ['x86_64', 'amd64'] and CPUFeatures.has_avx2_support()
         
         def is_compatible_windows():
