@@ -17,6 +17,23 @@ def isfloat(value: str):
         return False
 
 
+def apply_scale(set_scale, value):
+    """Applies an axis scale option.
+
+    Args:
+        set_scale: The matplotlib scale setter to use, e.g. plt.xscale.
+        value: The option value. A number selects "log", or "linear" if it is zero.
+               Any other string is passed straight to matplotlib, so named scales
+               such as "symlog" or "logit" can be requested from the .plot file.
+    """
+    if not value:
+        return
+    if isfloat(value):
+        set_scale("linear" if float(value) == 0 else "log")
+    else:
+        set_scale(value)
+
+
 class PlotType(Enum):
     Landscape = "PlotLandscape"
     Dataset = "PlotDataset"
@@ -112,9 +129,9 @@ class Options:
                     return
                 self.yrange = [float(words[1]), float(words[2])]
             case "logx":
-                self.xlog = int(words[1])
+                self.xlog = words[1]
             case "logy":
-               self.ylog = int(words[1])
+               self.ylog = words[1]
             case "xshift":
                 self.xshift = float(words[1])
 
@@ -299,6 +316,7 @@ def plot_dataset(d: Dataset):
     if d.options.xshift != 0:
         d.data[:,0] += d.options.xshift
 
+    added_legend = False
     if d.options.drawerror:
         if (d.data.shape[1] < 3):
             print("plot_dataset: Not enough columns for error bars.")
@@ -312,6 +330,7 @@ def plot_dataset(d: Dataset):
             capsize=2*marker_scaling,
             zorder=d.options.zorder
         )
+        added_legend = True
 
     if d.options.drawmarker and d.options.drawline:
         plt.plot(d.data[:,0], d.data[:,1],
@@ -320,9 +339,10 @@ def plot_dataset(d: Dataset):
             linewidth=d.options.linewidth*marker_scaling,
             marker=d.options.markerstyle,
             markersize=d.options.markersize*marker_scaling,
-            label=d.options.legend,
+            label=d.options.legend if not added_legend else None,
             zorder=d.options.zorder
         )
+        added_legend = True
 
     elif d.options.drawmarker:
         plt.plot(d.data[:,0], d.data[:,1],
@@ -330,18 +350,20 @@ def plot_dataset(d: Dataset):
             linestyle="none",
             marker=d.options.markerstyle,
             markersize=d.options.markersize*marker_scaling,
-            label=d.options.legend,
+            label=d.options.legend if not added_legend else None,
             zorder=d.options.zorder
         )
+        added_legend = True
 
     elif d.options.drawline:
         plt.plot(d.data[:,0], d.data[:,1],
             color=d.options.color,
             linestyle=d.options.linestyle,
             linewidth=d.options.linewidth*marker_scaling,
-            label=d.options.legend,
+            label=d.options.legend if not added_legend else None,
             zorder=d.options.zorder
         )
+        added_legend = True
 
     global first_plot
     if (first_plot):
@@ -354,10 +376,8 @@ def plot_dataset(d: Dataset):
             plt.xlim(d.options.xrange)
         if (d.options.yrange != []):
             plt.ylim(d.options.yrange)
-        if (d.options.xlog):
-            plt.xscale("log")
-        if (d.options.ylog):
-            plt.yscale("log")
+        apply_scale(plt.xscale, d.options.xlog)
+        apply_scale(plt.yscale, d.options.ylog)
     if (d.options.legend):
         plt.legend()
     return
@@ -462,10 +482,8 @@ def plot_residuals(d: Dataset):
         plt.xlim(o.xrange)
     if o.yrange != []:
         plt.ylim(o.yrange)
-    if o.xlog:
-        plt.xscale("log")
-    if o.ylog:
-        plt.yscale("log")
+    apply_scale(plt.xscale, o.xlog)
+    apply_scale(plt.yscale, o.ylog)
     if o.legend:
         plt.legend()
 
@@ -475,8 +493,7 @@ def plot_residuals(d: Dataset):
     plt.plot(q, (I - Imodel)/Ierr, '.', color=model_color, markersize=2*marker_scaling)
     plt.xlabel(r"{}".format(o.xlabel if o.xlabel != "x" else "q [$\\AA^{-1}$]"))
     plt.ylabel("Residuals")
-    if o.xlog:
-        plt.xscale("log")
+    apply_scale(plt.xscale, o.xlog)
     return
 
 def determine_type(line: str) -> PlotType:
