@@ -51,8 +51,7 @@ plt.legend()
 # overwhelmed. In such cases, we can reduce the bin width to improve accuracy:
 ausaxs.settings.histogram(
     weighted_bins=True,     # re-enable weighted bins
-    bin_width=0.1,          # smaller bin width
-    bin_count=4000          # remember to also set the bin count high enough to cover the distance range
+    bin_width=0.1           # smaller bin width
 )
 _, I_binned_fine = mol.debye_raw(q)
 

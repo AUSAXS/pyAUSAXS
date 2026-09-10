@@ -27,7 +27,6 @@ def test_settings():
         qmax=0.5,
         weighted_bins=True,
         bin_width=0.01,
-        bin_count=100,
     )
     ausaxs.settings.molecule(
         throw_on_unknown_atom=False,
