@@ -3,6 +3,7 @@ from .Models import ExvModel, ExvTable, WaterModel
 from pyausaxs.signatures import register
 import ctypes as ct
 import os
+import warnings
 from typing import Any
 
 register({
@@ -51,6 +52,18 @@ def _type_cast(value: str, type: str):
 def _b(val: bool) -> str:
     return "1" if val else "0"
 
+# settings removed from the backend; kept here for a deprecation period so old scripts keep running. name -> reason
+_deprecated_settings = {
+    "bin_count": "the number of distance-histogram bins is now deduced from the structure being calculated",
+}
+
+def _warn_deprecated(name: str):
+    """Warn that a removed setting was passed. The value is silently discarded; the backend no longer accepts the name at all."""
+    warnings.warn(
+        f'the "{name}" setting is deprecated and has no effect: {_deprecated_settings[name]}. It will be removed in a future release.',
+        DeprecationWarning, stacklevel=3
+    )
+
 # lowercase 'settings' since it's meant to be used with dot-notation
 class settings:
     @staticmethod
@@ -77,6 +90,9 @@ class settings:
     @staticmethod
     def set(name: str, val: str):
         """Set a setting by name and string value."""
+        if name in _deprecated_settings:
+            _warn_deprecated(name)
+            return
         ausaxs = AUSAXS()
         status = ct.c_int()
         name_ptr = ct.c_char_p(name.encode('utf-8'))
@@ -176,7 +192,7 @@ class settings:
         param unit: Unit of q values, either inverse "A" or "nm".
         param weighted_bins: Whether to use weighted bins.
         param bin_width: Width of each histogram bin.
-        param bin_count: Number of histogram bins.
+        param bin_count: Deprecated and ignored; the bin count is now deduced from the structure being calculated.
         """
         if qmin is not None:
             settings.set("qmin", str(qmin))
@@ -189,7 +205,7 @@ class settings:
         if bin_width is not None:
             settings.set("bin_width", str(bin_width))
         if bin_count is not None:
-            settings.set("bin_count", str(bin_count))
+            _warn_deprecated("bin_count")
 
     @staticmethod
     def molecule(

@@ -5,7 +5,7 @@ import pyausaxs as ausaxs
 import matplotlib.pyplot as plt
 import numpy as np
 
-ausaxs.settings.histogram(bin_width=0.1, bin_count=10000)  # Set the bin width for the distance histogram
+ausaxs.settings.histogram(bin_width=0.1)  # Set the bin width for the distance histogram
 
 # This time, we will use a crystal structure to highlight the weighted bins used in AUSAXS. 
 mol = ausaxs.create_molecule("tests/files/Ag_crystal.cif")
