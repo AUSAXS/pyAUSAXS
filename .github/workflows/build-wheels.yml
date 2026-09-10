@@ -16,6 +16,12 @@ jobs:
             library_zip_name: libausaxs.so
             library: libausaxs.so
 
+          - os: ubuntu-24.04-arm
+            platform: linux_aarch64
+            zip: ubuntu-22.04-arm-binaries.zip
+            library_zip_name: libausaxs.so
+            library: libausaxs.so
+
           - os: macos-latest  
             platform: macosx_11_0_universal2
             zip: macos-universal-binaries.zip
