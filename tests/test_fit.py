@@ -111,3 +111,21 @@ def test_manual_fit_multiple_pars():
         a, b = np.polyfit(I_model, I, 1, w=1.0/Ierr)
         return a*I_model + b
     _, _ = curve_fit(evaluate, xdata=q, ydata=I, sigma=Ierr, p0=[1, 1])
+
+def test_fit_datafile_from_arrays():
+    # create_datafile must give a dataset fit() can use, and the same fit as reading the file
+    file_data = ausaxs.read_data("tests/files/2epe.dat")
+    q, I, Ierr = file_data.data()
+    array_data = ausaxs.create_datafile(q, I, Ierr)
+    assert np.array_equal(array_data.q(), q)
+
+    mol = ausaxs.create_molecule("tests/files/2epe.pdb")
+    mol.hydrate()
+    fit_file = mol.fit(file_data)
+    fit_array = mol.fit(array_data)
+    assert fit_array.chi2() == pytest.approx(fit_file.chi2(), rel=1e-8)
+    assert fit_array.dof() == fit_file.dof()
+
+    # a constant offset in I is absorbed by the fitted background, even where it drives I negative
+    shifted = ausaxs.create_datafile(q, I - 2*I.min(), Ierr)
+    assert mol.fit(shifted).chi2() == pytest.approx(fit_file.chi2(), rel=1e-6)
