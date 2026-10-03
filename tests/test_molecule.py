@@ -52,3 +52,19 @@ def test_hydrate():
     assert len(mol.waters()[0]) == 0, "Should have no hydration waters after clear_hydration"
     mol.hydrate()
     assert len(mol.waters()[0]) > 0, "Should have hydration waters after hydrate"
+
+
+def test_hydrate_from_arrays():
+    # a molecule built from bare arrays has no element information, but its atoms must still keep the shell outside
+    ref = ausaxs.create_molecule("tests/files/2epe.pdb")
+    ref.clear_hydration()
+    x, y, z, w, _ = ref.atoms()
+    ref.hydrate()
+    mol = ausaxs.create_molecule(x, y, z, w)
+    mol.hydrate()
+    wx, wy, wz, _ = mol.waters()
+    assert abs(len(wx) - len(ref.waters()[0])) < 0.25*len(ref.waters()[0]), "Shell size should match the same atoms read from file"
+    atoms = np.stack([x, y, z], axis=1)
+    waters = np.stack([wx, wy, wz], axis=1)
+    closest = np.sqrt(((waters[:, None, :] - atoms[None, :, :])**2).sum(-1)).min()
+    assert closest > 1.2, f"Hydration water placed {closest:.2f} A from an atom centre"
