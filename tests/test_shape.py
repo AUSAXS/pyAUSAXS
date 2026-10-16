@@ -33,3 +33,11 @@ def test_shape_debye_sphere_forward_scattering():
 def test_shape_debye_off_lattice():
     with pytest.raises(Exception):
         ausaxs.shape.Lattice(np.array([[0, 0, 0], [0, 0, 1.5]]), spacing=1).debye([0.1])
+
+
+def test_shape_debye_default_q():
+    sphere = ausaxs.shape.lattice(lambda x, y, z: x**2 + y**2 + z**2 <= 5**2, extent=5)
+    q, I = sphere.debye()
+    q_mol, _ = ausaxs.create_molecule("tests/files/2epe.pdb").debye()
+    assert np.allclose(q, q_mol)
+    assert len(I) == len(q)

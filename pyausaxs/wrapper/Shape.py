@@ -1,4 +1,5 @@
 from .AUSAXS import AUSAXS, _check_error_code, _as_numpy_f64_arrays
+from .settings import settings
 from pyausaxs.signatures import register
 import ctypes as ct
 import numpy as np
@@ -41,13 +42,13 @@ class Lattice:
         """The total volume of the cells in Å³."""
         return len(self.cells)*self.spacing**3
 
-    def debye(self, q_vals: list[float] | np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def debye(self, q_vals: list[float] | np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
         """
-        Calculate the scattering intensity of the body.
+        Calculate the scattering intensity of the body. Without q values, the default q-axis is used.
         Returns: (q, I)
         """
         x, y, z = [np.ascontiguousarray(self.cells[:, k]) for k in range(3)]
-        q = _as_numpy_f64_arrays(q_vals)[0]
+        q = settings.q_axis() if q_vals is None else _as_numpy_f64_arrays(q_vals)[0]
         i = np.zeros_like(q, dtype=np.float64)
         status = ct.c_int()
         AUSAXS().lib().functions.shape_debye_userq(

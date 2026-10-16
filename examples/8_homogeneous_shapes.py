@@ -9,7 +9,7 @@ import numpy as np
 # This is the same representation used by the Grid excluded volume model. We start with a sphere, which has an exact solution.
 R = 30
 sphere = ausaxs.shape.lattice(lambda x, y, z: x**2 + y**2 + z**2 <= R**2, extent=R, spacing=1)
-_, Iq = sphere.debye()
+q, Iq = sphere.debye()
 
 # A finer lattice gives a better approximation of the body. The pair distances are counted with a fast Fourier transform,
 # so even millions of cells are fast.
@@ -38,8 +38,8 @@ def barbell(x, y, z, r=4, L=20):
 
 shape_barbell = ausaxs.shape.lattice(barbell, extent=(10, 10, 30), spacing=0.25)
 shape_ends = ausaxs.shape.lattice(ends, extent=(10, 10, 30), spacing=0.25)
-_, Iq_barbell = shape_barbell.debye(q)
-_, Iq_ends = shape_ends.debye(q)
+_, Iq_barbell = shape_barbell.debye()
+_, Iq_ends = shape_ends.debye()
 
 plt.figure(figsize=(10, 6))
 plt.plot(q, Iq_barbell, label=f"Barbell ({len(shape_barbell):,} cells)")
