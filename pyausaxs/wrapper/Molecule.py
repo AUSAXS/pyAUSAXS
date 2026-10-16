@@ -87,6 +87,16 @@ register({
         ],
         ct.c_int                                 # return obj id
     ),
+    "molecule_distance_histogram_raw": (
+        [
+            ct.c_int,                            # molecule id
+            ct.POINTER(ct.POINTER(ct.c_double)), # counts (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # bin axis (output)
+            ct.POINTER(ct.c_int),                # n_bins (output)
+            ct.POINTER(ct.c_int)                 # status (0 = success)
+        ],
+        ct.c_int                                 # return obj id
+    ),
     "molecule_debye": (
         [
             ct.c_int,                            # molecule id
@@ -344,6 +354,33 @@ class Molecule(BackendObject):
     
     def histogram(self) -> Histogram:
         return self.distance_histogram()
+
+    def distance_histogram_raw(self) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Get the total distance histogram of the atoms, and of the hydration shell if there is one, as point scatterers 
+        with their weights. No excluded volume effects will be applied; this is the histogram transformed by debye_raw. 
+        The counts sum the weight products over all ordered pairs, so the self-terms are included in the first bin.
+        Returns: (bins, counts)
+        """
+        ausaxs = AUSAXS()
+        counts_ptr = ct.POINTER(ct.c_double)()
+        axis_ptr = ct.POINTER(ct.c_double)()
+        n_bins = ct.c_int()
+        status = ct.c_int()
+        tmp_id = ausaxs.lib().functions.molecule_distance_histogram_raw(
+            self._get_id(),
+            ct.byref(counts_ptr),
+            ct.byref(axis_ptr),
+            ct.byref(n_bins),
+            ct.byref(status)
+        )
+        _check_error_code(status, "molecule_distance_histogram_raw")
+
+        n = n_bins.value
+        bins = _ptr_to_array(axis_ptr, n)
+        counts = _ptr_to_array(counts_ptr, n)
+        ausaxs.deallocate(tmp_id)
+        return bins, counts
 
     def debye(self, q_vals: list[float] | np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
         """
