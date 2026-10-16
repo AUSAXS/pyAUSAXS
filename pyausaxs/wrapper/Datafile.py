@@ -13,6 +13,16 @@ register({
         ],
         ct.c_int                 # return data id
     ),
+    "data_create": (
+        [
+            ct.POINTER(ct.c_double), # q vector
+            ct.POINTER(ct.c_double), # I vector
+            ct.POINTER(ct.c_double), # Ierr vector
+            ct.c_int,                # n_points
+            ct.POINTER(ct.c_int)     # status (0 = success)
+        ],
+        ct.c_int                     # return data id
+    ),
     "data_get_data": (
         [
             ct.c_int,                            # object id
@@ -44,9 +54,17 @@ class Datafile(BackendObject):
             _check_array_inputs(q, I, Ierr, names=['q', 'I', 'Ierr'])
             _check_similar_length(q, I, Ierr, msg="q, I, and Ierr must have the same length")
             q_arr, I_arr, Ierr_arr = _as_numpy_f64_arrays(q, I, Ierr)
-            self._data['q'] = q_arr
-            self._data['I'] = I_arr
-            self._data['Ierr'] = Ierr_arr
+            # register a backend dataset so the object can be passed to fit(), just like one read from a file;
+            # the arrays are then read back from it, so both constructors report the same (q-range limited) points
+            status = ct.c_int()
+            self._object_id = AUSAXS().lib().functions.data_create(
+                q_arr.ctypes.data_as(ct.POINTER(ct.c_double)),
+                I_arr.ctypes.data_as(ct.POINTER(ct.c_double)),
+                Ierr_arr.ctypes.data_as(ct.POINTER(ct.c_double)),
+                ct.c_int(len(q_arr)),
+                ct.byref(status)
+            )
+            _check_error_code(status, "create_datafile")
 
         if len(args) == 1 and isinstance(args[0], str):
             init_filename(args[0])
@@ -120,5 +138,8 @@ def read_data(filename: str) -> Datafile:
     return Datafile(filename)
 
 def create_datafile(q: list[float] | np.ndarray, I: list[float] | np.ndarray, Ierr: list[float] | np.ndarray) -> Datafile:
-    """Create a DataFile object from given q, I, and Ierr arrays."""
+    """
+    Create a DataFile object from given q, I, and Ierr arrays.
+    q must be in [1/A]. Points outside the configured q-range are removed, exactly as when reading a file.
+    """
     return Datafile(q, I, Ierr)
