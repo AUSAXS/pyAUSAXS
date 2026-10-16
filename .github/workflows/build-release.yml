@@ -30,7 +30,7 @@ jobs:
           - os: windows-latest
             platform: win_amd64
             zip: windows-binaries.zip
-            library_zip_name: ausaxs.dll
+            library_zip_name: libausaxs.dll
             library: libausaxs.dll
 
     runs-on: ${{ matrix.os }}

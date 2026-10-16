@@ -75,11 +75,10 @@ def prefix_lib_path() -> str | None:
     """
     ext = get_shared_lib_extension()
     if get_os() == OS.WIN:
-        # conda installs DLLs into Library/bin; the CMake target is named ausaxs,
-        # but accept the libausaxs spelling used by the bundled copies as well
+        # conda installs DLLs into Library/bin; older backend builds named the DLL ausaxs without the lib prefix
         candidates = [
-            Path(sys.prefix) / "Library" / "bin" / ("ausaxs" + ext),
             Path(sys.prefix) / "Library" / "bin" / ("libausaxs" + ext),
+            Path(sys.prefix) / "Library" / "bin" / ("ausaxs" + ext),
         ]
     else:
         candidates = [Path(sys.prefix) / "lib" / ("libausaxs" + ext)]
