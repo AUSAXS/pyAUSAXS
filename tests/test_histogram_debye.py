@@ -1,10 +1,19 @@
 import math
 import numpy as np
+import pytest
 import pyausaxs as ausaxs
 from .helpers import simple_cube
 
 
-def test_histogram():
+@pytest.fixture
+def no_exv():
+    # the cube references are point scatterers; the default Simple exv model changes the effective atomic weights
+    ausaxs.settings.exv(ausaxs.ExvModel.none)
+    yield
+    ausaxs.settings.exv(ausaxs.ExvModel.simple)
+
+
+def test_histogram(no_exv):
     atoms = simple_cube.points()
     distances, counts_exact = simple_cube.hist()
     mol = ausaxs.create_molecule(*atoms)
@@ -19,7 +28,7 @@ def test_histogram():
         assert math.isclose(c_hist, c_exact, abs_tol=1e-6), f"Count mismatch for distance {d}: expected {c_exact}, got {c_hist}"
 
 
-def test_debye():
+def test_debye(no_exv):
     atoms = simple_cube.points()
     mol = ausaxs.create_molecule(*atoms)
     q, I = mol.debye()
@@ -59,3 +68,17 @@ def test_debye_fit():
     # res.plot()
     # import matplotlib.pyplot as plt
     # plt.show()
+
+
+def test_debye_q_axis_with_qmin():
+    # the returned q values must be the ones the intensities were computed at, also when qmin is raised
+    mol = ausaxs.create_molecule(*simple_cube.points())
+    ausaxs.settings.histogram(qmin=0.2)
+    try:
+        q_ex, _ = ausaxs.unoptimized.debye_exact(mol)
+        for f in (mol.debye, mol.debye_raw):
+            q, I = f()
+            assert np.allclose(q, q_ex, rtol=0, atol=1e-12), f"{f.__name__}: q axis starts at {q[0]}, expected {q_ex[0]}"
+            assert np.allclose(f(q)[1], I, rtol=1e-6), f"{f.__name__}: I(q) does not match its own q values"
+    finally:
+        ausaxs.settings.histogram(qmin=1e-4)

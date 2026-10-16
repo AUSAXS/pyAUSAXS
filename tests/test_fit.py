@@ -93,7 +93,7 @@ def test_manual_fit_default_q():
 
     pars = [1.0]
     I_fitted = fit.evaluate(pars)
-    assert len(I_fitted) == 99, "Fitted I(q) should have default length of 99"
+    assert len(I_fitted) == len(mol.debye()[0]), "Fitted I(q) should be evaluated on the default q axis"
 
 
 def test_manual_fit_multiple_pars():

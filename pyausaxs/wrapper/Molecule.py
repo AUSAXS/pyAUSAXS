@@ -127,6 +127,31 @@ register({
         ],
         None
     ),
+    "molecule_set_coordinates": (
+        [
+            ct.c_int,                # molecule id
+            ct.POINTER(ct.c_double), # x vector
+            ct.POINTER(ct.c_double), # y vector
+            ct.POINTER(ct.c_double), # z vector
+            ct.c_int,                # n_atoms
+            ct.POINTER(ct.c_int)     # status (0 = success)
+        ],
+        None
+    ),
+    "molecule_debye_raw_vjp": (
+        [
+            ct.c_int,                # molecule id
+            ct.POINTER(ct.c_double), # q
+            ct.POINTER(ct.c_double), # v = dL/dI(q)
+            ct.c_int,                # n_points
+            ct.POINTER(ct.c_double), # gx (output)
+            ct.POINTER(ct.c_double), # gy (output)
+            ct.POINTER(ct.c_double), # gz (output)
+            ct.c_int,                # n_atoms
+            ct.POINTER(ct.c_int)     # status (0 = success)
+        ],
+        None
+    ),
     "molecule_debye_fit": (
         [
             ct.c_int,            # molecule id
@@ -322,7 +347,7 @@ class Molecule(BackendObject):
 
     def debye(self, q_vals: list[float] | np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
         """
-        Calculate the Debye scattering intensity of the molecule. Form factors and excluded volume effects will be applied.
+        Calculate the Debye scattering intensity of the molecule. Form factors and excluded volume effects will be applied
         Returns: (q, I)
         """
         ausaxs = AUSAXS()
@@ -399,6 +424,57 @@ class Molecule(BackendObject):
             i = _ptr_to_array(i_ptr, n)
             ausaxs.deallocate(tmp_id)
             return q, i
+
+    def set_coordinates(self, coords: np.ndarray) -> None:
+        """
+        Update the atomic coordinates with the (n_atoms, 3) array coords, in the order of atoms().
+        Scattering weights and form factors are unchanged.
+        """
+        coords = np.asarray(coords, dtype=np.float64)
+        n = len(self.atoms()[0])
+        if coords.shape != (n, 3):
+            raise ValueError(f"Expected coordinates of shape ({n}, 3), got {coords.shape}.")
+        x, y, z = (np.ascontiguousarray(coords[:, i]) for i in range(3))
+
+        ausaxs = AUSAXS()
+        status = ct.c_int()
+        ausaxs.lib().functions.molecule_set_coordinates(
+            self._get_id(),
+            x.ctypes.data_as(ct.POINTER(ct.c_double)),
+            y.ctypes.data_as(ct.POINTER(ct.c_double)),
+            z.ctypes.data_as(ct.POINTER(ct.c_double)),
+            ct.c_int(n),
+            ct.byref(status)
+        )
+        _check_error_code(status, "molecule_set_coordinates")
+        self._atom_data["x"], self._atom_data["y"], self._atom_data["z"] = x, y, z
+
+    def debye_raw_vjp(self, q_vals: list[float] | np.ndarray, v: list[float] | np.ndarray) -> np.ndarray:
+        """
+        Vector-Jacobian product of debye_raw(q_vals) with respect to the atomic coordinates. 
+        Given v = dL/dI at q_vals, returns dL/dr as an (n_atoms, 3) array, in the order of atoms(). 
+        This is the derivative of the exact Debye sum, not of its binned approximation.
+        """
+        q, v = _as_numpy_f64_arrays(q_vals, v)
+        _check_similar_length(q, v, msg="q_vals and v must have the same length")
+        n = len(self.atoms()[0])
+        gx, gy, gz = np.zeros(n), np.zeros(n), np.zeros(n)
+
+        ausaxs = AUSAXS()
+        status = ct.c_int()
+        ausaxs.lib().functions.molecule_debye_raw_vjp(
+            self._get_id(),
+            q.ctypes.data_as(ct.POINTER(ct.c_double)),
+            v.ctypes.data_as(ct.POINTER(ct.c_double)),
+            ct.c_int(len(q)),
+            gx.ctypes.data_as(ct.POINTER(ct.c_double)),
+            gy.ctypes.data_as(ct.POINTER(ct.c_double)),
+            gz.ctypes.data_as(ct.POINTER(ct.c_double)),
+            ct.c_int(n),
+            ct.byref(status)
+        )
+        _check_error_code(status, "molecule_debye_raw_vjp")
+        return np.stack([gx, gy, gz], axis=1)
 
     def fit(self, data: str | Datafile) -> FitResult:
         """
