@@ -1,10 +1,19 @@
 import math
 import numpy as np
+import pytest
 import pyausaxs as ausaxs
 from .helpers import simple_cube
 
 
-def test_histogram():
+@pytest.fixture
+def no_exv():
+    # the cube references are point scatterers; the default Simple exv model changes the effective atomic weights
+    ausaxs.settings.exv(ausaxs.ExvModel.none)
+    yield
+    ausaxs.settings.exv(ausaxs.ExvModel.simple)
+
+
+def test_histogram(no_exv):
     atoms = simple_cube.points()
     distances, counts_exact = simple_cube.hist()
     mol = ausaxs.create_molecule(*atoms)
@@ -19,7 +28,7 @@ def test_histogram():
         assert math.isclose(c_hist, c_exact, abs_tol=1e-6), f"Count mismatch for distance {d}: expected {c_exact}, got {c_hist}"
 
 
-def test_debye():
+def test_debye(no_exv):
     atoms = simple_cube.points()
     mol = ausaxs.create_molecule(*atoms)
     q, I = mol.debye()
