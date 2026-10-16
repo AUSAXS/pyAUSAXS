@@ -28,6 +28,31 @@ def test_histogram(no_exv):
         assert math.isclose(c_hist, c_exact, abs_tol=1e-6), f"Count mismatch for distance {d}: expected {c_exact}, got {c_hist}"
 
 
+def test_distance_histogram_raw():
+    atoms = simple_cube.points()
+    distances, counts_exact = simple_cube.hist()
+    mol = ausaxs.create_molecule(*atoms)
+    bins, counts = mol.distance_histogram_raw()
+    w = (bins[1] - bins[0])
+    for d, c_exact in zip(distances, counts_exact):
+        index = np.round(d / w).astype(int)
+        assert index < len(bins), f"Distance {d} out of histogram bin range"
+        assert math.isclose(counts[index], c_exact, abs_tol=1e-6), f"Count mismatch for distance {d}: expected {c_exact}, got {counts[index]}"
+
+
+def test_distance_histogram_raw_weights():
+    # the counts must sum the weight products over all ordered pairs, without any excluded volume subtracted, whatever the exv model
+    rng = np.random.default_rng(0)
+    x, y, z = rng.uniform(-20, 20, (3, 200))
+    w = rng.uniform(-1, 2, 200)
+    mol = ausaxs.create_molecule(x, y, z, w)
+    for exv in ("simple", "none", "fraser"):
+        ausaxs.settings.exv(exv)
+        _, counts = mol.distance_histogram_raw()
+        assert math.isclose(np.sum(counts), np.sum(w)**2, rel_tol=1e-9), f"{exv}: expected total {np.sum(w)**2}, got {np.sum(counts)}"
+    ausaxs.settings.exv(ausaxs.ExvModel.simple)
+
+
 def test_debye(no_exv):
     atoms = simple_cube.points()
     mol = ausaxs.create_molecule(*atoms)
