@@ -347,10 +347,7 @@ class Molecule(BackendObject):
 
     def debye(self, q_vals: list[float] | np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
         """
-        Calculate the Debye scattering intensity of the molecule with its configured model, including the hydration shell 
-        if it has one. Form factors and excluded volume effects will be applied; with the default Simple model every atom 
-        carries one Gaussian form factor, so I(q) keeps an overall exp(-q^2).
-        Without q_vals, the default q axis from the qmin to the qmax setting is used.
+        Calculate the Debye scattering intensity of the molecule. Form factors and excluded volume effects will be applied
         Returns: (q, I)
         """
         ausaxs = AUSAXS()
@@ -390,9 +387,7 @@ class Molecule(BackendObject):
 
     def debye_raw(self, q_vals: list[float] | np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
         """
-        Calculate the binned Debye scattering intensity of the atoms, and of the hydration shell if there is one, as point 
-        scatterers with their weights. No form factors or excluded volume effects will be applied.
-        Without q_vals, the default q axis from the qmin to the qmax setting is used.
+        Calculate the Debye scattering intensity of the molecule. No form factors or excluded volume effects will be applied.
         Returns: (q, I)
         """
         ausaxs = AUSAXS()
@@ -432,8 +427,8 @@ class Molecule(BackendObject):
 
     def set_coordinates(self, coords: np.ndarray) -> None:
         """
-        Overwrite the atomic coordinates with the (n_atoms, 3) array coords, in the order of atoms().
-        The weights and form factors of the atoms are kept, and a hydration shell is left untouched.
+        Update the atomic coordinates with the (n_atoms, 3) array coords, in the order of atoms().
+        Scattering weights and form factors are unchanged.
         """
         coords = np.asarray(coords, dtype=np.float64)
         n = len(self.atoms()[0])
@@ -458,7 +453,7 @@ class Molecule(BackendObject):
         """
         Vector-Jacobian product of debye_raw(q_vals) with respect to the atomic coordinates. 
         Given v = dL/dI at q_vals, returns dL/dr as an (n_atoms, 3) array, in the order of atoms(). 
-        This is the derivative of the exact Debye sum, not of its binned approximation. Only the atoms are differentiated: a hydration shell is ignored.
+        This is the derivative of the exact Debye sum, not of its binned approximation.
         """
         q, v = _as_numpy_f64_arrays(q_vals, v)
         _check_similar_length(q, v, msg="q_vals and v must have the same length")
