@@ -357,9 +357,7 @@ class Molecule(BackendObject):
 
     def distance_histogram_raw(self) -> tuple[np.ndarray, np.ndarray]:
         """
-        Get the total distance histogram of the atoms, and of the hydration shell if there is one, as point scatterers 
-        with their weights. No excluded volume effects will be applied; this is the histogram transformed by debye_raw. 
-        The counts sum the weight products over all ordered pairs, so the self-terms are included in the first bin.
+        Calculate the distance histogram of the molecule. No form factors or excluded volume effects will be applied.
         Returns: (bins, counts)
         """
         ausaxs = AUSAXS()
