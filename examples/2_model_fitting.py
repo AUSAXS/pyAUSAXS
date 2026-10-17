@@ -15,6 +15,10 @@ ausaxs.settings.fit(
     fit_solvent_density=False   # Do not fit solvent density. This is generally not recommended to avoid overfitting.
 )
 
+# The default Simple excluded volume model has no free excluded volume parameter, so fitting it requires a different model.
+# Here we use the Fraser model; the available models are compared in the advanced fitting example (3_advanced_model_fitting.py).
+ausaxs.settings.exv(ausaxs.ExvModel.fraser)
+
 fit = mol.fit("tests/files/2epe.dat")
 print(f"Chi-squared of the fit: {fit.chi2()}")
 
