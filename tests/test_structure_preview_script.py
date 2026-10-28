@@ -20,7 +20,7 @@ load {
 save initial_state.pdb
 symmetry c2
 rename b1 left
-parameter {
+parameters {
     iterations 100
     sym_translate 5
     sym_rotate 1.5
@@ -83,7 +83,7 @@ def test_indented_elements_are_kept():
 
 def test_constraints_are_kept():
     # constraints are drawn in the preview, so they are structural as far as this pane is concerned
-    kept = strip("load {\n    pdb /tmp/p.pdb\n}\nautoconstrain\nconstrain {\n    b1 b2\n}\nparameter {\n iterations 5\n}\n")
+    kept = strip("load {\n    pdb /tmp/p.pdb\n}\nautoconstrain\nconstrain {\n    b1 b2\n}\nparameters {\n iterations 5\n}\n")
     assert "autoconstrain" in kept
     assert "constrain {" in kept
     assert "b1 b2" in kept
