@@ -68,3 +68,21 @@ def test_hydrate_from_arrays():
     waters = np.stack([wx, wy, wz], axis=1)
     closest = np.sqrt(((waters[:, None, :] - atoms[None, :, :])**2).sum(-1)).min()
     assert closest > 1.2, f"Hydration water placed {closest:.2f} A from an atom centre"
+
+def test_wrong_object_type_raises():
+    # an object of the wrong type used to be read as the expected one in the backend, aborting or segfaulting the interpreter
+    import pytest
+    mol = ausaxs.create_molecule("tests/files/2epe.pdb")
+    other = ausaxs.create_molecule("tests/files/2epe.pdb")
+    pdb = ausaxs.read_pdb("tests/files/2epe.pdb")
+    data = ausaxs.read_data("tests/files/2epe.dat")
+    fit = mol.fit(data)
+    for not_data in (other, pdb, fit):
+        with pytest.raises(RuntimeError, match=r"has the wrong type \(expected: dataset\)"):
+            mol.fit(not_data)
+    for not_molecule in (data, pdb, fit):
+        with pytest.raises(RuntimeError, match=r"has the wrong type \(expected: molecule\)"):
+            ausaxs.manual_fit(not_molecule)
+        with pytest.raises(RuntimeError, match=r"has the wrong type \(expected: molecule\)"):
+            ausaxs.unoptimized.debye_exact(not_molecule)
+    assert mol.fit(data).chi2() == pytest.approx(fit.chi2(), rel=1e-8) # the molecule is untouched
