@@ -144,10 +144,10 @@ def _parse_split(element: str) -> tuple[str, list[int]] | None:
 
 def _structural_only(script: str) -> str:
     """`script` reduced to the elements that shape the structure: the load block and the body-affecting setup elements, i.e. exactly what
-    _STALE_RE matches. Everything else — `parameter`, `loop`, `optimize_once`, `save`, `print`, `output`, ... — is dropped.
+    _STALE_RE matches. Everything else — `parameters`, `loop`, `optimize_once`, `save`, `print`, `output`, ... — is dropped.
 
     None of it changes what the preview shows, and leaving it in makes the preview hostage to parts of the script that have nothing to do
-    with the structure: a `parameter` block carrying symmetry amplitudes, left behind from a structure that had symmetries, is refused
+    with the structure: a `parameters` block carrying symmetry amplitudes, left behind from a structure that had symmetries, is refused
     outright by the backend for one that has none, which would fail the whole preview rather than just that element.
 
     Only ever fed to the backend. The script written back to the editor is composed separately, in _send_to_script, from the untouched
