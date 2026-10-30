@@ -11,17 +11,14 @@ class Histogram:
     
     def truncate(self) -> None:
         """
-        Truncate the data to remove all zero-values following the last nonzero index. 
-        The resulting data will still have the same size. 
+        Remove the trailing zero-valued bins, so the data ends at the last bin with a nonzero count.
         """
-        i = len(self._bins)
-        for i in range(len(self._bins)-1, 1, -1):
-            if self._aa[i] + self._aw[i] + self._ww[i] != 0:
-                break
-        self._bins = self._bins[:i]
-        self._aa = self._aa[:i]
-        self._aw = self._aw[:i]
-        self._ww = self._ww[:i]
+        nonzero = np.flatnonzero(np.asarray(self._aa) + np.asarray(self._aw) + np.asarray(self._ww))
+        n = nonzero[-1] + 1 if nonzero.size else 0
+        self._bins = self._bins[:n]
+        self._aa = self._aa[:n]
+        self._aw = self._aw[:n]
+        self._ww = self._ww[:n]
 
     def counts_aa(self) -> np.ndarray:
         """The atomic-atomic distance counts."""
