@@ -16,3 +16,10 @@ def test_rigidbody_stop_run_without_a_run():
     # the backend discards a stop request made while nothing is running, so this is a no-op rather than an error.
     # Mainly a guard on the binding itself: a missing/renamed backend symbol would raise here.
     Rigidbody.stop_run()
+
+def test_rigidbody_live_structure_repeated_polls():
+    # every poll reuses one backend poller; nothing need have been published, so only the shape of the answer is checked
+    for _ in range(2):
+        coords, version = Rigidbody.live_structure()
+        assert isinstance(version, int)
+        assert coords is None or (coords.ndim == 2 and coords.shape[1] == 3)

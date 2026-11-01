@@ -1,8 +1,5 @@
 from .AUSAXS import AUSAXS, _check_error_code, _ptr_to_array, _ptr_to_str_array
 from .BackendObject import BackendObject
-from .Models import ExvModel
-from .Datafile import Datafile
-from .FitResult import FitResult
 from pyausaxs.signatures import register
 import ctypes as ct
 import numpy as np
@@ -36,14 +33,6 @@ register({
             ct.POINTER(ct.c_int)                 # status (0 = success)
         ],
         ct.c_int                                 # return data id
-    ),
-    "pdb_debye_fit": (
-        [
-            ct.c_int,            # pdb id
-            ct.c_int,            # data id
-            ct.POINTER(ct.c_int) # status (0 = success)
-        ],
-        None
     ),
 })
 
@@ -121,23 +110,6 @@ class PDBfile(BackendObject):
         self._data["element"]    = _ptr_to_str_array(element_ptr, n)
         self._data["charge"]     = _ptr_to_str_array(charge_ptr, n)
         ausaxs.deallocate(data_id)
-
-    def fit(self, data: Datafile, model: ExvModel | str = ExvModel.simple) -> FitResult:
-        """
-        Fit the Debye scattering intensity of the PDB data to the provided data.
-        Returns: chi-squared value of the fit.
-        """
-        ausaxs = AUSAXS()
-        model_ptr = ct.c_char_p(model.value.encode('utf-8'))
-        status = ct.c_int()
-        res_id = ausaxs.lib().functions.pdb_debye_fit(
-            self._get_id(),
-            data._get_id(),
-            model_ptr,
-            ct.byref(status)
-        )
-        _check_error_code(status, "pdb_fit")
-        return FitResult(res_id)
 
     def serial(self) -> np.ndarray:
         """Get atom serial numbers as numpy array."""
