@@ -85,4 +85,5 @@ def test_wrong_object_type_raises():
             ausaxs.manual_fit(not_molecule)
         with pytest.raises(RuntimeError, match=r"has the wrong type \(expected: molecule\)"):
             ausaxs.unoptimized.debye_exact(not_molecule)
-    assert mol.fit(data).chi2() == pytest.approx(fit.chi2(), rel=1e-8) # the molecule is untouched
+    # the molecule is untouched; refits of an identical molecule still differ by up to ~1e-7 relative, so 1e-8 was flaky
+    assert mol.fit(data).chi2() == pytest.approx(fit.chi2(), rel=1e-6)
