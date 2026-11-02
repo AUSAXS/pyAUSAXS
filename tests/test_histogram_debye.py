@@ -107,3 +107,13 @@ def test_debye_q_axis_with_qmin():
             assert np.allclose(f(q)[1], I, rtol=1e-6), f"{f.__name__}: I(q) does not match its own q values"
     finally:
         ausaxs.settings.histogram(qmin=1e-4)
+
+def test_truncate_keeps_the_last_nonzero_bin():
+    hist = ausaxs.create_molecule("tests/files/2epe.pdb").histogram()
+    counts = hist.counts()
+    last = np.flatnonzero(counts)[-1]
+    hist.truncate()
+    assert len(hist.bins()) == len(hist.counts()) == last + 1
+    assert hist.counts().sum() == counts.sum()
+    hist.truncate()
+    assert len(hist.bins()) == last + 1
