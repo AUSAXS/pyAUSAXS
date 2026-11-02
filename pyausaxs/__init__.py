@@ -5,6 +5,7 @@ from .wrapper.IterativeFit import manual_fit
 from .wrapper.Rigidbody import Rigidbody, prepare_rigidbody_refinement
 from .wrapper.BackendObject import advanced
 from .wrapper.ExactDebye import unoptimized
+from .wrapper.Shape import shape
 from .wrapper.Models import ExvModel, ExvTable
 from .wrapper.FormFactor import form_factor
 from .wrapper.settings import settings
@@ -13,7 +14,7 @@ from .wrapper.Output import set_output_callback, reset_output_callback
 
 __all__ = [
     "read_pdb", "read_data", "create_datafile", "create_molecule", "sasview", "settings", "manual_fit",
-    "prepare_rigidbody_refinement", "ExvModel", "ExvTable", "unoptimized", "advanced", "form_factor", "Rigidbody",
+    "prepare_rigidbody_refinement", "ExvModel", "ExvTable", "unoptimized", "shape", "advanced", "form_factor", "Rigidbody",
     "set_output_callback", "reset_output_callback"
 ]
 __version__ = "1.3.0"

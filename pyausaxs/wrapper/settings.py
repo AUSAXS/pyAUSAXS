@@ -1,7 +1,8 @@
-from .AUSAXS import AUSAXS, _check_error_code
+from .AUSAXS import AUSAXS, _check_error_code, _ptr_to_array
 from .Models import ExvModel, ExvTable, WaterModel
 from pyausaxs.signatures import register
 import ctypes as ct
+import numpy as np
 import os
 import warnings
 from typing import Any
@@ -37,6 +38,14 @@ register({
             ct.POINTER(ct.c_int) # status (0 = success)
         ],
         None
+    ),
+    "get_q_axis": (
+        [
+            ct.POINTER(ct.POINTER(ct.c_double)), # q (output)
+            ct.POINTER(ct.c_int),                # n_points (output)
+            ct.POINTER(ct.c_int)                 # status (0 = success)
+        ],
+        ct.c_int                                 # return temp res id
     ),
 })
 
@@ -121,6 +130,19 @@ class settings:
         path_ptr = ct.c_char_p(path.encode('utf-8'))
         ausaxs.lib().functions.load_settings(path_ptr, ct.byref(status))
         _check_error_code(status, "settings_load_settings")
+
+    @staticmethod
+    def q_axis() -> np.ndarray:
+        """The default q-axis of the Debye transforms, i.e. the one used when no q values are given."""
+        ausaxs = AUSAXS()
+        q_ptr = ct.POINTER(ct.c_double)()
+        n_q = ct.c_int()
+        status = ct.c_int()
+        tmp_id = ausaxs.lib().functions.get_q_axis(ct.byref(q_ptr), ct.byref(n_q), ct.byref(status))
+        _check_error_code(status, "get_q_axis")
+        q = _ptr_to_array(q_ptr, n_q.value)
+        ausaxs.deallocate(tmp_id)
+        return q
 
     @staticmethod
     def snapshot_defaults(path: str):
