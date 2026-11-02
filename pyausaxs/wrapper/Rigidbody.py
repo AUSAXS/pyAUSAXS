@@ -4,6 +4,7 @@ from pyausaxs.signatures import register
 
 import ctypes as ct
 import numpy as np
+import threading
 
 register({
     "rigidbody_load_script": (
@@ -37,8 +38,15 @@ register({
         ],
         ct.c_int                                 # return data id
     ),
-    "rigidbody_get_live_structure": (
+    "rigidbody_create_live_poller": (
         [
+            ct.POINTER(ct.c_int) # status (0 = success)
+        ],
+        ct.c_int                 # return poller id
+    ),
+    "rigidbody_poll_live_structure": (
+        [
+            ct.c_int,                            # poller id
             ct.POINTER(ct.POINTER(ct.c_double)), # x vector (output)
             ct.POINTER(ct.POINTER(ct.c_double)), # y vector (output)
             ct.POINTER(ct.POINTER(ct.c_double)), # z vector (output)
@@ -46,7 +54,7 @@ register({
             ct.POINTER(ct.c_int),                # version (output)
             ct.POINTER(ct.c_int)                 # status (0 = success)
         ],
-        ct.c_int                                 # return data id
+        None
     ),
     "rigidbody_register_live_consumer": (
         [
@@ -114,6 +122,17 @@ register({
         ct.c_int                                 # return data id
     ),
 })
+
+class _LivePoller(BackendObject):
+    """Owns the backend buffers that each live-structure poll copies into, so successive polls reuse them."""
+    def __init__(self):
+        super().__init__()
+        status = ct.c_int()
+        self._set_id(AUSAXS().lib().functions.rigidbody_create_live_poller(ct.byref(status)))
+        _check_error_code(status, "rigidbody_create_live_poller")
+
+_live_poller: _LivePoller | None = None
+_live_poller_lock = threading.Lock() # every poll rewrites the poller's buffers
 
 class Rigidbody(BackendObject):
     def __init__(self, script: str):
@@ -246,27 +265,30 @@ class Rigidbody(BackendObject):
         coords is an (N, 3) float array (or None if nothing has been published yet) and version is an int that increments on each 
         publish — the GUI compares it against the previous value to detect new frames. The atom order matches preview_structure(), 
         so a backbone mask computed there can be reused here. Thread-safe."""
-        ausaxs = AUSAXS()
+        global _live_poller
         x = ct.POINTER(ct.c_double)()
         y = ct.POINTER(ct.c_double)()
         z = ct.POINTER(ct.c_double)()
         n_atoms = ct.c_int()
         version = ct.c_int()
         status = ct.c_int()
-        temp_id = ausaxs.lib().functions.rigidbody_get_live_structure(
-            ct.byref(x), ct.byref(y), ct.byref(z),
-            ct.byref(n_atoms), ct.byref(version), ct.byref(status)
-        )
-        _check_error_code(status, "rigidbody_get_live_structure")
-        n = n_atoms.value
-        coords = None
-        if n:
-            coords = np.column_stack((
-                _ptr_to_array(x, n),
-                _ptr_to_array(y, n),
-                _ptr_to_array(z, n),
-            ))
-        ausaxs.deallocate(temp_id)
+        with _live_poller_lock:
+            if _live_poller is None:
+                _live_poller = _LivePoller()
+            AUSAXS().lib().functions.rigidbody_poll_live_structure(
+                _live_poller._get_id(),
+                ct.byref(x), ct.byref(y), ct.byref(z),
+                ct.byref(n_atoms), ct.byref(version), ct.byref(status)
+            )
+            _check_error_code(status, "rigidbody_poll_live_structure")
+            n = n_atoms.value
+            coords = None
+            if n:
+                coords = np.column_stack((
+                    _ptr_to_array(x, n),
+                    _ptr_to_array(y, n),
+                    _ptr_to_array(z, n),
+                ))
         return coords, version.value
 
     def validate(self) -> None:

@@ -37,7 +37,7 @@ load {
 }
 save initial_state.pdb
 save trajectory.xyz
-parameter_generator {
+parameters {
     iterations 100
     translate 1
     rotate 1
@@ -71,7 +71,7 @@ _LINE_START = r"^[ \t]*"
 # `load { ... }` — the mandatory brace block listing the bodies to refine
 _LOAD_BLOCK_RE = re.compile(f"load{_MANDATORY_BLOCK_FORMAT}", re.DOTALL)
 # a top-level 'symmetry' element: either a brace block (symmetry { ... }) or a single inline line
-# (symmetry c6 / symmetry b1 c6), anchored to column zero so parameter_generator's indented
+# (symmetry c6 / symmetry b1 c6), anchored to column zero so the parameters block's indented
 # `symmetry 1` value is not treated as a structural update
 _SYMMETRY_RE = re.compile(
     rf"^symmetry\b{_OPTIONAL_BLOCK_FORMAT}", re.MULTILINE | re.DOTALL
