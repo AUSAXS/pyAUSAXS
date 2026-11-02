@@ -310,7 +310,7 @@ class Rigidbody(BackendObject):
         I_interp = ct.POINTER(ct.c_double)()
         n_points = ct.c_int()
         status = ct.c_int()
-        ausaxs.lib().functions.rigidbody_run(
+        temp_id = ausaxs.lib().functions.rigidbody_run(
             self._get_id(),
             ct.byref(q),
             ct.byref(I),
@@ -327,6 +327,7 @@ class Rigidbody(BackendObject):
             _ptr_to_array(I_err, n),
             _ptr_to_array(I_interp, n),
         ))
+        ausaxs.deallocate(temp_id)
         return result
 
     @staticmethod
