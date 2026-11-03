@@ -9,11 +9,11 @@ from matplotlib.figure import Figure
 from mpl_toolkits import mplot3d  # noqa: F401  (registers the '3d' projection)
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
-from ..plot.plot_helper import (
+from ...plot.plot_helper import (
     PlotType, Dataset, Hline, Vline,
     read_dataset, read_hline, read_vline, read_2dhist,
 )
-from .theme import PALETTE
+from .palette import PALETTE
 
 # matplotlib rc overrides for a clean, modern look on embedded figures
 PLOT_RC = {

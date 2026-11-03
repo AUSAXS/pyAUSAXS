@@ -2,7 +2,6 @@
 # Author: Kristian Lytje
 
 import os
-import re
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
@@ -12,106 +11,22 @@ from typing import Optional
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
+from .core import script as rbscript
+from .core.files import is_saxs_file, is_structure_file
+from .core.loads import backend_message
+from .core.plotting import draw_structure, nearest_ca_residue, fit_figure_from_curves
+from .core.script import DEFAULT_RIGIDBODY_SCRIPT
+from .core.syntax import fetch_vocabulary
 from .data_pane import SaxsDataPane
 from .load_recovery import RELAXED_LOADS, ensure_structure_loads
 from .panes import (
-    SAXS_EXTENSIONS, STRUCTURE_EXTENSIONS, _make_validator, add_figure_tab,
-    make_on_load_structure, make_on_load_saxs,
+    add_figure_tab, make_on_load_structure, make_on_load_saxs,
     add_closable_tab, find_data_pane, release_data_pane,
 )
-from .plotting import draw_structure, nearest_ca_residue, fit_figure_from_curves
 from .runner import RigidbodyRunner
 from .structure_pane import StructurePane
 from .theme import FONTS, PALETTE
-from .widgets import (
-    ConsolePane, FileField, RigidbodyHighlighter, Tooltip, enable_file_drop,
-    quote_script_value, unquote_script_value,
-)
-
-
-DEFAULT_RIGIDBODY_SCRIPT = """\
-output output/rigidbody/
-load {
-    pdb
-    saxs
-}
-save initial_state.pdb
-save trajectory.xyz
-parameters {
-    iterations 100
-    translate 1
-    rotate 1
-}
-
-print "Initial chi2: {chi2_no_penalty}"
-loop
-    optimize_once
-        on_improvement
-            print {
-                msg "{iteration}/{iterations_total}: Accepted with new chi2 {chi2_no_penalty}"
-                colour green
-            }
-            update structure
-            save trajectory.xyz
-        end
-    end
-end
-save final_state.pdb
-"""
-# ── regex building blocks ──────────────────────────────────────────────────
-# one or more spaces/tabs — separates a directive from its argument
-_TABS_OR_SPACES = r"[ \t]+"
-# a brace block `{ ... }` (non-greedy; spans newlines under re.DOTALL)
-_MANDATORY_BLOCK_FORMAT = r"\s*\{.*?\}"
-# a directive body that is either a brace block or a single inline line
-_OPTIONAL_BLOCK_FORMAT = r"(?:\s*\{.*?\}|[^\n]*)"
-# start of a line, skipping any leading indentation (needs re.MULTILINE)
-_LINE_START = r"^[ \t]*"
-
-# `load { ... }` — the mandatory brace block listing the bodies to refine
-_LOAD_BLOCK_RE = re.compile(f"load{_MANDATORY_BLOCK_FORMAT}", re.DOTALL)
-# a top-level 'symmetry' element: either a brace block (symmetry { ... }) or a single inline line
-# (symmetry c6 / symmetry b1 c6), anchored to column zero so the parameters block's indented
-# `symmetry 1` value is not treated as a structural update
-_SYMMETRY_RE = re.compile(
-    rf"^symmetry\b{_OPTIONAL_BLOCK_FORMAT}", re.MULTILINE | re.DOTALL
-)
-# a constraint element — autoconstrain/autoconstraints (inline) or constrain/constraint
-# (inline or a brace block) — anchored to the first token on a line. The whole { ... } block
-# is captured so edits to its arguments (type, bodies, …) refresh the preview too.
-_CONSTRAINT_RE = re.compile(
-    rf"{_LINE_START}(?:auto)?constrain(?:ts?)?\b{_OPTIONAL_BLOCK_FORMAT}",
-    re.MULTILINE | re.DOTALL,
-)
-# an 'update' element (e.g. `update structure`) as the first token on a line; its presence makes
-# the GUI poll the backend for the live structure during a run
-_UPDATE_RE = re.compile(rf"{_LINE_START}update\b", re.MULTILINE)
-# a directive's value: either a quoted string — the only way to write a path containing spaces — or a bare
-# run of non-space characters
-_VALUE = r"\"[^\"\n]*\"|'[^'\n]*'|\S+"
-# the top-level 'output' directive (output <dir>), captured as (prefix, path) so the path can be
-# rewritten to an absolute one at boot
-_OUTPUT_RE = re.compile(rf"({_LINE_START}output{_TABS_OR_SPACES})({_VALUE})", re.MULTILINE)
-# the load-block directives whose value is a path, and so must be quoted when it contains spaces. 'split'
-# is a list of residue ids and has to stay bare.
-_PATH_DIRECTIVES = ("pdb", "saxs")
-# a top-level 'split' element: `split <body> <ids…>` on its own line. This is the sequencer element that
-# partitions an already-loaded body into new bodies at the given residue ids (distinct from the load-block
-# 'split' directive, which lists ids for the load-time BodySplitter). Both change the body set, so both must
-# refresh the preview; anchored to the first token on a line so it won't match 'splitter' or a mid-line word.
-_SPLIT_RE = re.compile(rf"{_LINE_START}split\b[^\n]*", re.MULTILINE)
-# structurally relevant elements: the load block, symmetry block, constraint blocks, delete element, and the
-# split element. Used to determine whether a script edit should trigger a preview redraw.
-_DELETE_RE = re.compile(rf"{_LINE_START}delete\b{_OPTIONAL_BLOCK_FORMAT}", re.MULTILINE | re.DOTALL)
-_STRUCTURALLY_RELEVANT_RE = re.compile(
-    rf"(?:{_LOAD_BLOCK_RE.pattern}|{_SYMMETRY_RE.pattern}|{_CONSTRAINT_RE.pattern}|{_DELETE_RE.pattern}|{_SPLIT_RE.pattern})",
-    re.MULTILINE | re.DOTALL
-)
-
-
-def _directive_value(directive: str, value: str) -> str:
-    """Render a load-block value for writing into the script, quoting it if it is a path that needs it."""
-    return quote_script_value(value) if directive in _PATH_DIRECTIVES else value
+from .widgets import ConsolePane, FileField, RigidbodyHighlighter, Tooltip, enable_file_drop
 
 
 class RigidbodyPane(ttk.Frame):
@@ -173,14 +88,14 @@ class RigidbodyPane(ttk.Frame):
         # Both light up only once the path is valid.
         self.structure_field = FileField(
             input_frame, "Structure",
-            validator=_make_validator(STRUCTURE_EXTENSIONS, "_is_pdb_file"),
+            validator=is_structure_file,
             on_commit=lambda p: self._on_structure_committed(p),
             filetypes=[("Structure", "*.pdb *.ent *.cif *.xyz")],
             on_view=self._open_structure_pane, view_tooltip="View / manage structure",
         )
         self.saxs_field = FileField(
             input_frame, "SAXS data",
-            validator=_make_validator(SAXS_EXTENSIONS, "_is_saxs_data_file"),
+            validator=is_saxs_file,
             on_commit=lambda p: self._on_load_saxs(p),
             filetypes=[("SAXS data", "*.dat *.rsr *.xvg")],
             on_view=self._open_data_pane, view_tooltip="View data",
@@ -269,7 +184,7 @@ class RigidbodyPane(ttk.Frame):
         self.editor.configure(yscrollcommand=editor_scroll.set)
         editor_scroll.pack(side="right", fill="y")
         self.editor.pack(fill="both", expand=True, padx=2, pady=2)
-        operations, keywords = self._fetch_vocabulary()
+        operations, keywords = fetch_vocabulary()
         self.highlighter = RigidbodyHighlighter(self.editor, operations, keywords)
         # restore the last session's script from the cache, falling back to the default
         self._script_cache_path = self._resolve_script_cache_path()
@@ -399,7 +314,7 @@ class RigidbodyPane(ttk.Frame):
         path = self._load_value("pdb")
         if not path:
             return True  # no structure named; let the run report whatever else is wrong with the script
-        if self._preview_data(script, self._structural_signature(script)) is not None:
+        if self._preview_data(script, rbscript.preview_signature(script)) is not None:
             return True
         if self._preview_error is None:
             return True  # empty for some other reason; not a load failure we can offer a remedy for
@@ -503,20 +418,6 @@ class RigidbodyPane(ttk.Frame):
         self.after(10, self._restore_split)
 
     # ----- syntax highlighting ------------------------------------------------
-    @staticmethod
-    def _fetch_vocabulary() -> tuple[set, set]:
-        """Ask the backend for the valid script elements, split into line operations (the dict keys) and argument keywords (values not 
-        themselves keys), mirroring the Qt setValidElements logic. Returns empty sets if the backend is unavailable, in which case the 
-        highlighter still colours scopes/comments but flags nothing."""
-        try:
-            from ..wrapper.Rigidbody import Rigidbody
-            mapping = Rigidbody.get_valid_elements_and_arguments()
-        except Exception:
-            return set(), set()
-        operations = set(mapping)
-        keywords = {arg for args in mapping.values() for arg in args} - operations
-        return operations, keywords
-
     def _on_editor_changed(self, _event=None):
         self.highlighter.highlight()
         self.highlighter.highlight_brackets()
@@ -551,11 +452,7 @@ class RigidbodyPane(ttk.Frame):
                 "Reset the script while keeping the current load element?",
                 parent=self):
             return
-        current_script = self.editor.get("1.0", "end-1c")
-        current_load = _LOAD_BLOCK_RE.search(current_script)
-        reset_script = DEFAULT_RIGIDBODY_SCRIPT
-        if current_load:
-            reset_script = _LOAD_BLOCK_RE.sub(current_load.group(0), reset_script, count=1)
+        reset_script = rbscript.reset_script(self.editor.get("1.0", "end-1c"))
         self.editor.delete("1.0", "end")
         self.editor.insert("1.0", reset_script)
         self.highlighter.highlight()
@@ -687,28 +584,9 @@ class RigidbodyPane(ttk.Frame):
         return load_config().get("last_launch_directory") or os.getcwd()
 
     def _absolutize_script_paths(self, base_dir: str):
-        """Rewrite the script's relative file paths (the load block's pdb/saxs and the top-level output directive) into absolute paths anchored 
-        at `base_dir`. Absolute paths are left as-is. Returns bare paths; the caller quotes them for whichever line they are written back to."""
-        def absolutize(path: str) -> str:
-            path = unquote_script_value(path)
-            if not path or os.path.isabs(path):
-                return path
-            # preserve a trailing separator: the backend appends file stems to the output dir
-            absolute = os.path.normpath(os.path.join(base_dir, path))
-            return absolute + os.sep if path.endswith(("/", os.sep)) else absolute
-
+        """Rewrite the script's relative file paths into absolute paths anchored at `base_dir` (see script.absolutize_script_paths)."""
         text = self.editor.get("1.0", "end-1c")
-        new_text = _OUTPUT_RE.sub(lambda m: m.group(1) + quote_script_value(absolutize(m.group(2))), text, count=1)
-
-        match = _LOAD_BLOCK_RE.search(new_text)
-        if match:
-            for directive in ("pdb", "saxs"):
-                value = self._load_value(directive)  # reads from the editor, still the original text
-                if value:
-                    block = _LOAD_BLOCK_RE.search(new_text)
-                    new_block = self._rewrite_directive(block.group(0), directive, absolutize(value))
-                    new_text = new_text[:block.start()] + new_block + new_text[block.end():]
-
+        new_text = rbscript.absolutize_script_paths(text, base_dir)
         if new_text != text:
             self.editor.delete("1.0", "end")
             self.editor.insert("1.0", new_text)
@@ -756,14 +634,8 @@ class RigidbodyPane(ttk.Frame):
             # the script's splits/elements were written for whatever structure was loaded before; give the next preview one
             # bare-load retry rather than leaving the placeholder up with no explanation (see _bare_structure_preview)
             self._pdb_changed_pending_fallback = True
-        text = self.editor.get("1.0", "end-1c")
-        match = _LOAD_BLOCK_RE.search(text)
-        if match:
-            new_block = self._rewrite_directive(match.group(0), directive, value)
-            new_text = text[:match.start()] + new_block + text[match.end():]
-        elif value:
-            new_text = f"load {{\n    {directive} {_directive_value(directive, value)}\n}}\n" + text
-        else:
+        new_text = rbscript.set_load_directive(self.editor.get("1.0", "end-1c"), directive, value)
+        if new_text is None:
             return  # nothing to add and no block to edit
 
         yview = self.editor.yview()
@@ -773,60 +645,10 @@ class RigidbodyPane(ttk.Frame):
         self.highlighter.highlight()
         self._schedule_preview_update()
 
-    @staticmethod
-    def _rewrite_directive(block: str, directive: str, value: str) -> str:
-        """Return the load block with `directive` set to `value` (or removed if empty), preserving every other directive line and their order."""
-        inner = re.match(r"load\s*\{(.*)\}", block, re.DOTALL).group(1)
-        keyword = re.compile(rf"^\s*{re.escape(directive)}\b")
-        new_line = f"{directive} {_directive_value(directive, value)}" if value else None
-
-        kept: list[str] = []
-        replaced = False
-        for line in inner.splitlines():
-            stripped = line.strip()
-            if not stripped:
-                continue
-            if keyword.match(line):
-                if new_line is not None and not replaced:  # replace in place; drop duplicates
-                    kept.append(new_line)
-                    replaced = True
-            else:
-                kept.append(stripped)
-        if new_line is not None and not replaced:  # directive was absent: append it
-            kept.append(new_line)
-
-        body = "".join(f"    {line}\n" for line in kept)
-        return "load {\n" + body + "}"
-
     # ----- structure preview --------------------------------------------------
     def _load_value(self, directive: str):
-        """Return the argument of a directive in the script's load block, or None. The value is unquoted, i.e. as
-        the backend's tokenizer would see it, so it can be handed straight to os.path and to the file fields."""
-        match = _LOAD_BLOCK_RE.search(self.editor.get("1.0", "end-1c"))
-        if not match:
-            return None
-        inner = re.match(r"load\s*\{(.*)\}", match.group(0), re.DOTALL).group(1)
-        for line in inner.splitlines():
-            tokens = line.split(None, 1)
-            if tokens and tokens[0] == directive:
-                return unquote_script_value(tokens[1]) if len(tokens) == 2 else ""
-        return None
-
-    @staticmethod
-    def _parse_splits(value) -> list[int]:
-        if not value:
-            return []
-        return [int(t) for t in re.split(r"[,\s]+", value.strip()) if t.isdigit()]
-
-    def _split_residues(self, script: str) -> list[int]:
-        """Residue ids to highlight as split points in the preview: the load-block `split` directive (load-time BodySplitter) together with 
-        every top-level `split` element (which partitions an already-loaded body). Both forms carry residue ids; non-numeric tokens such as 
-        the element's body name or the `split` keyword itself are ignored by _parse_splits, and draw_structure deduplicates, so a residue 
-        matched by both forms is marked once."""
-        ids = self._parse_splits(self._load_value("split"))
-        for m in _SPLIT_RE.finditer(script):
-            ids += self._parse_splits(m.group(0))
-        return ids
+        """Return the (unquoted) argument of a directive in the editor's load block, or None (see script.load_value)."""
+        return rbscript.load_value(self.editor.get("1.0", "end-1c"), directive)
 
     def _schedule_preview_update(self):
         """Debounce preview redraws so rapid edits (e.g. typing splits) stay smooth."""
@@ -835,12 +657,6 @@ class RigidbodyPane(ttk.Frame):
         if self._preview_job is not None:
             self.after_cancel(self._preview_job)
         self._preview_job = self.after(150, self._update_structure_preview)
-
-    @staticmethod
-    def _structural_signature(script: str) -> tuple:
-        """Distil the parts of the script that affect the preview — the load block, any symmetry elements, constraint lines, and delete elements 
-        — so edits to unrelated lines (iterations, print, save, ...) don't trigger a redraw or a backend rebuild."""
-        return tuple(m.group(0) for m in _STRUCTURALLY_RELEVANT_RE.finditer(script))
 
     def _preview_data(self, script: str, sig: tuple):
         """Build the rigid body from the current script and return its preview structure (coords + per-atom body/copy/residue/Cα metadata), or 
@@ -870,10 +686,10 @@ class RigidbodyPane(ttk.Frame):
         if self._live_meta is not None:
             return  # a live run owns the preview axis; don't draw the static preview over it
         script = self.editor.get("1.0", "end-1c")
-        splits = self._split_residues(script)
+        splits = rbscript.split_residues(script)
 
         # redraw only when the load or symmetry elements change; everything else is ignored
-        sig = self._structural_signature(script)
+        sig = rbscript.preview_signature(script)
         if sig == self._preview_key:
             return
         self._preview_key = sig
@@ -1039,7 +855,7 @@ class RigidbodyPane(ttk.Frame):
         try:
             self.runner.request_stop()
         except Exception as e:
-            self.console.append(f"\nCould not stop the refinement: {self._backend_message(e)}\n", tag="error")
+            self.console.append(f"\nCould not stop the refinement: {backend_message(e)}\n", tag="error")
             return
         self._stop_requested = True
         self.console.append("\nStopping after the current iteration…\n")
@@ -1053,7 +869,7 @@ class RigidbodyPane(ttk.Frame):
         reuse it, and surface the structure tab."""
         self._live_meta = None
         self._live_version = 0
-        if not _UPDATE_RE.search(script):
+        if not rbscript.has_live_update(script):
             return
         from ..wrapper.Rigidbody import Rigidbody
         # this build can fail for the same reasons the run itself will (a refused structure, a malformed script). It is only here to set up the
@@ -1061,7 +877,7 @@ class RigidbodyPane(ttk.Frame):
         try:
             meta = Rigidbody(script).preview_structure()
         except Exception as e:
-            self.console.append(f"Live structure view unavailable: {self._backend_message(e)}\n")
+            self.console.append(f"Live structure view unavailable: {backend_message(e)}\n")
             return
         if len(meta["coords"]):
             self._live_meta = meta
@@ -1086,7 +902,7 @@ class RigidbodyPane(ttk.Frame):
         lims = [ax.get_xlim(), ax.get_ylim(), ax.get_zlim()]
         ax.clear()
         ax.set_axis_off()
-        draw_structure(ax, data, self._split_residues(self.editor.get("1.0", "end-1c")))
+        draw_structure(ax, data, rbscript.split_residues(self.editor.get("1.0", "end-1c")))
         self._struct_fig.set_layout_engine("tight")
         self._struct_canvas.draw_idle()
         ax.set_xlim(lims[0])
@@ -1107,13 +923,6 @@ class RigidbodyPane(ttk.Frame):
                 pass
         self._live_meta = None
 
-    @staticmethod
-    def _backend_message(err) -> str:
-        """Strip the wrapper that _check_error_code adds (`AUSAXS: "fn" failed with error code N: "..."`), leaving just the backend's own 
-        message. Non-matching exceptions (e.g. library-unavailable) are returned unchanged."""
-        match = re.match(r'^AUSAXS: ".*?" failed with error code \d+:\s*"(.*)"\s*$', str(err), re.DOTALL)
-        return match.group(1) if match else str(err)
-
     def _on_done(self, done):
         self._set_busy(False)
         self._stop_live_preview()
@@ -1124,7 +933,7 @@ class RigidbodyPane(ttk.Frame):
                 # the backend already streamed the error; just note the failure
                 self.console.append("\nRefinement failed.\n", tag="error")
             else:
-                self.console.append(f"\n{self._backend_message(done.error)}\n", tag="error")
+                self.console.append(f"\n{backend_message(done.error)}\n", tag="error")
             return
         if self._mode == "validate":
             self.console.append("\nValidation successful.\n", tag="success")

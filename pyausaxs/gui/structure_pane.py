@@ -28,15 +28,16 @@ from typing import Callable, Optional
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 
-from . import plotting
-from .plotting import draw_structure, nearest_ca_residue, residue_ca_mask, _BODY_COLORS
+from .core import plotting
+from .core.plotting import draw_structure, nearest_ca_residue, residue_ca_mask, _BODY_COLORS
+from .core.script import (
+    LOAD_BLOCK_RE, is_residue_id, load_split, norm_splits, parse_split_element, parse_splits, structure_preview_script,
+    structure_send_script, structure_signature, synth_load_block,
+)
 from .theme import FONTS, PALETTE, blend
 from .widgets import (
-    CollapsibleSection, PlaceholderEntry, ScrollableFrame, ellipsize_label, quote_script_value,
+    CollapsibleSection, PlaceholderEntry, ScrollableFrame, ellipsize_label,
 )
-
-# the load block whose bodies we manage; setup elements are inserted just after it
-_LOAD_BLOCK_RE = re.compile(r"load\s*\{.*?\}", re.DOTALL)
 
 # display label -> draw_structure `color_by` mode; the first entry is the default
 COLOUR_BY_MODES = {"Body": "body", "Symmetry copy": "copy", "Residue": "residue"}
@@ -44,158 +45,8 @@ COLOUR_BY_LABELS = list(COLOUR_BY_MODES)
 
 _SUBOPTION_INDENT = 16  # px a folded-out display sub-option is inset from its parent toggle
 
-# Every element the structure pane reads or writes, so that an external edit to any of them (in the main editor) marks the view stale: the
-# load block plus all body-affecting setup elements. The tail captures either a whole brace block or the rest of the inline line, so an edit 
-# inside a symmetry/constraint block counts too. Longer keywords precede the prefixes they contain.
-_STALE_TAIL = r"(?:[ \t]*\{.*?\}|[^\n]*)"
-_STALE_RE = re.compile(
-    r"(?m)^[ \t]*(?:load[ \t]*\{.*?\}|"
-    r"(?:merge|delete|rename|convert_to_symmetry|constraint|constrain"
-    r"|autoconstraints|autoconstrain|copy_body|copy|split|symmetry)\b)" + _STALE_TAIL,
-    re.DOTALL,
-)
-
-# Setup elements are emitted in declaration order by the backend. Newly staged structure-pane elements must therefore be appended after existing
-# setup elements rather than blindly inserted immediately after `load`; otherwise a staged rename can precede an existing symmetry declaration.
-_SETUP_RE = re.compile(
-    r"(?m)^[ \t]*(?:merge|delete|rename|convert_to_symmetry|constraint|constrain"
-    r"|autoconstraints|autoconstrain|copy_body|copy|split|symmetry)\b" + _STALE_TAIL,
-    re.DOTALL,
-)
-
-# Constraint declarations and the staged elements that must remain after existing setup declarations. Every other structure element must
-# be declared before the first constraint, because constraints are indexed by the structure that exists when they are declared. See
-# _insert_elements.
-_CONSTRAINT_RE = re.compile(
-    r"(?m)^[ \t]*(?:autoconstraints|autoconstrain|constraint|constrain)\b" + _STALE_TAIL, re.DOTALL)
-_CONSTRAINT_ELEMENTS = frozenset({"autoconstraints", "autoconstrain", "constraint", "constrain"})
 # Status-line fade-out: hold the message legible, then fade it away over the rest of the budget (see _set_status).
 _STATUS_HOLD_MS, _STATUS_FADE_MS, _STATUS_FADE_STEPS = 2500, 2500, 25
-
-
-def _structure_signature(script: str) -> tuple:
-    """A fingerprint of the parts of `script` the structure pane cares about, so staleness is flagged when — and only when — one of them 
-    changes in the main editor. Broader than the rigid-body pane's preview signature: it also covers rename/merge/copy, which change the 
-    body list this pane shows even when they leave the drawn geometry untouched."""
-    return tuple(m.group(0) for m in _STALE_RE.finditer(script))
-
-
-def _synth_load_block(pdb_path: str, splits: str) -> str:
-    inner = [f"    pdb {quote_script_value(pdb_path)}"]
-    if splits.strip():
-        inner.append(f"    split {splits.strip()}")
-    return "load {\n" + "\n".join(inner) + "\n}"
-
-
-def _norm_splits(value: str) -> str:
-    """Normalise a splits string to a canonical space-separated form, so equal splits written with different spacing/commas compare equal 
-    (and don't churn the load block)."""
-    return " ".join(t for t in re.split(r"[,\s]+", value.strip()) if t)
-
-
-def _load_split(base: str) -> str:
-    """The split directive currently in the base script's load block, as a raw string ("" if none)."""
-    match = _LOAD_BLOCK_RE.search(base)
-    if not match:
-        return ""
-    inner = re.match(r"load\s*\{(.*)\}", match.group(0), re.DOTALL)
-    for line in (inner.group(1).splitlines() if inner else []):
-        tokens = line.split(None, 1)
-        if tokens and tokens[0] == "split":
-            return tokens[1].strip() if len(tokens) == 2 else ""
-    return ""
-
-
-def _with_split(base: str, splits: str) -> str:
-    """Return `base` with its load block's split directive set to `splits` (added if missing, removed if empty), touching only the split line so 
-    unrelated formatting is preserved. A no-op when the split is already `splits`, so a diff shows a change only when the user actually re-split."""
-    match = _LOAD_BLOCK_RE.search(base)
-    if not match or _norm_splits(_load_split(base)) == _norm_splits(splits):
-        return base
-    block = match.group(0)
-    splits = splits.strip()
-    line_re = re.compile(r"^([ \t]*)split\b[^\n]*", re.MULTILINE)
-    if line_re.search(block):
-        if splits:
-            new_block = line_re.sub(lambda m: f"{m.group(1)}split {splits}", block, count=1)
-        else:  # drop the split line (and its own line break) entirely
-            new_block = re.sub(r"[ \t]*split\b[^\n]*\n?", "", block, count=1)
-    elif splits:  # insert a split line before the closing brace, matching pdb's indentation
-        pm = re.search(r"^([ \t]*)pdb\b", block, re.MULTILINE)
-        indent = pm.group(1) if pm else "    "
-        new_block = re.sub(r"\n?\}$", f"\n{indent}split {splits}\n}}", block, count=1)
-    else:
-        return base
-    return base[:match.start()] + new_block + base[match.end():]
-
-
-def _is_residue_id(token: str) -> bool:
-    """Whether `token` is a residue sequence id. Ids may legitimately be negative, so a leading minus is allowed."""
-    return token.lstrip("-").isdigit() and token not in ("-", "")
-
-
-def _parse_split(element: str) -> tuple[str, list[int]] | None:
-    """(target body, cut residues) of a staged `split` element, or None for any other element."""
-    tokens = element.split()
-    if len(tokens) < 3 or tokens[0] != "split" or not all(_is_residue_id(t) for t in tokens[2:]):
-        return None
-    return tokens[1], [int(t) for t in tokens[2:]]
-
-
-def _structural_only(script: str) -> str:
-    """`script` reduced to the elements that shape the structure: the load block and the body-affecting setup elements, i.e. exactly what
-    _STALE_RE matches. Everything else — `parameters`, `loop`, `optimize_once`, `save`, `print`, `output`, ... — is dropped.
-
-    None of it changes what the preview shows, and leaving it in makes the preview hostage to parts of the script that have nothing to do
-    with the structure: a `parameters` block carrying symmetry amplitudes, left behind from a structure that had symmetries, is refused
-    outright by the backend for one that has none, which would fail the whole preview rather than just that element.
-
-    Only ever fed to the backend. The script written back to the editor is composed separately, in _send_to_script, from the untouched
-    base — that one must keep every element the user wrote.
-    """
-    return "".join(m.group(0).rstrip() + "\n" for m in _STALE_RE.finditer(script))
-
-
-def _insert_elements(base: str, elements: list[str]) -> str:
-    """Return `base` with staged setup elements inserted among the existing setup declarations.
-
-    The staged list itself remains in the order in which the user applied its elements, and existing declarations are left untouched. Two
-    anchors are used, since the two ends of the setup block have opposite requirements:
-
-            * structural elements go immediately *before* the first constraint declaration. Constraints are indexed by the structure that exists
-                when they are declared, so later structural changes can be rejected by the backend.
-            * staged constraint elements go *after* the last existing setup declaration, so they remain after any existing structural changes.
-
-    With no constraints in the base script the two anchors coincide, and the staged block is appended whole.
-    """
-    if not elements:
-        return base
-    match = _LOAD_BLOCK_RE.search(base)
-    if match is None:  # no load block to anchor to: prepend
-        return "".join(f"{e}\n" for e in elements) + base
-
-    setup_end = match.end()
-    existing_setup = list(_SETUP_RE.finditer(base, match.end()))
-    if existing_setup:
-        setup_end = existing_setup[-1].end()
-    constraint = _CONSTRAINT_RE.search(base, match.end())
-    body_set_at = constraint.start() if constraint else setup_end
-
-    def insert(text: str, at: int, staged: list[str]) -> str:
-        if not staged:
-            return text
-        block = "".join(f"{e}\n" for e in staged)
-        sep = "" if not text[:at] or text[:at].endswith("\n") else "\n"
-        return text[:at] + sep + block + text[at:]
-
-    if body_set_at == setup_end:  # the anchors coincide, so the staged block stays whole and in the order it was applied
-        return insert(base, setup_end, elements)
-
-    structural, constraints = [], []
-    for e in elements:
-        (constraints if e.split()[:1] and e.split()[0] in _CONSTRAINT_ELEMENTS else structural).append(e)
-    # the later insertion first, so the earlier offset is still valid when it is applied
-    return insert(insert(base, setup_end, constraints), body_set_at, structural)
 
 
 class StructurePane(ttk.Frame):
@@ -220,7 +71,7 @@ class StructurePane(ttk.Frame):
         self._on_apply_script = on_apply_script   # apply a confirmed new script, or None
         # reduce the base script to a structural fingerprint, so a later edit to the same body/split setup is detected as "stale". Defaults to
         # the structure-pane signature, which covers every element this pane reads or writes (rename/merge/split/symmetry/constraint/...).
-        self._base_signature = base_signature or _structure_signature
+        self._base_signature = base_signature or structure_signature
         self._built_sig = None                    # base fingerprint the current view was built from
         self.title = "Structure: " + pdb_path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
 
@@ -566,15 +417,10 @@ class StructurePane(ttk.Frame):
 
     # ----- backend rebuild ----------------------------------------------------
     def _compose(self, elements: list[str]) -> str:
-        """The setup-only script fed to the backend to build this pane's view. See _structural_only: this is deliberately not the script
+        """The setup-only script fed to the backend to build this pane's view. See structural_only: this is deliberately not the script
         the user gets back — _send_to_script composes that one from the full base."""
-        base = self._base_script() if self._base_script else _synth_load_block(self.pdb_path, self._splits)
-        if _LOAD_BLOCK_RE.search(base) is None:  # target has no load block: fall back to a synthetic one
-            base = _synth_load_block(self.pdb_path, self._splits)
-        else:  # honour the pane's (possibly edited) splits over whatever the base load block carries
-            base = _with_split(base, self._splits)
-        # stripped before the staged elements go in, not after, so a staged element is never dropped by the filter
-        return _insert_elements(_structural_only(base), elements)
+        base = self._base_script() if self._base_script else None
+        return structure_preview_script(base, self.pdb_path, self._splits, elements)
 
     def _rebuild(self, elements: list[str], *, rebuild_widgets: bool = True) -> tuple[bool, str]:
         """Load the composed setup script through the backend and refresh the view/body list from the bodies that remain.
@@ -620,7 +466,7 @@ class StructurePane(ttk.Frame):
 
     # ----- staleness / refresh ------------------------------------------------
     def _base_sig(self):
-        base = self._base_script() if self._base_script else _synth_load_block(self.pdb_path, self._splits)
+        base = self._base_script() if self._base_script else synth_load_block(self.pdb_path, self._splits)
         return self._base_signature(base)
 
     def check_stale(self):
@@ -658,8 +504,8 @@ class StructurePane(ttk.Frame):
         self._rebuild_applied_list()
         # re-read the splits from the (possibly re-edited) script, so the field mirrors it again
         base = self._base_script() if self._base_script else ""
-        if _LOAD_BLOCK_RE.search(base):
-            self._splits = _load_split(base)
+        if LOAD_BLOCK_RE.search(base):
+            self._splits = load_split(base)
             self._splits_var.set(self._splits)
         ok, msg = self._rebuild(self._elements)
         self._set_status("Reloaded from the current script." if ok
@@ -1138,7 +984,7 @@ class StructurePane(ttk.Frame):
             self._ax.view_init(elev=elev, azim=azim)
 
     def _parse_splits(self) -> list[int]:
-        return [int(t) for t in re.split(r"[,\s]+", self._splits.strip()) if t.isdigit()]
+        return parse_splits(self._splits)
 
     def _split_residues(self) -> list[int]:
         """Residue ids to mark as split points in the view: the load-block split (self._splits) plus every `split` element — both the ones staged in 
@@ -1149,7 +995,7 @@ class StructurePane(ttk.Frame):
             sources.append(self._base_script())
         for text in sources:
             for m in re.finditer(r"(?m)^[ \t]*split\b[^\n]*", text):
-                ids += [int(t) for t in re.split(r"[,\s]+", m.group(0).strip()) if t.isdigit()]
+                ids += parse_splits(m.group(0))
         return ids
 
     # ----- setup actions ------------------------------------------------------
@@ -1179,7 +1025,7 @@ class StructurePane(ttk.Frame):
 
     def _apply_splits(self):
         """Re-split the structure at the residue numbers in the splits field and rebuild the view. The split lives in the load block, so it is
-        applied by recomposing (see _with_split); on a bad value the field is reverted so it always mirrors the splits actually in force.
+        applied by recomposing (see with_split); on a bad value the field is reverted so it always mirrors the splits actually in force.
 
         With the field left empty, the click-selection (see _toggle_selected_residue) stands in for it — click residues in
         the preview and hit Apply, no typing — matching how a Bodies-list selection stands in for an empty Merge/Delete field."""
@@ -1187,7 +1033,7 @@ class StructurePane(ttk.Frame):
         from_selection = not typed and bool(self._selected_residues)
         # the load-block split cuts the file as a whole, so only the ids matter here; two chains' residue 100 collapse to one cut
         new = " ".join(str(r) for r in sorted({r for _b, r in self._selected_residues})) if from_selection else typed
-        if _norm_splits(new) == _norm_splits(self._splits):
+        if norm_splits(new) == norm_splits(self._splits):
             self._splits_var.set(new)
             if from_selection:
                 self._clear_selection()  # already the splits in force, but consume the selection so it doesn't linger
@@ -1229,7 +1075,7 @@ class StructurePane(ttk.Frame):
             if not typed_residues:
                 self._set_status("Splitting a body needs residue ids — type them or click residues in the preview.", ok=False)
                 return
-            if not all(_is_residue_id(r) for r in typed_residues):
+            if not all(is_residue_id(r) for r in typed_residues):
                 self._set_status("Split residue ids must be integers, e.g. b1 100 200.", ok=False)
                 return
             # typed ids are only residues of the body they are typed against, so pair them with it; with no body to pair them with there is
@@ -1269,7 +1115,7 @@ class StructurePane(ttk.Frame):
         if not positions:
             return None
         for i, element in enumerate(self._elements):
-            parsed = _parse_split(element)
+            parsed = parse_split_element(element)
             if parsed is not None and positions <= self._split_coverage.get(parsed[0], frozenset()):
                 return i, parsed[0], frozenset(parsed[1])
         return None
@@ -1416,7 +1262,7 @@ class StructurePane(ttk.Frame):
 
     def _prune_split_coverage(self):
         """Drop residue coverage for bodies no staged `split` targets any more, e.g. after one is removed from the applied list."""
-        targets = {parsed[0] for e in self._elements if (parsed := _parse_split(e)) is not None}
+        targets = {parsed[0] for e in self._elements if (parsed := parse_split_element(e)) is not None}
         self._split_coverage = {name: r for name, r in self._split_coverage.items() if name in targets}
 
     def _rebuild_applied_list(self):
@@ -1474,9 +1320,7 @@ class StructurePane(ttk.Frame):
     def _send_to_script(self):
         # deliberately not _compose(): that one strips every non-structural element, which is right for a preview and would silently
         # delete the user's parameter/loop/save elements here
-        base = self._base_script() if self._base_script else _synth_load_block(self.pdb_path, self._splits)
-        new_base = _with_split(base, self._splits) if _LOAD_BLOCK_RE.search(base) else base
-        new = _insert_elements(new_base, self._elements)
+        base, new = structure_send_script(self._base_script() if self._base_script else None, self.pdb_path, self._splits, self._elements)
         if new == base:  # neither the splits nor the staged elements actually differ from the base
             self._set_status("No changes to send.", ok=False)
             return

@@ -5,10 +5,10 @@ import os
 import tkinter as tk
 from tkinter import messagebox, ttk
 
+from .core.files import is_em_map_file, is_saxs_file
 from .data_pane import SaxsDataPane
 from .panes import (
-    FitterPane, _make_validator, _file_stem, _output_arg,
-    QMIN, QMAX, SAXS_EXTENSIONS, EM_MAP_EXTENSIONS,
+    FitterPane, _file_stem, _output_arg, QMIN, QMAX,
     add_closable_tab, find_data_pane, release_data_pane,
 )
 from .widgets import FileField
@@ -24,14 +24,14 @@ class EmFitterPane(FitterPane):
     def _build_inputs(self, parent):
         self.saxs_field = FileField(
             parent, "SAXS data",
-            validator=_make_validator(SAXS_EXTENSIONS, "_is_saxs_data_file"),
+            validator=is_saxs_file,
             on_commit=self._on_saxs_commit,
             filetypes=[("SAXS data", "*.dat *.rsr *.xvg")],
             on_view=self._open_data_pane, view_tooltip="View data",
         )
         self.map_field = FileField(
             parent, "EM map",
-            validator=_make_validator(EM_MAP_EXTENSIONS, "_is_em_map_file"),
+            validator=is_em_map_file,
             on_valid=lambda path: self._autodetect_saxs(path, self.saxs_field),
             filetypes=[("EM map", "*.map *.ccp4 *.mrc *.rec")],
         )

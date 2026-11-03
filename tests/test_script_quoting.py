@@ -7,12 +7,10 @@ profile directory routinely contains one.
 
 import pytest
 
-widgets = pytest.importorskip("pyausaxs.gui.widgets")
-rigidbody_pane = pytest.importorskip("pyausaxs.gui.rigidbody_pane")
-structure_pane = pytest.importorskip("pyausaxs.gui.structure_pane")
+from pyausaxs.gui.core import script
 
-quote = widgets.quote_script_value
-unquote = widgets.unquote_script_value
+quote = script.quote_script_value
+unquote = script.unquote_script_value
 
 WINDOWS_DIR = "C:\\Users\\John Doe\\out\\"
 POSIX_FILE = "/home/me/my folder/protein.pdb"
@@ -42,10 +40,10 @@ def test_unquoting_a_bare_value_is_a_no_op():
 
 
 def test_path_directives_are_quoted_but_splits_are_not():
-    assert rigidbody_pane._directive_value("pdb", POSIX_FILE) == f'"{POSIX_FILE}"'
-    assert rigidbody_pane._directive_value("saxs", POSIX_FILE) == f'"{POSIX_FILE}"'
+    assert script.directive_value("pdb", POSIX_FILE) == f'"{POSIX_FILE}"'
+    assert script.directive_value("saxs", POSIX_FILE) == f'"{POSIX_FILE}"'
     # split is a list of residue ids: quoting it would hand the backend one token instead of several
-    assert rigidbody_pane._directive_value("split", "10, 20") == "10, 20"
+    assert script.directive_value("split", "10, 20") == "10, 20"
 
 
 @pytest.mark.parametrize("line, expected", [
@@ -54,12 +52,12 @@ def test_path_directives_are_quoted_but_splits_are_not():
     ("output 'my out/'", "my out/"),
 ])
 def test_output_directive_captures_quoted_paths(line, expected):
-    match = rigidbody_pane._OUTPUT_RE.search(line)
+    match = script.OUTPUT_RE.search(line)
     assert match is not None
     assert unquote(match.group(2)) == expected
 
 
 def test_synthetic_load_block_quotes_the_structure_path():
-    block = structure_pane._synth_load_block(POSIX_FILE, "10")
+    block = script.synth_load_block(POSIX_FILE, "10")
     assert f'pdb "{POSIX_FILE}"' in block
     assert "split 10" in block
