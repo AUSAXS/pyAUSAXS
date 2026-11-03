@@ -33,8 +33,8 @@ def test_gui_core_needs_no_gui_toolkit():
     script = (
         "import sys, matplotlib\n"
         "backend = matplotlib.rcParams._get_backend_or_none()\n"
-        "import pyausaxs.gui.core.script, pyausaxs.gui.core.syntax, pyausaxs.gui.core.files, pyausaxs.gui.core.loads\n"
-        "import pyausaxs.gui.core.palette, pyausaxs.gui.core.plotting\n"
+        "import importlib, pkgutil, pyausaxs.gui.core as core\n"
+        "for m in pkgutil.iter_modules(core.__path__): importlib.import_module('pyausaxs.gui.core.' + m.name)\n"
         "assert 'tkinter' not in sys.modules, 'tkinter was imported'\n"
         "assert 'pyausaxs.gui.gui' not in sys.modules, 'the tkinter interface was imported'\n"
         "assert matplotlib.rcParams._get_backend_or_none() == backend, 'a matplotlib backend was selected'\n"
