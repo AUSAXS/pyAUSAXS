@@ -55,7 +55,11 @@ def _type_cast(value: str, type: str):
         case "int" | "uint": return int(value)
         case "double": return float(value)
         case "bool": return value.lower() in ("true", "1", "yes")
-        case "string": return value
+        case "string" | "weighted-bins": return value
+        case "limit": return tuple(float(v) for v in value.split())
+        case "vector-int": return [int(v) for v in value.split()]
+        case "vector-double": return [float(v) for v in value.split()]
+        case "vector-string": return value.split()
         case _: raise ValueError(f"Unknown setting type: {type}")
 
 def _b(val: bool) -> str:
