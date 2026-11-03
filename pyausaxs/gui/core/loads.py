@@ -5,12 +5,9 @@
 
 Some structures only load once a backend setting is relaxed. Relaxing one silently is not an option: every relaxation trades away accuracy
 somewhere, and the user would have no way to know their scattering weights are approximate. So a failed load offers the relaxation as an
-explicit retry, and a granted one is remembered *per file* rather than left switched on — the settings are process-wide statics, so flipping
-one for a file loaded here would otherwise silently change how every other pane reads every other file.
+explicit retry, and a granted one is remembered *per file*.
 
 This module holds the grants and the load check; asking the user is left to the front-end (see structure_load_error).
-
-Currently one relaxation is offered; see temp/rigidbody-load-recovery-plan.md in the ausaxs repo for the intended extensions.
 """
 
 import re
@@ -70,11 +67,8 @@ class RelaxedLoads:
         from ...wrapper.settings import settings
         previous = {}
         for name, value in overrides.items():
-            try:
-                previous[name] = self._as_setting_string(settings.get(name))
-                settings.set(name, value)
-            except Exception:  # an unknown setting name must not take the load down with it
-                previous.pop(name, None)
+            previous[name] = self._as_setting_string(settings.get(name))
+            settings.set(name, value)
         return previous
 
     def restore(self, previous: Optional[dict[str, str]]):

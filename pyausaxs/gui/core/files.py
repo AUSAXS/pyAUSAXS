@@ -16,15 +16,12 @@ _COMPANION_SEARCH_LIMIT = 20
 
 
 def make_validator(extensions: set[str], lib_check: str) -> Callable[[str], bool]:
-    """File validator using the AUSAXS library's Filetypes.<lib_check> when available, file extensions otherwise."""
+    """File validator using the AUSAXS library's Filetypes.<lib_check>."""
     def validate(path: str) -> bool:
         if not os.path.isfile(path):
             return False
-        try:
-            from ...wrapper import Filetypes
-            return getattr(Filetypes, lib_check)(path)
-        except Exception:
-            return os.path.splitext(path)[1].lower() in extensions
+        from ...wrapper import Filetypes
+        return getattr(Filetypes, lib_check)(path)
     return validate
 
 
@@ -39,15 +36,18 @@ def find_companion(path: str, extensions: set[str]) -> Optional[str]:
     Returns the companion's path, or None if there is no unambiguous candidate."""
     if not path:
         return None
+
     for ext in extensions:
         candidate = str(Path(path).with_suffix(ext))
         if os.path.isfile(candidate):
             return candidate
+
     directory = os.path.dirname(os.path.abspath(path))
     try:
         entries = sorted(os.listdir(directory))
     except OSError:
         return None
+
     if _COMPANION_SEARCH_LIMIT < len(entries):
         return None
     candidates = [e for e in entries if os.path.splitext(e)[1].lower() in extensions]
