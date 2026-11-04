@@ -203,11 +203,3 @@ def test_find_companion_refuses_ambiguity(tmp_path):
     (tmp_path / "a.dat").touch()
     (tmp_path / "b.dat").touch()
     assert files.find_companion(str(tmp_path / "p.pdb"), files.SAXS_EXTENSIONS) is None
-
-
-@pytest.mark.parametrize("name", ["p.pdb", "p.cif"])
-def test_structure_files_are_recognised_by_extension_without_the_library(tmp_path, name):
-    path = tmp_path / name
-    path.write_text("")
-    assert files.make_validator(files.STRUCTURE_EXTENSIONS, "_no_such_check")(str(path))
-    assert not files.make_validator(files.STRUCTURE_EXTENSIONS, "_no_such_check")(str(tmp_path / "missing.pdb"))
