@@ -1,13 +1,16 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 # Author: Kristian Lytje
 
-"""Run AUSAXS CLI tools in-process on a worker thread, streaming their output into the GUI."""
+"""Run AUSAXS CLI tools and rigid-body refinements in-process on a worker thread, streaming their output into the GUI."""
 
 import os
 import queue
 import sys
 import threading
 from typing import Callable, Optional
+
+from .core.loads import RELAXED_LOADS, RelaxedLoads
+from .core.runner import RefinementOutcome, RefinementWorker
 
 
 class CliRunner:
@@ -105,117 +108,32 @@ class CliRunner:
         self._widget.after(self.POLL_MS, self._poll)
 
 
-class _Done:
-    """Sentinel carrying the outcome of a rigid-body refinement."""
-    def __init__(self, result, error, error_streamed=False):
-        self.result = result    # np.ndarray of [q, I, Ierr, I_model], or None on failure/validation
-        self.error = error      # Exception, or None on success
-        # True if the error was already streamed to the console by the backend (run-time
-        # errors), so the GUI can avoid printing a duplicate
-        self.error_streamed = error_streamed
-
-
 class RigidbodyRunner:
-    """Runs a rigid-body refinement script through the Rigidbody API on a worker thread.
+    """Drives a core RefinementWorker from the tkinter event loop: the same worker, drained on a Tk `after` timer.
 
-    Backend console output is streamed via the library's output callback (invoked from
-    the worker thread) into a thread-safe queue, then drained on the GUI thread.
-    on_line(str) receives each output line; on_done(_Done) is called once on completion.
-    For validation, result is None and error indicates success/failure.
-    """
-
-    POLL_MS = 100
+    on_line(str) receives each output line and on_done(RefinementOutcome) is called once on completion, both on the GUI thread."""
 
     def __init__(self, tk_widget):
         self._widget = tk_widget
-        self._busy = False
-        self._stopping = False
-        self._queue: queue.Queue = queue.Queue()
-        self._on_line: Optional[Callable[[str], None]] = None
-        self._on_done: Optional[Callable[["_Done"], None]] = None
+        self._worker = RefinementWorker()
 
     def running(self) -> bool:
-        return self._busy
+        return self._worker.running()
 
     def stopping(self) -> bool:
-        return self._stopping
+        return self._worker.stopping()
 
     def request_stop(self) -> bool:
-        """Ask a running refinement to stop after its current iteration. The run then finishes normally with the best
-        conformation found so far, so on_done still fires with a result. Returns False if there is nothing to stop."""
-        if not self._busy or self._stopping:
-            return False
-        from ..wrapper.Rigidbody import Rigidbody
-        Rigidbody.stop_run()
-        self._stopping = True
-        return True
+        """See RefinementWorker.request_stop."""
+        return self._worker.request_stop()
 
     def start(self, script: str, validate_only: bool,
-              on_line: Callable[[str], None], on_done: Callable[["_Done"], None]):
-        if self._busy:
-            raise RuntimeError("a refinement is already running")
+              on_line: Callable[[str], None], on_done: Callable[[RefinementOutcome], None], *,
+              structure_path: Optional[str] = None, relaxed_loads: RelaxedLoads = RELAXED_LOADS):
+        """See RefinementWorker.start."""
+        self._worker.start(script, validate_only, structure_path=structure_path, relaxed_loads=relaxed_loads)
 
-        try:
-            from ..wrapper.AUSAXS import AUSAXS
-            from ..wrapper.Rigidbody import prepare_rigidbody_refinement
-            from ..wrapper.Output import set_output_callback, reset_output_callback
-            # instantiate the singleton up front: the output-callback and rigidbody
-            # wrappers reach the library via AUSAXS.lib() classmethods, which require
-            # the instance to already exist.
-            if not AUSAXS().ready():
-                raise RuntimeError(f"library failed to initialize: {AUSAXS().init_error()}")
-        except Exception as e:
-            on_line(f"AUSAXS library unavailable: {e}\n")
-            on_done(_Done(None, e))
-            return
-
-        self._busy = True
-        self._on_line = on_line
-        self._on_done = on_done
-        self._queue = queue.Queue()
-
-        threading.Thread(
-            target=self._work,
-            args=(script, validate_only, prepare_rigidbody_refinement,
-                  set_output_callback, reset_output_callback),
-            daemon=True,
-        ).start()
-        self._widget.after(self.POLL_MS, self._poll)
-
-    def _work(self, script, validate_only, prepare, set_cb, reset_cb):
-        result, error, error_streamed = None, None, False
-        # the callback fires on this worker thread; just enqueue for the GUI thread
-        set_cb(lambda line: self._queue.put(line))
-        try:
-            rb = prepare(script)
-            if validate_only:
-                rb.validate()
-            else:
-                try:
-                    result = rb.run()
-                except Exception:
-                    # the backend prints run-time errors to its output (already streamed
-                    # here via the callback); flag so the GUI doesn't print a duplicate
-                    error_streamed = True
-                    raise
-        except Exception as e:
-            error = e
-        finally:
-            reset_cb()
-        self._queue.put(_Done(result, error, error_streamed))
-
-    def _poll(self):
-        while True:
-            try:
-                item = self._queue.get_nowait()
-            except queue.Empty:
-                break
-            if isinstance(item, _Done):
-                self._busy = False
-                self._stopping = False
-                if self._on_done:
-                    self._on_done(item)
-                return
-            if self._on_line:
-                self._on_line(item)
-        self._widget.after(self.POLL_MS, self._poll)
+        def poll():
+            if self._worker.drain(on_line, on_done):
+                self._widget.after(RefinementWorker.POLL_MS, poll)
+        self._widget.after(RefinementWorker.POLL_MS, poll)

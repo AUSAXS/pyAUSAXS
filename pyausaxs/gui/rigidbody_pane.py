@@ -15,6 +15,7 @@ from .core import script as rbscript
 from .core.files import is_saxs_file, is_structure_file
 from .core.loads import backend_message
 from .core.plotting import draw_structure, nearest_ca_residue, fit_figure_from_curves
+from .core.preview import LiveStructure, PreviewCache, bare_structure_preview
 from .core.script import DEFAULT_RIGIDBODY_SCRIPT
 from .core.syntax import fetch_vocabulary
 from .data_pane import SaxsDataPane
@@ -43,20 +44,16 @@ class RigidbodyPane(ttk.Frame):
         super().__init__(parent)
         self.runner = RigidbodyRunner(self)
         # tell the backend a live-structure consumer exists, so `update` elements actually publish
-        from ..wrapper.Rigidbody import Rigidbody
-        Rigidbody.set_live_consumer(True)
+        LiveStructure.register_consumer()
         self._mode = "run"
         self._stop_requested = False  # set when the user stops a run, so _on_done can say so
         self._expanded = False
         self._fit_tabs: list = []        # result tabs added by a run (the structure tab persists)
         self._preview_job = None         # pending debounced preview redraw
         self._preview_key = None         # signature of what the preview currently shows
-        self._preview_cache_key = None   # signature the preview structure was last built from
-        self._preview_cache = None       # cached backend preview-structure dict, or None
         self._last_valid_lims = None     # axis limits from the last successful preview draw
         self._live_job = None            # pending live-structure poll during a run
-        self._live_meta = None           # backbone mask (preview dict) for the active run, or None
-        self._live_version = 0           # last live-structure version drawn
+        self._live = LiveStructure()     # the structure the active run publishes, if it does
         self._script_cache_path = None   # where the script is autosaved/restored
         self._last_saved_script = None   # last text written, to skip unchanged autosaves
         self._script_file_path = None    # last file the user manually saved to / loaded from
@@ -65,9 +62,8 @@ class RigidbodyPane(ttk.Frame):
         self._structure_pane = None      # StructurePane tab for inspecting/managing bodies, or None
         self._syncing_splits = False     # set while the Splits field is being filled *from* the script, so it isn't written straight back
         self._relaxed_loads = RELAXED_LOADS  # shared across every pane: files the user has granted a relaxed load after the backend refused them
-        self._preview_error = None       # exception from the last preview build, kept so Validate/Run can report what the preview hides
+        self._preview = PreviewCache(self._relaxed_loads)  # the backend preview structure, cached on the script's preview signature
         self._pdb_changed_pending_fallback = False  # armed by a pdb-directive change: let the next failed preview retry bare
-        self._run_overrides = None       # settings the active run relaxed, held until it finishes
 
         # three panes: controls | script editor | results. The editor can expand over the results pane (and collapses again
         # when a refinement is launched).
@@ -286,21 +282,8 @@ class RigidbodyPane(ttk.Frame):
 
     def _bare_structure_preview(self, path: str) -> Optional[dict]:
         """Preview-structure data for `path` alone, with no splits or elements staged — a fallback for when the real script's don't apply
-        to it any more (see _pdb_changed_pending_fallback), e.g. right after a structure swap. Carries over the script's own `saxs` line,
-        which the `load` element requires and has nothing to do with whatever the pdb itself does; if none is set yet, there is nothing
-        this can build. Distinct from ensure_structure_loads (see _structure_loads), which checks whether the bare file loads at all
-        through Molecule and deliberately avoids the rigidbody-only `load` element and its unrelated requirements."""
-        saxs = self._load_value("saxs")
-        if not saxs:
-            return None
-        block = f"load {{\n    pdb {path}\n    saxs {saxs}\n}}\n"
-        try:
-            from ..wrapper.Rigidbody import Rigidbody
-            with self._relaxed_loads.applied(path):
-                data = Rigidbody(block).preview_structure()
-            return data if len(data["coords"]) else None
-        except Exception:
-            return None
+        to it any more (see _pdb_changed_pending_fallback), e.g. right after a structure swap. See preview.bare_structure_preview."""
+        return bare_structure_preview(path, self._load_value("saxs"), self._relaxed_loads)
 
     def _structure_loads(self) -> bool:
         """Whether the current script's structure can be read, offering recovery if it can't. Called before Validate/Run, where a refused
@@ -314,15 +297,16 @@ class RigidbodyPane(ttk.Frame):
         path = self._load_value("pdb")
         if not path:
             return True  # no structure named; let the run report whatever else is wrong with the script
-        if self._preview_data(script, rbscript.preview_signature(script)) is not None:
+        if self._preview_data(script) is not None:
             return True
-        if self._preview_error is None:
+        if self._preview.error is None:
             return True  # empty for some other reason; not a load failure we can offer a remedy for
         if not ensure_structure_loads(self, path, self.console):
             return False  # a genuine load failure the user declined, or couldn't, recover from
         # the bare file loads fine — any remaining preview failure is the script's own splits/elements, not the load. If a relaxation
         # was just granted, give the preview one more shot so it reflects that before Validate/Run proceeds.
-        self._preview_cache_key = self._preview_key = None
+        self._preview.invalidate()
+        self._preview_key = None
         self._update_structure_preview()
         return True
 
@@ -658,32 +642,17 @@ class RigidbodyPane(ttk.Frame):
             self.after_cancel(self._preview_job)
         self._preview_job = self.after(150, self._update_structure_preview)
 
-    def _preview_data(self, script: str, sig: tuple):
+    def _preview_data(self, script: str):
         """Build the rigid body from the current script and return its preview structure (coords + per-atom body/copy/residue/Cα metadata), or 
         None if it can't be built. Cached on the structural signature; skipped while a refinement runs to avoid a concurrent backend call."""
         if self.runner.running():
             return None
-        if sig != self._preview_cache_key:
-            self._preview_cache_key = sig
-            self._preview_error = None
-            path = self._load_value("pdb")
-            if not path:
-                self._preview_cache = None
-            else:
-                try:
-                    from ..wrapper.Rigidbody import Rigidbody
-                    with self._relaxed_loads.applied(path):
-                        data = Rigidbody(script).preview_structure()
-                    self._preview_cache = data if len(data["coords"]) else None
-                except Exception as e:
-                    self._preview_cache = None  # script mid-edit / invalid: show the placeholder
-                    self._preview_error = e     # kept so a deliberate load can report what the placeholder hides
-        return self._preview_cache
+        return self._preview.get(script)
 
     _update_structure_preview_first_draw = True
     def _update_structure_preview(self):
         self._preview_job = None
-        if self._live_meta is not None:
+        if self._live.active:
             return  # a live run owns the preview axis; don't draw the static preview over it
         script = self.editor.get("1.0", "end-1c")
         splits = rbscript.split_residues(script)
@@ -694,7 +663,7 @@ class RigidbodyPane(ttk.Frame):
             return
         self._preview_key = sig
 
-        data = self._preview_data(script, sig)
+        data = self._preview_data(script)
 
         # a structure was just (re)chosen and the real script failed to build against it — most likely its splits/elements were
         # written for whatever was loaded before. Retry once with a bare load of just the new file, so the preview shows the
@@ -775,7 +744,7 @@ class RigidbodyPane(ttk.Frame):
     def _pickable_preview(self):
         """The preview-structure dict the cursor can pick against, or None: the cached static preview, unless a live run currently owns the
         axis (its coordinates aren't tied to the editable split residues)."""
-        return None if self._live_meta is not None else self._preview_cache
+        return None if self._live.active else self._preview.data
 
     def _on_struct_hover(self, event):
         """Show the residue under the cursor in the toolbar readout (or clear it over empty space)."""
@@ -815,11 +784,11 @@ class RigidbodyPane(ttk.Frame):
             return
         self.console.append("Validating script…\n\n")
         self._set_busy(True)
-        # the run reads the structure on a worker thread, so the overrides must stay applied until it finishes (see _on_done). Safe despite
+        # the run reads the structure on a worker thread, so the runner keeps its relaxed load applied until it finishes. Safe despite
         # being process-wide: the preview is skipped entirely while a run is in flight, so nothing else loads meanwhile.
-        self._run_overrides = self._relaxed_loads.apply(self._load_value("pdb"))
         self.runner.start(self.editor.get("1.0", "end-1c"), validate_only=True,
-                          on_line=self.console.append, on_done=self._on_done)
+                          on_line=self.console.append, on_done=self._on_done,
+                          structure_path=self._load_value("pdb"), relaxed_loads=self._relaxed_loads)
 
     def _run_clicked(self):
         if self.runner.running():
@@ -832,20 +801,14 @@ class RigidbodyPane(ttk.Frame):
         self._collapse_editor()  # minimize the editor so the results have room
         self.console.append("Running rigid-body refinement…\n\n")
         script = self.editor.get("1.0", "end-1c")
-        # applied before _begin_live_preview, which reads the structure itself; released in _on_done
-        self._run_overrides = self._relaxed_loads.apply(self._load_value("pdb"))
         # if the script publishes its structure (`update structure`), prepare to watch it live.
         # Done before starting the run so the run's parse is the last to reset the live buffer.
         self._begin_live_preview(script)
         self._set_busy(True, stoppable=True)
-
-        # automatically disable weighted bins if they are not required
-        # TODO move this to the backend
-        from ..wrapper.settings import settings
-        settings.set("weighted_bins", "auto")
-        self.runner.start(script, validate_only=False, on_line=self.console.append, on_done=self._on_done)
-        if self._live_meta is not None:
-            self._live_job = self.after(self._LIVE_POLL_MS, self._poll_live)
+        self.runner.start(script, validate_only=False, on_line=self.console.append, on_done=self._on_done,
+                          structure_path=self._load_value("pdb"), relaxed_loads=self._relaxed_loads)
+        if self._live.active:
+            self._live_job = self.after(LiveStructure.POLL_MS, self._poll_live)
 
     def _stop_clicked(self):
         """Ask the backend to end the run after its current iteration. The run then completes normally, so _on_done still fires
@@ -862,42 +825,25 @@ class RigidbodyPane(ttk.Frame):
         self.run_button.configure(state="disabled", text="Stopping…")
 
     # ----- live structure preview during a run --------------------------------
-    _LIVE_POLL_MS = 200
-
     def _begin_live_preview(self, script: str):
-        """If the script contains an `update` element, build the backbone mask once (atom order is fixed after setup) so live frames can 
-        reuse it, and surface the structure tab."""
-        self._live_meta = None
-        self._live_version = 0
-        if not rbscript.has_live_update(script):
-            return
-        from ..wrapper.Rigidbody import Rigidbody
-        # this build can fail for the same reasons the run itself will (a refused structure, a malformed script). It is only here to set up the
-        # live view, so a failure must not take the run down with it — let the run start and report the problem through its own console.
-        try:
-            meta = Rigidbody(script).preview_structure()
-        except Exception as e:
-            self.console.append(f"Live structure view unavailable: {backend_message(e)}\n")
-            return
-        if len(meta["coords"]):
-            self._live_meta = meta
+        """If the script contains an `update` element, prepare to follow its structure live and surface the structure tab."""
+        message = self._live.begin(script, self._relaxed_loads)
+        if message:
+            self.console.append(message + "\n")
+        if self._live.active:
             self.results.select(self.structure_tab)
 
     def _poll_live(self):
         self._live_job = None
-        if self._live_meta is None:
+        if not self._live.active:
             return
-        from ..wrapper.Rigidbody import Rigidbody
-        coords, version = Rigidbody.live_structure()
-        if (coords is not None and version != self._live_version
-                and len(coords) == len(self._live_meta["coords"])):
-            self._live_version = version
-            self._draw_live_frame(coords)
+        frame = self._live.poll()
+        if frame is not None:
+            self._draw_live_frame(frame)
         if self.runner.running():
-            self._live_job = self.after(self._LIVE_POLL_MS, self._poll_live)
+            self._live_job = self.after(LiveStructure.POLL_MS, self._poll_live)
 
-    def _draw_live_frame(self, coords):
-        data = dict(self._live_meta, coords=coords)  # reuse the mask, swap in the live coordinates
+    def _draw_live_frame(self, data):
         ax = self._struct_ax
         lims = [ax.get_xlim(), ax.get_ylim(), ax.get_zlim()]
         ax.clear()
@@ -913,21 +859,13 @@ class RigidbodyPane(ttk.Frame):
         if self._live_job is not None:
             self.after_cancel(self._live_job)
             self._live_job = None
-        if self._live_meta is not None:
-            try:  # draw the final published frame, then release the preview axis
-                from ..wrapper.Rigidbody import Rigidbody
-                coords, _ = Rigidbody.live_structure()
-                if coords is not None and len(coords) == len(self._live_meta["coords"]):
-                    self._draw_live_frame(coords)
-            except Exception:
-                pass
-        self._live_meta = None
+        frame = self._live.final()  # draw the final published frame, then release the preview axis
+        if frame is not None:
+            self._draw_live_frame(frame)
 
     def _on_done(self, done):
         self._set_busy(False)
         self._stop_live_preview()
-        self._relaxed_loads.restore(self._run_overrides)  # the run is over; put the global settings back
-        self._run_overrides = None
         if done.error is not None:
             if done.error_streamed:
                 # the backend already streamed the error; just note the failure
