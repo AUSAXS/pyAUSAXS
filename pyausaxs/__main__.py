@@ -122,7 +122,7 @@ def main(argv=None):
             if not _extra_available("gui"):
                 return _extra_missing_error("gui")
             print("Warning: The Python GUI is highly experimental. Use at your own risk.", file=sys.stderr)
-            from .gui import main as gui_main
+            from .gui.gui import main as gui_main
             return gui_main(remaining)
         case "plot":
             if not _extra_available("plot"):

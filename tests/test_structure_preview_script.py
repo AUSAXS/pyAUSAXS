@@ -7,9 +7,7 @@ amplitudes left over from a structure that had symmetries) would otherwise take 
 
 import pytest
 
-structure_pane = pytest.importorskip("pyausaxs.gui.structure_pane")
-
-strip = structure_pane._structural_only
+from pyausaxs.gui.core.script import structural_only as strip
 
 SCRIPT = """output /tmp/out/
 load {

@@ -5,10 +5,10 @@ import os
 import tkinter as tk
 from tkinter import messagebox, ttk
 
+from .core.files import is_saxs_file, is_structure_file
 from .data_pane import SaxsDataPane
 from .panes import (
-    FitterPane, _make_validator, _file_stem, _output_arg,
-    QMIN, QMAX, SAXS_EXTENSIONS, STRUCTURE_EXTENSIONS,
+    FitterPane, _file_stem, _output_arg, QMIN, QMAX,
     make_on_load_structure, make_on_load_saxs,
     add_closable_tab, find_data_pane, release_data_pane,
 )
@@ -25,14 +25,14 @@ class SaxsFitterPane(FitterPane):
     def _build_inputs(self, parent):
         self.saxs_field = FileField(
             parent, "SAXS data",
-            validator=_make_validator(SAXS_EXTENSIONS, "_is_saxs_data_file"),
+            validator=is_saxs_file,
             on_commit=self._on_saxs_commit,
             filetypes=[("SAXS data", "*.dat *.rsr *.xvg")],
             on_view=self._open_data_pane, view_tooltip="View data",
         )
         self.structure_field = FileField(
             parent, "Structure",
-            validator=_make_validator(STRUCTURE_EXTENSIONS, "_is_pdb_file"),
+            validator=is_structure_file,
             on_valid=self._on_structure_valid,
             on_commit=lambda p: self._on_load_structure(p),
             filetypes=[("Structure", "*.pdb *.ent *.cif *.xyz")],

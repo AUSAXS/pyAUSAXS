@@ -10,6 +10,7 @@ from typing import Callable, Optional
 
 from tkinterdnd2 import DND_FILES
 
+from .core.syntax import classify_line, scope_partner
 from .theme import ANSI_COLORS, FONTS, PALETTE, SYNTAX
 
 
@@ -623,34 +624,6 @@ class ConsolePane(ttk.Frame):
         self.text.configure(state="disabled")
 
 
-# ----- sequencer-script value quoting -----------------------------------------
-# The backend tokenizes a script line on whitespace unless the value is quoted, so any value containing a
-# space has to be written with quotes around it. This is near-universal on Windows, where the user profile
-# directory routinely contains one (C:\Users\John Doe\...). The backend treats backslash as a path separator
-# rather than an escape character, so a path ending in one needs no special handling here.
-_SCRIPT_QUOTES = ('"', "'")
-
-
-def _is_quoted(value: str) -> bool:
-    return len(value) > 1 and value[0] in _SCRIPT_QUOTES and value[-1] == value[0]
-
-
-def quote_script_value(value: str) -> str:
-    """Quote a value for a sequencer script line if it contains whitespace. Values that are already quoted, or
-    that need no quoting, are returned unchanged, so this is safe to apply more than once."""
-    value = value.strip()
-    if not value or _is_quoted(value):
-        return value
-    return f'"{value}"' if any(c.isspace() for c in value) else value
-
-
-def unquote_script_value(value: str) -> str:
-    """Strip one matching pair of surrounding quotes from a script value — the inverse of quote_script_value,
-    giving back the value as the backend's tokenizer would see it."""
-    value = value.strip()
-    return value[1:-1] if _is_quoted(value) else value
-
-
 class RigidbodyHighlighter:
     """Syntax highlighting for the rigid-body sequencer script in a tk.Text editor.
 
@@ -661,8 +634,8 @@ class RigidbodyHighlighter:
     per-line parser state, depth is recomputed by scanning the whole (short) script.
     """
 
-    SCOPE_KEYWORDS = ("loop", "optimize_once", "on_improvement")
-    _FIRST_TOKEN_RE = re.compile(r"\S+")
+    # tag for each non-scope span kind reported by classify_line
+    _SPAN_TAGS = {"comment": "comment", "operation": "op", "keyword": "keyword", "error": "error"}
 
     def __init__(self, editor: tk.Text, operations=None, keywords=None):
         self.editor = editor
@@ -712,83 +685,27 @@ class RigidbodyHighlighter:
             ed.tag_remove(tag, "1.0", "end")
 
         depth = 0
-        lines = ed.get("1.0", "end-1c").split("\n")
-        for i, line in enumerate(lines):
+        for i, line in enumerate(ed.get("1.0", "end-1c").split("\n")):
             lineno = i + 1
-            hash_col = line.find("#")
-            if hash_col != -1:  # green comment wins over any keyword inside it
-                ed.tag_add("comment", f"{lineno}.{hash_col}", f"{lineno}.end")
-                scannable = line[:hash_col]
-            else:
-                scannable = line
-
-            match = self._FIRST_TOKEN_RE.search(scannable)
-            if not match:
-                continue
-            token = match.group()
-            start, end = f"{lineno}.{match.start()}", f"{lineno}.{match.end()}"
-            if token == "end":  # decrease first so `end` shares its opener's colour
-                depth = max(0, depth - 1)
-                ed.tag_add(self._scope_tag(depth), start, end)
-            elif token in self.SCOPE_KEYWORDS:
-                ed.tag_add(self._scope_tag(depth), start, end)
-                depth += 1
-            elif token in self.operations:
-                ed.tag_add("op", start, end)
-            elif token in self.keywords:
-                ed.tag_add("keyword", start, end)
-            elif token != "}" and (self.operations or self.keywords):
-                # only flag unknown tokens when we actually know the valid vocabulary;
-                # tint the whole line so the error is visible while scanning the script
-                ed.tag_add("error", start, end)
-                ed.tag_add("error_line", f"{lineno}.0", f"{lineno + 1}.0")
+            spans, depth = classify_line(line, depth, self.operations, self.keywords)
+            for span in spans:
+                tag = self._scope_tag(span.depth) if span.kind == "scope" else self._SPAN_TAGS[span.kind]
+                ed.tag_add(tag, f"{lineno}.{span.start}", f"{lineno}.{span.end}")
+                if span.kind == "error":
+                    # tint the whole line so the error is visible while scanning the script
+                    ed.tag_add("error_line", f"{lineno}.0", f"{lineno + 1}.0")
 
     def highlight_brackets(self):
         """Tint the scope opener/`end` line pair around the cursor's line."""
         ed = self.editor
         ed.tag_remove("bracket", "1.0", "end")
         lines = ed.get("1.0", "end-1c").split("\n")
-        lineno = int(ed.index("insert").split(".")[0])
-        token = self._first_token(lines, lineno)
-        if token in self.SCOPE_KEYWORDS:
-            pair = self._match_forward(lines, lineno)
-        elif token == "end":
-            pair = self._match_backward(lines, lineno)
-        else:
-            return
+        index = int(ed.index("insert").split(".")[0]) - 1
+        pair = scope_partner(lines, index)
         if pair is None:
             return
-        for n in (lineno, pair):
+        for n in (index + 1, pair + 1):
             ed.tag_add("bracket", f"{n}.0", f"{n + 1}.0")
-
-    @staticmethod
-    def _first_token(lines, n: int) -> str:
-        tokens = lines[n - 1].split() if 1 <= n <= len(lines) else []
-        return tokens[0] if tokens else ""
-
-    def _match_forward(self, lines, lineno: int):
-        stack = 0
-        for n in range(lineno + 1, len(lines) + 1):
-            token = self._first_token(lines, n)
-            if token in self.SCOPE_KEYWORDS:
-                stack += 1
-            elif token == "end":
-                if stack == 0:
-                    return n
-                stack -= 1
-        return None
-
-    def _match_backward(self, lines, lineno: int):
-        stack = 0
-        for n in range(lineno - 1, 0, -1):
-            token = self._first_token(lines, n)
-            if token == "end":
-                stack += 1
-            elif token in self.SCOPE_KEYWORDS:
-                if stack == 0:
-                    return n
-                stack -= 1
-        return None
 
 
 class CollapsibleSection(ttk.Frame):

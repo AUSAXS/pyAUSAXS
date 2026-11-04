@@ -6,35 +6,18 @@ import os
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
-from pathlib import Path
 from typing import Optional
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
+from .core.files import SAXS_EXTENSIONS, STRUCTURE_EXTENSIONS, find_companion
+from .core.plotting import fit_figure, plot_file_figure, pretty_plot_name
 from .load_recovery import RELAXED_LOADS, ensure_structure_loads
-from .plotting import fit_figure, plot_file_figure, pretty_plot_name
 from .runner import CliRunner
 from .theme import FONTS, PALETTE
 from .widgets import ConsolePane, FileField, enable_file_drop
 
 QMIN, QMAX = 1e-4, 1.0
-
-STRUCTURE_EXTENSIONS = {".pdb", ".ent", ".cif", ".xyz"}
-SAXS_EXTENSIONS      = {".dat", ".rsr", ".xvg"}
-EM_MAP_EXTENSIONS    = {".map", ".ccp4", ".mrc", ".rec"}
-
-
-def _make_validator(extensions: set[str], lib_check: str):
-    """File validator using the AUSAXS library when available, file extensions otherwise."""
-    def validate(path: str) -> bool:
-        if not os.path.isfile(path):
-            return False
-        try:
-            from ..wrapper import Filetypes
-            return getattr(Filetypes, lib_check)(path)
-        except Exception:
-            return os.path.splitext(path)[1].lower() in extensions
-    return validate
 
 
 def _file_stem(path: str) -> str:
@@ -141,8 +124,8 @@ def adopt_dataset(path: str) -> None:
 def make_on_load_structure(set_load_directive=None, saxs_field=None):
     """Return a handler that mirrors a chosen structure file into the SAXS field.
 
-    If `set_load_directive` is provided it will be called as `set_load_directive("pdb", path)` and 
-    `set_load_directive("saxs", candidate)` when a candidate is found (used by the script editor). 
+    If `set_load_directive` is provided it will be called as `set_load_directive("pdb", path)` and
+    `set_load_directive("saxs", candidate)` when a candidate is found (used by the script editor).
     `saxs_field` is a FileField instance to populate.
     """
     def _on_load_structure(p: str):
@@ -150,27 +133,11 @@ def make_on_load_structure(set_load_directive=None, saxs_field=None):
             set_load_directive("pdb", p)
         if not p or saxs_field is None or saxs_field.valid:
             return
-        # try direct filename match (same stem, SAXS extensions)
-        for ext in SAXS_EXTENSIONS:
-            candidate = str(Path(p).with_suffix(ext))
-            if os.path.isfile(candidate):
-                saxs_field.set(candidate)
-                if set_load_directive:
-                    set_load_directive("saxs", candidate)
-                return
-        # otherwise, if the directory is small, look for a single SAXS file
-        directory = os.path.dirname(os.path.abspath(p))
-        try:
-            entries = sorted(os.listdir(directory))
-        except OSError:
-            return
-        if 20 < len(entries):
-            return
-        saxs_candidates = [e for e in entries if os.path.splitext(e)[1].lower() in SAXS_EXTENSIONS]
-        if len(saxs_candidates) == 1:
-            saxs_field.set(os.path.join(directory, saxs_candidates[0]))
+        candidate = find_companion(p, SAXS_EXTENSIONS)
+        if candidate:
+            saxs_field.set(candidate)
             if set_load_directive:
-                set_load_directive("saxs", saxs_candidates[0])
+                set_load_directive("saxs", candidate)
 
     return _on_load_structure
 
@@ -190,25 +157,11 @@ def make_on_load_saxs(set_load_directive=None, structure_field=None):
             set_load_directive("saxs", p)
         if not p or structure_field is None or structure_field.valid:
             return
-        for ext in STRUCTURE_EXTENSIONS:
-            candidate = str(Path(p).with_suffix(ext))
-            if os.path.isfile(candidate):
-                structure_field.set(candidate)
-                if set_load_directive:
-                    set_load_directive("pdb", candidate)
-                return
-        directory = os.path.dirname(os.path.abspath(p))
-        try:
-            entries = sorted(os.listdir(directory))
-        except OSError:
-            return
-        if 20 < len(entries):
-            return
-        struct_candidates = [e for e in entries if os.path.splitext(e)[1].lower() in STRUCTURE_EXTENSIONS]
-        if len(struct_candidates) == 1:
-            structure_field.set(os.path.join(directory, struct_candidates[0]))
+        candidate = find_companion(p, STRUCTURE_EXTENSIONS)
+        if candidate:
+            structure_field.set(candidate)
             if set_load_directive:
-                set_load_directive("pdb", struct_candidates[0])
+                set_load_directive("pdb", candidate)
 
     return _on_load_saxs
 
