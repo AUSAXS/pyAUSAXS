@@ -29,23 +29,18 @@ class Span(NamedTuple):
 
 def fetch_vocabulary() -> tuple[set, set]:
     """Ask the backend for the valid script elements, split into line operations (the dict keys) and argument keywords (values not
-    themselves keys). Returns empty sets if the backend is unavailable, in which case a highlighter should still colour scopes/comments
-    but flag nothing."""
-    try:
-        from ...wrapper.Rigidbody import Rigidbody
-        mapping = Rigidbody.get_valid_elements_and_arguments()
-    except Exception:
-        return set(), set()
+    themselves keys)."""
+    from ...wrapper.Rigidbody import Rigidbody
+    mapping = Rigidbody.get_valid_elements_and_arguments()
     operations = set(mapping)
     keywords = {arg for args in mapping.values() for arg in args} - operations
     return operations, keywords
 
 
-def classify_line(line: str, depth: int, operations, keywords, *, flag_unknown: bool = True) -> tuple[list[Span], int]:
+def classify_line(line: str, depth: int, operations, keywords) -> tuple[list[Span], int]:
     """Classify one script line entered at scope `depth`, returning its spans and the depth the next line is entered at.
 
-    A comment wins over any keyword inside it. Unrecognised first tokens are flagged as "error" only when `flag_unknown` is set — callers
-    without a known vocabulary should clear it, so a missing backend doesn't paint every line red."""
+    A comment wins over any keyword inside it. Unrecognised first tokens are flagged as "error"."""
     spans = []
     hash_col = line.find("#")
     if hash_col != -1:
@@ -68,7 +63,7 @@ def classify_line(line: str, depth: int, operations, keywords, *, flag_unknown: 
         spans.append(Span(start, end, "operation"))
     elif token in keywords:
         spans.append(Span(start, end, "keyword"))
-    elif token != "}" and flag_unknown:
+    elif token != "}":
         spans.append(Span(start, end, "error"))
     return spans, depth
 

@@ -159,7 +159,6 @@ def test_classify_line_kinds():
         syntax.Span(8, 14, "comment"), syntax.Span(0, 5, "operation")]
     assert syntax.classify_line("    pdb x", 0, OPS, KWS)[0] == [syntax.Span(4, 7, "keyword")]
     assert syntax.classify_line("bogus", 0, OPS, KWS)[0] == [syntax.Span(0, 5, "error")]
-    assert syntax.classify_line("bogus", 0, OPS, KWS, flag_unknown=False)[0] == []
     assert syntax.classify_line("}", 0, OPS, KWS)[0] == []
 
 

@@ -685,10 +685,9 @@ class RigidbodyHighlighter:
             ed.tag_remove(tag, "1.0", "end")
 
         depth = 0
-        flag_unknown = bool(self.operations or self.keywords)
         for i, line in enumerate(ed.get("1.0", "end-1c").split("\n")):
             lineno = i + 1
-            spans, depth = classify_line(line, depth, self.operations, self.keywords, flag_unknown=flag_unknown)
+            spans, depth = classify_line(line, depth, self.operations, self.keywords)
             for span in spans:
                 tag = self._scope_tag(span.depth) if span.kind == "scope" else self._SPAN_TAGS[span.kind]
                 ed.tag_add(tag, f"{lineno}.{span.start}", f"{lineno}.{span.end}")

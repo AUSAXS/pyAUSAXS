@@ -76,10 +76,7 @@ class RelaxedLoads:
             return
         from ...wrapper.settings import settings
         for name, value in previous.items():
-            try:
-                settings.set(name, value)
-            except Exception:
-                pass
+            settings.set(name, value)
 
     class _Scope:
         def __init__(self, owner: "RelaxedLoads", path: Optional[str]):
