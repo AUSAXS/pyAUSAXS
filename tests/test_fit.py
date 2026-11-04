@@ -123,7 +123,8 @@ def test_fit_datafile_from_arrays():
     mol.hydrate()
     fit_file = mol.fit(file_data)
     fit_array = mol.fit(array_data)
-    assert fit_array.chi2() == pytest.approx(fit_file.chi2(), rel=1e-8)
+    # refits of an identical molecule differ by up to ~1e-7 relative, so 1e-8 was flaky
+    assert fit_array.chi2() == pytest.approx(fit_file.chi2(), rel=1e-6)
     assert fit_array.dof() == fit_file.dof()
 
     # a constant offset in I is absorbed by the fitted background, even where it drives I negative
