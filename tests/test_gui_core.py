@@ -202,3 +202,88 @@ def test_find_companion_refuses_ambiguity(tmp_path):
     (tmp_path / "a.dat").touch()
     (tmp_path / "b.dat").touch()
     assert files.find_companion(str(tmp_path / "p.pdb"), files.SAXS_EXTENSIONS) is None
+
+
+# ── structure model: selections (no backend needed) ───────────────────────
+from pyausaxs.gui.core import structure
+
+
+def model_with_bodies(*copies_per_body):
+    """A model whose body list is filled in by hand, as a rebuild would, so the selection logic can be checked without the backend."""
+    model = structure.StructureModel("/tmp/p.pdb")
+    model.bodies = [{"index": i, "name": f"b{i + 1}", "atoms": 10 * (i + 1), "res": (1, 10), "colour": "#000", "copies": list(range(n))}
+                    for i, n in enumerate(copies_per_body)]
+    model.replica_info = {(i, c): {"type": "c2", "name": f"b{i + 1}r{c}"} for i, n in enumerate(copies_per_body) for c in range(1, n)}
+    return model
+
+
+def test_plain_click_selects_and_deselects():
+    model = model_with_bodies(1, 1)
+    model.toggle_highlight(0, None)
+    assert model.highlighted == {(0, None)}
+    model.toggle_highlight(1, None)
+    assert model.highlighted == {(1, None)}
+    model.toggle_highlight(1, None)
+    assert model.highlighted == set()
+
+
+def test_ctrl_click_adds_and_shift_click_selects_a_range():
+    model = model_with_bodies(1, 1, 1, 1)
+    model.toggle_highlight(0, None)
+    model.toggle_highlight(2, None, ctrl=True)
+    assert model.selected_body_names() == ["b1", "b3"]
+    model.toggle_highlight(3, None, shift=True)
+    assert model.selected_body_names() == ["b3", "b4"]
+
+
+def test_shift_range_follows_the_visual_order_of_unfolded_replicas():
+    # the replicas of an unfolded body sit directly beneath it, so a range ending on the next body passes through them
+    model = model_with_bodies(3, 1)
+    model.expanded_bodies.add(0)
+    assert model.row_order() == [(0, None), (0, 1), (0, 2), (1, None)]
+    model.toggle_highlight(0, 1)
+    model.toggle_highlight(1, None, shift=True)
+    assert model.highlighted == {(0, 1), (0, 2), (1, None)}
+
+
+def test_selecting_a_replica_asks_for_copies_to_be_shown():
+    model = model_with_bodies(2)
+    assert model.toggle_highlight(0, 1) is True
+    assert model.toggle_highlight(0, None) is False
+
+
+def test_a_body_and_its_own_replica_can_be_selected_together():
+    model = model_with_bodies(2, 1)
+    model.toggle_highlight(0, None)
+    model.toggle_highlight(0, 1, ctrl=True)
+    assert model.selected_body_names() == ["b1"]  # replicas don't count as whole bodies
+
+
+def test_selection_stands_in_for_typed_bodies():
+    model = model_with_bodies(1, 1, 1)
+    model.toggle_highlight(0, None)
+    model.toggle_highlight(1, None, ctrl=True)
+    assert model.with_selected_bodies("cm", exact=2) == ["b1", "b2", "cm"]
+    assert model.with_selected_bodies("cm", exact=1) == ["cm"]
+    assert model.with_selected_bodies("b3 b1 cm", exact=2) == ["b3", "b1", "cm"]  # typed bodies win
+    assert model.can_merge("") and model.can_delete("")
+    assert not model.can_rename("core")
+    model.toggle_highlight(0, None)  # plain click: just b1
+    assert model.can_rename("core")
+
+
+def test_validation_messages_need_no_backend():
+    model = model_with_bodies(1, 1)
+    assert model.apply_merge("b1") == structure.ActionResult(False, "Merge needs a target body and at least one other.")
+    assert not model.apply_add_constraint("b1 b2 attract").ok
+    assert not model.apply_convert_symmetry("b1 c2", tolerance="wide").ok
+    assert model.rename("b1", "b1") == structure.ActionResult(True)
+    assert model.rename("b1", "my core") == structure.ActionResult(False, "A name cannot contain spaces.")
+    assert not model.apply_body_split("b1 ten").ok
+
+
+def test_side_by_side_diff_aligns_both_sides():
+    rows = structure.side_by_side_diff("a\nb\nc\n", "a\nx\ny\nc\n")
+    assert rows[0] == structure.DiffRow("a", False, "a", False)
+    assert [(r.old, r.old_changed, r.new, r.new_changed) for r in rows[1:3]] == [("b", True, "x", True), ("", False, "y", True)]
+    assert rows[-1] == structure.DiffRow("c", False, "c", False)

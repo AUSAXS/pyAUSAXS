@@ -268,8 +268,13 @@ def split_residues(script: str) -> list[int]:
     top-level `split` element (which partitions an already-loaded body). Both forms carry residue ids; non-numeric tokens such as the
     element's body name or the `split` keyword itself are ignored by parse_splits, and draw_structure deduplicates, so a residue matched by
     both forms is marked once."""
-    ids = parse_splits(load_value(script, "split"))
-    for m in _SPLIT_RE.finditer(script):
+    return parse_splits(load_value(script, "split")) + split_element_ids(script)
+
+
+def split_element_ids(text: str) -> list[int]:
+    """The residue ids on every line of `text` starting with `split` — top-level `split` elements, and the load block's own split line."""
+    ids = []
+    for m in _SPLIT_RE.finditer(text):
         ids += parse_splits(m.group(0))
     return ids
 

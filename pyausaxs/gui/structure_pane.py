@@ -16,11 +16,10 @@ structure and lets the user inspect and re-organise its bodies without touching 
 
 The body list is authoritative: every edit is applied by rebuilding the setup script through the
 backend and re-reading the bodies that remain, so a merge or delete really does make bodies
-disappear from the list (and the plot) exactly as it will at run time.
+disappear from the list (and the plot) exactly as it will at run time. That model lives in
+core.structure; this pane draws it and forwards the user's input to it.
 """
 
-import re
-import difflib
 import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Callable, Optional
@@ -29,11 +28,8 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.figure import Figure
 
 from .core import plotting
-from .core.plotting import draw_structure, nearest_ca_residue, residue_ca_mask, _BODY_COLORS
-from .core.script import (
-    LOAD_BLOCK_RE, is_residue_id, load_split, norm_splits, parse_split_element, parse_splits, structure_preview_script,
-    structure_send_script, structure_signature, synth_load_block,
-)
+from .core.plotting import draw_structure, nearest_ca_residue
+from .core.structure import StructureModel, side_by_side_diff
 from .theme import FONTS, PALETTE, blend
 from .widgets import (
     CollapsibleSection, PlaceholderEntry, ScrollableFrame, ellipsize_label,
@@ -62,43 +58,18 @@ class StructurePane(ttk.Frame):
     ):
         super().__init__(parent)
         self.pdb_path = pdb_path
-        self._splits = splits
         # relaxed-load grants, shared with every other pane by default, so a structure the user already accepted with relaxed settings
         # elsewhere doesn't start failing again here.
         from .load_recovery import RELAXED_LOADS
-        self._relaxed_loads = relaxed_loads if relaxed_loads is not None else RELAXED_LOADS
-        self._base_script = base_script          # target script to diff/patch, or None
+        # the bodies, staged elements and selections; this pane only shows them and forwards the user's actions
+        self.model = StructureModel(
+            pdb_path, splits=splits, base_script=base_script, base_signature=base_signature,
+            relaxed_loads=relaxed_loads if relaxed_loads is not None else RELAXED_LOADS,
+        )
         self._on_apply_script = on_apply_script   # apply a confirmed new script, or None
-        # reduce the base script to a structural fingerprint, so a later edit to the same body/split setup is detected as "stale". Defaults to
-        # the structure-pane signature, which covers every element this pane reads or writes (rename/merge/split/symmetry/constraint/...).
-        self._base_signature = base_signature or structure_signature
-        self._built_sig = None                    # base fingerprint the current view was built from
         self.title = "Structure: " + pdb_path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
 
-        self._elements: list[str] = []            # setup elements the user has applied, in order
-        # Cα positions each staged `split` element's target body covered when it was staged, keyed by that target's name. Fragments are
-        # registered as brand-new bodies and inherit nothing from their parent, so the atoms themselves are the only link back to it; this
-        # map is what lets a later split of a fragment be folded into the element that produced it (see _apply_body_split). Positions, not
-        # residue ids: a chain-split structure repeats its ids across chains, so ids would match a sibling chain's split element too.
-        self._split_coverage: dict[str, frozenset[tuple[float, ...]]] = {}
-        self._data: dict | None = None            # last good preview-structure dict
-        self._names: list[str] = []               # body names aligned to body indices
-        self._bodies: list[dict] = []             # per-body summary rows (index/name/atoms/res/copies)
-        self._replica_info: dict[tuple[int, int], dict] = {}  # (body, copy) -> {"type", "name"}
-        # the view selection isolated in the plot, as a set of (body, copy) selectors: copy None selects the whole body (all its symmetry copies), 
-        # an int selects just that one replica. Empty = nothing selected. Plain click replaces the whole set with just the clicked row. Ctrl-click 
-        # toggles that row's membership without touching the rest (matching the OS convention for adding single items to a selection). Shift-click 
-        # selects every row between the last clicked row (the "anchor", see _select_anchor) and the one just clicked, in list order — the OS 
-        # convention for range-selecting. Together these let several bodies be selected at once (e.g. to merge them) without typing every name out.
-        self._highlighted: set[tuple[int, int | None]] = set()
-        # residues click-selected in the preview, highlighted with their own colour, as (body, residue id) pairs — an id alone does not
-        # identify a residue, since a chain-split structure repeats the same numbering in every chain. Like the Bodies-list selection
-        # above (but for residues, not bodies), it stands in for an empty residue field: hitting Apply / Add with no
-        # residues typed splits at the selected residues instead. Consumed (and cleared) when a split is applied.
-        self._selected_residues: set[tuple[int, int]] = set()
-        self._select_anchor: tuple[int, int | None] | None = None  # last plain/ctrl-clicked row, the shift-click range's fixed end
         self._ready_checks: list[tuple[ttk.Button, PlaceholderEntry, Callable]] = []  # action buttons that light up green
-        self._expanded_bodies: set[int] = set()   # body indices whose replica children are unfolded
         self._row_frames: list[tk.Widget] = []
         self._rows: list[tuple] = []              # ((body, copy) selector, recolourable row widgets)
         self._body_row_frames: dict[int, tk.Frame] = {}       # body index -> its row (anchor to pack replicas after)
@@ -122,7 +93,7 @@ class StructurePane(ttk.Frame):
         paned.add(controls, weight=0)
         self._build_controls(controls)
 
-        ok, msg = self._rebuild(self._elements)  # initial draw of the untouched structure
+        ok, msg = self._rebuild()  # initial draw of the untouched structure
         if not ok:
             self._set_status(f"Could not load the structure: {msg}", ok=False)
             self._redraw()
@@ -221,7 +192,7 @@ class StructurePane(ttk.Frame):
         splits_row.pack(fill="x", pady=(0, 6))
         ttk.Label(splits_row, text="Split at residues", style="Muted.TLabel").grid(
             row=0, column=0, columnspan=2, sticky="w")
-        self._splits_var = tk.StringVar(value=self._splits)
+        self._splits_var = tk.StringVar(value=self.model.splits)
         self._splits_entry = ttk.Entry(splits_row, textvariable=self._splits_var)
         self._splits_entry.grid(row=1, column=0, sticky="ew", padx=(0, 6))
         ttk.Button(splits_row, text="Apply", style="Icon.TButton", command=self._apply_splits).grid(row=1, column=1)
@@ -236,7 +207,7 @@ class StructurePane(ttk.Frame):
         self._body_split_entry = self._action_row(
             self._body_split_frame, "Additional splits (an existing body)", "body residues…",
             self._apply_body_split, button="Add",
-            ready_check=lambda entry: bool(self._selected_residues) or len(entry.get().split()) >= 2,
+            ready_check=lambda entry: self.model.can_split_body(entry.get()),
         )
 
         self._split_chevron = ttk.Label(splits_row, text="▸", style="Muted.TLabel", cursor="hand2")
@@ -252,19 +223,18 @@ class StructurePane(ttk.Frame):
         # — typed content wins over the selection.
         self._rename_entry = self._action_row(
             actions.body, "Rename", "old new", self._apply_rename, button="Rename",
-            ready_check=lambda entry: len(entry.get().split()) == 2
-                or (len(entry.get().split()) == 1 and self._selected_single_name() is not None),
+            ready_check=lambda entry: self.model.can_rename(entry.get()),
         )
         # Merge/Delete take only body identifiers, so a selection in the Bodies list can stand in for a typed one: with the field empty,
         # clicking Apply falls back to the current whole-body selection if it satisfies the arity (>=2 for merge, >=1 for delete). The
         # button lights up green whenever that would work, so the possibility is discoverable without ever silently prefilling the field.
         self._merge_entry = self._action_row(
             actions.body, "Merge", "first others...", self._apply_merge,
-            ready_check=lambda entry: bool(entry.get()) or len(self._selected_body_names()) >= 2,
+            ready_check=lambda entry: self.model.can_merge(entry.get()),
         )
         self._delete_entry = self._action_row(
             actions.body, "Delete", "body", self._apply_delete,
-            ready_check=lambda entry: bool(entry.get()) or len(self._selected_body_names()) >= 1,
+            ready_check=lambda entry: self.model.can_delete(entry.get()),
         )
 
         # --- symmetry: two distinct operations, the more common one (adding a symmetry to a single body) on top, decomposing one or more
@@ -307,16 +277,10 @@ class StructurePane(ttk.Frame):
             self._body_split_frame.grid_forget()
         self._split_chevron.configure(text="▾" if expand else "▸")
 
-    def _split_would_override(self) -> bool:
-        """Whether applying the load-block splits field would override work already done, rather than being the plain first split it looks
-        like: a split is already in force (including `chain`, which typing residues silently replaces), or staged elements name bodies that
-        a re-split renumbers. In both cases the per-body `split` element is what the user actually wants."""
-        return bool(self._elements) or bool(self._splits.strip())
-
     def _refresh_split_field(self):
         """Dim the load-block splits field once applying it would override an existing split. It stays fully usable — this only stops it
         reading as the obvious next step, since the per-body split below is."""
-        self._splits_entry.configure(foreground=PALETTE["muted"] if self._split_would_override() else PALETTE["text"])
+        self._splits_entry.configure(foreground=PALETTE["muted"] if self.model.split_would_override() else PALETTE["text"])
 
     def _display_row(self, parent, text: str, var, *, chevron: bool = False) -> tk.Label:
         """A Display-section checkbutton, prefixed by a fold chevron or, without one, a blank of the same width so all labels line up."""
@@ -416,123 +380,71 @@ class StructurePane(ttk.Frame):
             btn.configure(style="Ready.TButton" if check(entry) else "Icon.TButton")
 
     # ----- backend rebuild ----------------------------------------------------
-    def _compose(self, elements: list[str]) -> str:
-        """The setup-only script fed to the backend to build this pane's view. See structural_only: this is deliberately not the script
-        the user gets back — _send_to_script composes that one from the full base."""
-        base = self._base_script() if self._base_script else None
-        return structure_preview_script(base, self.pdb_path, self._splits, elements)
+    def _rebuild(self) -> tuple[bool, str]:
+        """Rebuild the model from its current base and staged elements, and refresh the view on success."""
+        ok, msg = self.model.rebuild()
+        if ok:
+            self._on_rebuilt()
+        return ok, msg
 
-    def _rebuild(self, elements: list[str], *, rebuild_widgets: bool = True) -> tuple[bool, str]:
-        """Load the composed setup script through the backend and refresh the view/body list from the bodies that remain.
-        Returns (ok, message); on failure nothing is mutated.
-
-        rebuild_widgets=False skips the Tk body-list teardown/rebuild (self._bodies etc. are still refreshed from the
-        backend) — for a rename, which changes nothing else, the caller patches the one affected label in place instead."""
-        script = self._compose(elements)
-        try:
-            from ..wrapper.Rigidbody import Rigidbody
-            with self._relaxed_loads.applied(self.pdb_path):
-                rb = Rigidbody(script)
-                data = rb.preview_structure()
-                if not len(data["coords"]):
-                    return False, "the structure is empty"
-                names = rb.body_names()
-                layout = rb.symmetry_layout()
-        except Exception as e:
-            return False, str(e)
-
-        self._data, self._names = data, names
-        self._replica_info = {
-            (int(body), int(copy)): {"type": t, "name": nm}
-            for body, copy, t, nm in zip(layout["body"], layout["copy"], layout["type"], layout["name"])
-        }
-        before = self._body_structure()
-        self._compute_bodies()
-        # Bodies are addressed by index, and a merge/delete/split/convert renumbers them: the indices a selection holds would silently
-        # re-point at unrelated bodies (and residues) once the operation goes through. So both selections survive only a rebuild that
-        # leaves the body/copy structure exactly as it was — e.g. a rename, which changes nothing but a name.
-        if self._body_structure() != before:
-            self._highlighted, self._select_anchor = set(), None
-            self._selected_residues = set()
+    def _on_rebuilt(self, *, rebuild_widgets: bool = True):
+        """Refresh the view from a freshly rebuilt model. rebuild_widgets=False skips the Tk body-list teardown/rebuild — for a rename, which
+        changes nothing else, the caller patches the one affected label in place instead."""
         if rebuild_widgets:
             self._rebuild_body_list()
         self._refresh_action_readiness()
         self._refresh_split_field()
         self._schedule_redraw()
         # the view now matches this base, so it is no longer stale
-        self._built_sig = self._base_sig()
         self._set_stale(False)
-        return True, ""
+
+    def _show_result(self, result, *, rebuild_widgets: bool = True):
+        """Reflect an action's outcome: refresh from the model if it was rebuilt, and show its status message."""
+        if result.rebuilt:
+            self._on_rebuilt(rebuild_widgets=rebuild_widgets)
+            self._rebuild_applied_list()
+        if result.message:
+            self._set_status(result.message, ok=result.ok)
 
     # ----- staleness / refresh ------------------------------------------------
-    def _base_sig(self):
-        base = self._base_script() if self._base_script else synth_load_block(self.pdb_path, self._splits)
-        return self._base_signature(base)
-
     def check_stale(self):
         """Flag the view as stale when the base script has changed since it was built (e.g. the user edited the load block in the main editor).
         If the structure has never loaded successfully, retry instead of just flagging: there is no built view or staged edits to protect, so
-        a load-time setting relaxed elsewhere (see load_recovery.RelaxedLoads) — which changes nothing _base_sig() can see — gets a chance to
-        take effect. Called when the pane is switched back to."""
-        if self._built_sig is None:
-            ok, msg = self._rebuild(self._elements)
+        a load-time setting relaxed elsewhere (see core.loads.RelaxedLoads) — which changes nothing the base signature can see — gets a chance
+        to take effect. Called when the pane is switched back to."""
+        if not self.model.built:
+            ok, msg = self._rebuild()
             if not ok:
                 self._set_status(f"Could not load the structure: {msg}", ok=False)
                 self._redraw()
             return
-        self._set_stale(self._base_sig() != self._built_sig)
+        self._set_stale(self.model.is_stale())
 
     def _set_stale(self, stale: bool):
         if not hasattr(self, "_refresh_bar") or not self._sections:
             return
-        if stale and not self._refresh_bar.winfo_ismapped():
+        if stale and not self._refresh_bar.winfo_manager():
             self._refresh_bar.pack(fill="x", pady=(0, 6), before=self._sections[0])
-        elif not stale and self._refresh_bar.winfo_ismapped():
+        elif not stale and self._refresh_bar.winfo_manager():
             self._refresh_bar.pack_forget()
 
     def _do_refresh(self):
-        """Reload the view from the current script, discarding all staged edits 
+        """Reload the view from the current script, discarding all staged edits
         (they are the only thing lost, so confirm only when there are any)."""
-        if self._elements:
-            n = len(self._elements)
+        if self.model.elements:
+            n = len(self.model.elements)
             if not messagebox.askyesno(
                 "Refresh from script",
                 f"Discard {n} staged change{'' if n == 1 else 's'} and reload from the current script?",
                 parent=self):
                 return
-        self._elements = []
+        ok, msg = self.model.refresh_from_base()
         self._rebuild_applied_list()
-        # re-read the splits from the (possibly re-edited) script, so the field mirrors it again
-        base = self._base_script() if self._base_script else ""
-        if LOAD_BLOCK_RE.search(base):
-            self._splits = load_split(base)
-            self._splits_var.set(self._splits)
-        ok, msg = self._rebuild(self._elements)
+        self._splits_var.set(self.model.splits)  # mirror the (possibly re-edited) script's splits again
+        if ok:
+            self._on_rebuilt()
         self._set_status("Reloaded from the current script." if ok
                          else f"Could not reload from the script: {msg}", ok=ok)
-
-    def _body_structure(self) -> list[tuple[int, tuple[int, ...]]]:
-        """The body/copy layout every selector is addressed against, as (body index, copy indices). Compared across a rebuild to tell a
-        structural change (merge/delete/split/…) from one that only relabels — see _rebuild."""
-        return [(b["index"], tuple(b["copies"])) for b in self._bodies]
-
-    def _compute_bodies(self):
-        import numpy as np
-        data = self._data
-        body, copy, res = data["body"], data["copy"], data["residue_seq"]
-        self._bodies = []
-        for k, idx in enumerate(sorted(set(body.tolist()))):
-            orig = (body == idx) & (copy == 0)
-            resids = res[orig & (res >= 0)]
-            self._bodies.append({
-                "index": idx,
-                "name": self._names[k] if k < len(self._names) else f"b{idx + 1}",
-                "atoms": int(orig.sum()),
-                "res": (int(resids.min()), int(resids.max())) if len(resids) else None,
-                "colour": _BODY_COLORS[idx % len(_BODY_COLORS)],
-                # every copy index present for this body; copy 0 is the base, >0 are symmetry replicas
-                "copies": sorted(set(copy[body == idx].tolist())),
-            })
 
     # ----- body list ----------------------------------------------------------
     def _rebuild_body_list(self):
@@ -546,10 +458,10 @@ class StructurePane(ttk.Frame):
         self._body_row_frames = {}
         self._body_chevrons = {}
         self._replica_row_frames = {}
-        for b in self._bodies:
+        for b in self.model.bodies:
             self._build_body_row(b)
             # symmetry replicas (copy > 0), foldable beneath the base body they belong to
-            if b["index"] in self._expanded_bodies:
+            if b["index"] in self.model.expanded_bodies:
                 self._replica_row_frames[b["index"]] = [
                     self._build_replica_row(b, c) for c in b["copies"][1:]
                 ]
@@ -565,7 +477,7 @@ class StructurePane(ttk.Frame):
         # The chevron toggles the fold without changing the highlight.
         if replicas:
             chevron = tk.Label(
-                row, text="▾" if b["index"] in self._expanded_bodies else "▸",
+                row, text="▾" if b["index"] in self.model.expanded_bodies else "▸",
                 background=PALETTE["surface"], foreground=PALETTE["muted"], font=FONTS["small"], width=2)
             chevron.pack(side="left")
             chevron.bind("<Button-1>", lambda _e, i=b["index"]: self._toggle_body_expand(i))
@@ -589,7 +501,7 @@ class StructurePane(ttk.Frame):
         for w in (row, swatch, label, meta):  # click anywhere on the row highlights the whole body; shift-click adds/removes it from the selection
             w.bind("<Button-1>", lambda e, i=b["index"]: self._toggle_highlight(i, None, shift=self._is_shift(e), ctrl=self._is_ctrl(e)))
         for w in (row, label):  # double-click the name (or the row) to rename the body
-            w.bind("<Double-Button-1>", lambda _e, i=b["index"], lbl=label: self._start_rename(lbl, self._name_of(i, None), i, None))
+            w.bind("<Double-Button-1>", lambda _e, i=b["index"], lbl=label: self._start_rename(lbl, self.model.name_of(i, None), i, None))
         self._row_frames.append(row)
         self._rows.append(((b["index"], None), (row, label, meta)))
         self._body_row_frames[b["index"]] = row
@@ -599,7 +511,7 @@ class StructurePane(ttk.Frame):
         type badge come straight from the backend's symmetry layout, keyed to this (body, copy) pair. Packed right after `after` (an
         existing row) when given, so a single body's replicas can be spliced into their exact spot in the list without disturbing any
         other row — see _toggle_body_expand."""
-        info = self._replica_info[(b["index"], copy)]
+        info = self.model.replica_info[(b["index"], copy)]
         row = tk.Frame(self._body_list.body, background=PALETTE["surface"], cursor="hand2")
         if after is not None:
             row.pack(fill="x", after=after)
@@ -617,7 +529,7 @@ class StructurePane(ttk.Frame):
         for w in widgets:
             w.bind("<Button-1>", lambda e, i=b["index"], c=copy: self._toggle_highlight(i, c, shift=self._is_shift(e), ctrl=self._is_ctrl(e)))
         for w in (row, label):  # double-click the name (or the row) to rename the replica, same as a base body
-            w.bind("<Double-Button-1>", lambda _e, i=b["index"], c=copy, lbl=label: self._start_rename(lbl, self._name_of(i, c), i, c))
+            w.bind("<Double-Button-1>", lambda _e, i=b["index"], c=copy, lbl=label: self._start_rename(lbl, self.model.name_of(i, c), i, c))
         self._row_frames.append(row)
         self._rows.append(((b["index"], copy), tuple(widgets)))
         return row
@@ -626,24 +538,24 @@ class StructurePane(ttk.Frame):
         """Recolour the rows to reflect the highlighted bodies/replicas, in place — so a click doesn't
         tear down the row widgets (which would make double-click-to-rename impossible)."""
         for selector, widgets in self._rows:
-            bg = PALETTE["accent_soft"] if selector in self._highlighted else PALETTE["surface"]
+            bg = PALETTE["accent_soft"] if selector in self.model.highlighted else PALETTE["surface"]
             for w in widgets:
                 w.configure(background=bg)
 
     def _toggle_body_expand(self, body: int):
         """Fold/unfold a body's symmetry-replica rows in place: splice its replica rows in or out
         right after its own row, and flip its chevron — without touching any other row. """
-        expanding = body not in self._expanded_bodies
+        expanding = body not in self.model.expanded_bodies
         if expanding:
-            self._expanded_bodies.add(body)
+            self.model.expanded_bodies.add(body)
         else:
-            self._expanded_bodies.discard(body)
+            self.model.expanded_bodies.discard(body)
         chevron = self._body_chevrons.get(body)
         if chevron is not None:
             chevron.configure(text="▾" if expanding else "▸")
 
         if expanding:
-            b = next(bb for bb in self._bodies if bb["index"] == body)
+            b = next(bb for bb in self.model.bodies if bb["index"] == body)
             after = self._body_row_frames[body]
             rows = []
             for c in b["copies"][1:]:
@@ -668,90 +580,14 @@ class StructurePane(ttk.Frame):
     def _is_ctrl(event) -> bool:
         return bool(event.state & 0x4)
 
-    def _row_order(self) -> list[tuple[int, int | None]]:
-        """Selectors in the order their rows currently appear in the Bodies list (base bodies with
-        any expanded replicas folded in beneath them), needed to resolve a shift-click range."""
-        return [selector for selector, _widgets in self._rows]
-
-    def _range_between(self, anchor: tuple[int, int | None], selector: tuple[int, int | None]) -> set:
-        """Every selector between `anchor` and `selector` in current list order, inclusive. Falls back to just `selector` 
-        if either endpoint isn't currently shown (e.g. its body was folded away since the anchor was set)."""
-        order = self._row_order()
-        if anchor not in order or selector not in order:
-            return {selector}
-        i, j = order.index(anchor), order.index(selector)
-        lo, hi = min(i, j), max(i, j)
-        return set(order[lo:hi + 1])
-
     def _toggle_highlight(self, body: int, copy: int | None, *, shift: bool = False, ctrl: bool = False):
-        """Plain click: select just this row, or deselect it if it was the only one already selected — and become the anchor for a future 
-        shift-click range. Ctrl-click: add/remove this row from the current selection without touching the rest (also becomes the new anchor), 
-        so several bodies can be picked one at a time (e.g. to merge them — see _selected_body_names). Shift-click: select every row between 
-        the anchor and this one, replacing the current selection, without moving the anchor."""
-        selector = (body, copy)
-        if shift and self._select_anchor is not None:
-            self._highlighted = self._range_between(self._select_anchor, selector)
-        elif ctrl:
-            if selector in self._highlighted:
-                self._highlighted.discard(selector)
-            else:
-                self._highlighted.add(selector)
-            self._select_anchor = selector
-        else:
-            self._highlighted = set() if self._highlighted == {selector} else {selector}
-            self._select_anchor = selector
+        """Select/deselect a row; see StructureModel.toggle_highlight for what plain, ctrl- and shift-clicks do."""
         # isolating a specific replica is pointless while copies are hidden, so reveal them
-        if copy not in (None, 0) and selector in self._highlighted and not self._show_copies.get():
+        if self.model.toggle_highlight(body, copy, shift=shift, ctrl=ctrl) and not self._show_copies.get():
             self._show_copies.set(True)
         self._refresh_row_highlight()
         self._refresh_action_readiness()
         self._schedule_redraw()
-
-    def _selected_body_names(self) -> list[str]:
-        """Names of the whole bodies (copy=None) currently selected in the Bodies list, ordered by body index. Replica-only selections 
-        don't count — merge/delete operate on whole bodies."""
-        names_by_index = {b["index"]: b["name"] for b in self._bodies}
-        return [names_by_index[i] for i, c in sorted(self._highlighted) if c is None and i in names_by_index]
-
-    def _known_names(self) -> set[str]:
-        """Every body/replica display name currently known, used to tell whether a field's first token is already a body identifier the 
-        user typed themselves."""
-        names = {b["name"] for b in self._bodies}
-        names |= {info["name"] for info in self._replica_info.values()}
-        return names
-
-    def _with_selected_bodies(self, entry: PlaceholderEntry, *, exact: int | None = None, minimum: int = 1) -> list[str]:
-        """Tokens for an action whose field is a leading run of body identifiers followed by other arguments (a symmetry type, a constraint 
-        type/distance, ...). If the field's first token is already a recognized body/replica name, it's taken literally — the user typed the 
-        bodies themselves, so the selection is left out of it entirely. Otherwise, if the Bodies-list selection satisfies the requirement 
-        (exactly `exact` whole bodies if given, else at least `minimum`), the selected bodies' names are prepended to whatever's already 
-        typed — so e.g. selecting two bodies and typing just "cm" is enough for a constraint. Falls back to the typed tokens as-is when 
-        neither applies, so the existing per-action validation reports the real problem (e.g. "needs a body and a type") rather than 
-        silently doing nothing."""
-        tokens = entry.get().split()
-        if tokens and tokens[0] in self._known_names():
-            return tokens
-        selected = self._selected_body_names()
-        satisfied = len(selected) == exact if exact is not None else len(selected) >= minimum
-        if not satisfied:
-            return tokens
-        return selected + tokens
-
-    def _name_of(self, body: int, copy: int | None) -> str | None:
-        """Current display name of a body or replica, read fresh from state rather than a value captured at row-build time —
-        matters after an in-place rename (see _start_rename), which patches this state without rebuilding the row widgets."""
-        if copy is None:
-            return next((b["name"] for b in self._bodies if b["index"] == body), None)
-        info = self._replica_info.get((body, copy))
-        return info["name"] if info else None
-
-    def _selected_single_name(self) -> str | None:
-        """Display name of the one currently selected row — a whole body or a single replica — or None unless exactly one is selected. Used
-        to let Rename infer "old" from a click instead of typing it, which (unlike merge/delete) makes sense for a replica selection too."""
-        if len(self._highlighted) != 1:
-            return None
-        body, copy = next(iter(self._highlighted))
-        return self._name_of(body, copy)
 
     def _start_rename(self, label: tk.Label, old: str, body: int, copy: int | None):
         """Replace a body or replica name label with an inline entry so the user can rename it in place. Committing applies a 
@@ -795,19 +631,17 @@ class StructurePane(ttk.Frame):
                 return
             state["done"] = True
             toplevel.unbind("<Button-1>", click_id)
-            new = var.get().strip()
+            new = var.get()
             entry.destroy()
-            if not apply or not new or new == old:
+            if not apply:
                 restore_label()
                 return
-            if any(c.isspace() for c in new):
-                self._set_status("A name cannot contain spaces.", ok=False)
-                restore_label()
-                return
-            # a rename changes nothing else about the structure (no body/copy is added, removed, or reshuffled), so the backend call still 
+            # a rename changes nothing else about the structure (no body/copy is added, removed, or reshuffled), so the backend call still
             # validates and persists it, but the Tk body list doesn't need a full teardown/rebuild — just this one label's text needs to change.
-            if self._apply_element(f"rename {old} {new}", rebuild_widgets=False):
-                label.config(text=self._name_of(body, copy))
+            result = self.model.rename(old, new)
+            self._show_result(result, rebuild_widgets=False)
+            if result.rebuilt:
+                label.config(text=self.model.name_of(body, copy))
             restore_label()
 
         def click_outside(event):
@@ -839,23 +673,23 @@ class StructurePane(ttk.Frame):
     def _redraw(self):
         ax = self._ax
         view = self._get_orientation()
-        lims = (ax.get_xlim(), ax.get_ylim(), ax.get_zlim()) if self._data is not None else None
+        lims = (ax.get_xlim(), ax.get_ylim(), ax.get_zlim()) if self.model.data is not None else None
         ax.clear()
         ax.set_axis_off()
-        if self._data is None:
+        if self.model.data is None:
             ax.text2D(0.5, 0.5, "Could not read the structure", transform=ax.transAxes,
                       ha="center", va="center", color=PALETTE["muted"])
         else:
             draw_structure(
-                ax, self._data, self._split_residues(),
+                ax, self.model.data, self.model.split_residues(),
                 show_atoms=self._show_atoms.get(),
                 show_copies=self._show_copies.get(),
                 show_backbone=self._show_backbone.get(),
                 show_constraints=self._show_constraints.get(),
-                highlight=self._highlighted,
+                highlight=self.model.highlighted,
                 color_by=COLOUR_BY_MODES[self._colour_by.get()],
-                body_names={b["index"]: b["name"] for b in self._bodies},
-                selected_residues=self._selected_residues,
+                body_names={b["index"]: b["name"] for b in self.model.bodies},
+                selected_residues=self.model.selected_residues,
             )
             if lims is not None and self._preserve_view:
                 ax.set_xlim(lims[0]); ax.set_ylim(lims[1]); ax.set_zlim(lims[2])
@@ -870,7 +704,7 @@ class StructurePane(ttk.Frame):
 
     def _refresh_clear_chip(self):
         """Show the floating "clear selection" chip while either selection the plot reflects is non-empty, and hide it again once neither is."""
-        show = bool(self._selected_residues or self._highlighted)
+        show = bool(self.model.selected_residues or self.model.highlighted)
         if show and not self._clear_chip.winfo_ismapped():
             self._clear_chip.place(relx=1.0, y=8, x=-8, anchor="ne")
         elif not show and self._clear_chip.winfo_ismapped():
@@ -879,8 +713,7 @@ class StructurePane(ttk.Frame):
     def _clear_all_selection(self):
         """Drop both selections in one go: the click-selected residues and the Bodies-list highlight. They are separate selections, but the
         chip sits in the plot, where they read as one — everything lit up is dropped."""
-        self._selected_residues = set()
-        self._highlighted, self._select_anchor = set(), None
+        self.model.clear_all_selection()
         self._refresh_row_highlight()
         self._refresh_action_readiness()
         self._schedule_redraw()
@@ -889,13 +722,13 @@ class StructurePane(ttk.Frame):
     # ----- clickable preview ---------------------------------------------------
     def _on_preview_hover(self, event):
         """Show the residue under the cursor in the hover readout (or clear it over empty space)."""
-        hit = nearest_ca_residue(self._ax, self._data, event)
+        hit = nearest_ca_residue(self._ax, self.model.data, event)
         if hit is None:
             if self._hover_label["text"]:
                 self._hover_label.configure(text="")
             return
-        name = next((b["name"] for b in self._bodies if b["index"] == hit["body"]), f"b{hit['body'] + 1}")
-        verb = "deselect" if (hit["body"], hit["residue"]) in self._selected_residues else "select"
+        name = next((b["name"] for b in self.model.bodies if b["index"] == hit["body"]), f"b{hit['body'] + 1}")
+        verb = "deselect" if (hit["body"], hit["residue"]) in self.model.selected_residues else "select"
         self._hover_label.configure(text=f"{name} · residue {hit['residue']} · click to {verb}")
 
     def _on_preview_press(self, event):
@@ -911,53 +744,20 @@ class StructurePane(ttk.Frame):
             return
         if abs(event.x - press_xy[0]) + abs(event.y - press_xy[1]) > plotting.PICK_CLICK_DRAG_TOLERANCE:
             return
-        hit = nearest_ca_residue(self._ax, self._data, event)
+        hit = nearest_ca_residue(self._ax, self.model.data, event)
         if hit is not None:
             self._toggle_selected_residue(hit["body"], hit["residue"])
 
     def _toggle_selected_residue(self, body: int, resid: int):
-        """Add the residue to the click-selection, or remove it if already selected. It is keyed by the body it was picked in as well as its
-        id, so clicking residue 100 of one chain marks that one residue rather than every chain's residue 100. Nothing is applied — the
-        selection just stands in for an empty residue field when a split is applied (see _apply_splits / _apply_body_split), mirroring how a
-        Bodies-list selection stands in for an empty Merge/Delete field."""
-        pick = (body, resid)
-        self._selected_residues.discard(pick) if pick in self._selected_residues else self._selected_residues.add(pick)
+        """Add the residue to the click-selection, or remove it if already selected (see StructureModel.toggle_selected_residue)."""
+        message = self.model.toggle_selected_residue(body, resid)
         self._schedule_redraw()
         self._refresh_action_readiness()  # the click-selection can stand in for a typed field, so it changes what is clickable
         # once the load-block split would override rather than establish the partition, the per-body split is the only thing a click can
         # usefully feed, so reveal it rather than leaving it behind a chevron the user has no reason to suspect
-        if self._selected_residues and self._split_would_override():
+        if self.model.selected_residues and self.model.split_would_override():
             self._toggle_body_split(expand=True)
-        n = len(self._selected_residues)
-        if not n:
-            self._set_status("Selection cleared.", ok=True)
-            return
-        # Add targets one body, so it is only offered while the selection resolves to one
-        target = self._split_target_name()
-        hint = f", or Add to split {target} there" if target else ""
-        self._set_status(f"{n} residue{'' if n == 1 else 's'} selected — Apply to split the whole structure there{hint}.", ok=True)
-
-    def _selected_bodies(self) -> set[int]:
-        """Body indices the click-selected residues lie in."""
-        return {body for body, _resid in self._selected_residues}
-
-    def _selection_body_name(self) -> str | None:
-        """Name of the body every click-selected residue lies in, or None when there is no selection or it spans several bodies."""
-        bodies = self._selected_bodies()
-        return self._name_of(next(iter(bodies)), None) if len(bodies) == 1 else None
-
-    def _split_target_name(self) -> str | None:
-        """Body an Add would split the click-selection at: the original target of a staged split that already covers the selection (whose
-        fragments count as one body's business), otherwise the single live body the residues lie in."""
-        staged = self._staged_split_for(self._selected_residues)
-        return staged[1] if staged is not None else self._selection_body_name()
-
-    def _clear_selection(self):
-        """Drop the click-selection and repaint (called once a split has consumed it)."""
-        if self._selected_residues:
-            self._selected_residues = set()
-            self._schedule_redraw()
-            self._refresh_action_readiness()
+        self._set_status(message, ok=True)
 
     # ----- camera --------------------------------------------------------------
     # The rigid-body pane and this pane show the same structure in two separate figures; rather than truly sync them, each adopts the other's 
@@ -983,299 +783,82 @@ class StructurePane(ttk.Frame):
         except TypeError:  # matplotlib < 3.5 has no roll
             self._ax.view_init(elev=elev, azim=azim)
 
-    def _parse_splits(self) -> list[int]:
-        return parse_splits(self._splits)
-
-    def _split_residues(self) -> list[int]:
-        """Residue ids to mark as split points in the view: the load-block split (self._splits) plus every `split` element — both the ones staged in 
-        this pane and any already in the base script. Non-numeric tokens (a body name, the keyword itself) are ignored; draw_structure deduplicates."""
-        ids = self._parse_splits()
-        sources = list(self._elements)
-        if self._base_script:
-            sources.append(self._base_script())
-        for text in sources:
-            for m in re.finditer(r"(?m)^[ \t]*split\b[^\n]*", text):
-                ids += parse_splits(m.group(0))
-        return ids
-
     # ----- setup actions ------------------------------------------------------
-    def _apply_element(self, element: str, *, rebuild_widgets: bool = True) -> bool:
-        candidate = self._elements + [element]
-        ok, msg = self._rebuild(candidate, rebuild_widgets=rebuild_widgets)
-        if ok:
-            self._elements = candidate
-            self._rebuild_applied_list()
-            self._set_status(f"Applied: {element}", ok=True)
-        else:
-            self._set_status(f"Rejected “{element}”: {msg}", ok=False)
-        return ok
-
-    def _replace_element(self, i: int, element: str) -> bool:
-        """Swap the staged element at `i` for `element`, keeping its position in the order. Used to extend an existing `split` rather than
-        stage a second one against a fragment the backend would refuse to split."""
-        candidate = self._elements[:i] + [element] + self._elements[i + 1:]
-        ok, msg = self._rebuild(candidate)
-        if ok:
-            self._elements = candidate
-            self._rebuild_applied_list()
-            self._set_status(f"Extended: {element}", ok=True)
-        else:
-            self._set_status(f"Rejected “{element}”: {msg}", ok=False)
-        return ok
-
     def _apply_splits(self):
-        """Re-split the structure at the residue numbers in the splits field and rebuild the view. The split lives in the load block, so it is
-        applied by recomposing (see with_split); on a bad value the field is reverted so it always mirrors the splits actually in force.
-
-        With the field left empty, the click-selection (see _toggle_selected_residue) stands in for it — click residues in
-        the preview and hit Apply, no typing — matching how a Bodies-list selection stands in for an empty Merge/Delete field."""
-        typed = self._splits_var.get().strip()
-        from_selection = not typed and bool(self._selected_residues)
-        # the load-block split cuts the file as a whole, so only the ids matter here; two chains' residue 100 collapse to one cut
-        new = " ".join(str(r) for r in sorted({r for _b, r in self._selected_residues})) if from_selection else typed
-        if norm_splits(new) == norm_splits(self._splits):
-            self._splits_var.set(new)
-            if from_selection:
-                self._clear_selection()  # already the splits in force, but consume the selection so it doesn't linger
-            return
-        prev = self._splits
-        self._splits = new
-        ok, msg = self._rebuild(self._elements)
-        if ok:
-            self._splits_var.set(new)
-            if from_selection:
-                self._clear_selection()
-            self._set_status(f"Re-split at {new}." if new else "Removed all splits.", ok=True)
-        else:
-            self._splits = prev
-            self._splits_var.set(prev)
-            self._set_status(f"Could not re-split: {msg}", ok=False)
+        """Re-split the structure at the residue numbers in the splits field (see StructureModel.apply_splits)."""
+        result, shown = self.model.apply_splits(self._splits_var.get())
+        self._splits_var.set(shown)
+        if result.rebuilt:
+            self._on_rebuilt()
+        elif result.ok:  # nothing to re-split, but a consumed click-selection still has to disappear from the plot
+            self._schedule_redraw()
+            self._refresh_action_readiness()
+        if result.message:
+            self._set_status(result.message, ok=result.ok)
 
     def _apply_body_split(self):
-        """Split an existing body into fragments at the given residue ids: `split <body> <residues…>`. Distinct from the load-block split
-        above (which re-partitions the freshly-read PDB and defines the whole body set): this is a staged setup element that partitions a
-        body already in the setup — e.g. one produced by convert_to_symmetry — so its fragments stay tied together in a shared symmetry.
-        The body may come from a single Bodies-list selection or, failing that, from the click-selected residues themselves — each one
-        belongs to a body, so clicking a few residues along one body and hitting Add, with nothing typed and nothing else selected, is
-        enough.
-
-        Residues already inside a staged split's target extend that element instead of staging a second one. The backend refuses to split
-        a fragment that carries a symmetry shared with its siblings, and one element is enough regardless: BodySplitter cuts at a *set* of
-        residue ids taken in atom order, so cutting the original body at the union of both sets yields exactly the same fragments. This
-        also lets a selection spanning two fragments of one original body work, since they are one split element's business."""
-        tokens = self._with_selected_bodies(self._body_split_entry, exact=1)
-        if tokens and tokens[0] in self._known_names():
-            named, typed_residues = tokens[0], tokens[1:]
-        else:  # nothing names a body; whatever was typed is then all residues, and the body follows from them
-            named, typed_residues = None, tokens
-        from_selection = not typed_residues and bool(self._selected_residues)
-        if from_selection:
-            picks = set(self._selected_residues)
-        else:
-            if not typed_residues:
-                self._set_status("Splitting a body needs residue ids — type them or click residues in the preview.", ok=False)
-                return
-            if not all(is_residue_id(r) for r in typed_residues):
-                self._set_status("Split residue ids must be integers, e.g. b1 100 200.", ok=False)
-                return
-            # typed ids are only residues of the body they are typed against, so pair them with it; with no body to pair them with there is
-            # nothing to match or split, and the "needs a body" branch below reports it
-            index = self._index_of(named or self._selection_body_name() or "")
-            picks = {(index, int(r)) for r in typed_residues} if index is not None else set()
-        cuts = {r for _b, r in picks}
-
-        staged = self._staged_split_for(picks)
-        if staged is not None:
-            i, target, existing = staged
-            merged = sorted(existing | cuts)
-            if len(merged) == len(existing):
-                self._set_status(f"Already splitting {target} at {' '.join(str(c) for c in sorted(cuts))}.", ok=False)
-                return
-            ok = self._replace_element(i, "split " + target + " " + " ".join(str(c) for c in merged))
-        else:
-            body = named or self._selection_body_name()
-            if body is None:
-                self._set_status(
-                    "The selected residues span several bodies — split one body at a time." if len(self._selected_bodies()) > 1 else
-                    "Splitting a body needs a body — type one, select it in the Bodies list, or click residues on it.", ok=False)
-                return
-            coverage = self._coverage_of_body(body)  # read before the rebuild replaces the body with its fragments
-            ok = self._apply_element("split " + body + " " + " ".join(str(c) for c in sorted(cuts)))
-            if ok:
-                self._split_coverage[body] = coverage
-        if ok:
+        """Split an existing body into fragments (see StructureModel.apply_body_split)."""
+        result = self.model.apply_body_split(self._body_split_entry.get())
+        self._show_result(result)
+        if result.ok:
             self._body_split_entry.clear()
-            if from_selection:
-                self._clear_selection()
-
-    def _staged_split_for(self, picks: set[tuple[int, int]]) -> tuple[int, str, frozenset[int]] | None:
-        """(index, target body, existing cuts) of the staged `split` element whose target body contained every one of the (body, residue)
-        `picks`, or None when they fall outside every staged split. Targets are whole bodies, so at most one element can ever match."""
-        positions = self._ca_positions(residue_ca_mask(self._data, picks))
-        if not positions:
-            return None
-        for i, element in enumerate(self._elements):
-            parsed = parse_split_element(element)
-            if parsed is not None and positions <= self._split_coverage.get(parsed[0], frozenset()):
-                return i, parsed[0], frozenset(parsed[1])
-        return None
-
-    def _index_of(self, name: str) -> int | None:
-        """Index of the body with this display name, or None if no body has it (a replica name included: replicas aren't bodies)."""
-        return next((b["index"] for b in self._bodies if b["name"] == name), None)
-
-    def _ca_positions(self, mask) -> frozenset[tuple[float, ...]]:
-        """The masked atoms' positions, rounded to a stable key. Positions identify residues where ids and body indices cannot: ids repeat
-        across chains, and indices are renumbered by every merge/delete/split — the atoms themselves are only ever re-partitioned."""
-        if self._data is None:
-            return frozenset()
-        return frozenset(tuple(round(float(v), 3) for v in p) for p in self._data["coords"][mask])
-
-    def _coverage_of_body(self, name: str) -> frozenset[tuple[float, ...]]:
-        """Every Cα position in the named body, as it stands right now — the coverage a `split` element staged against it takes over."""
-        index = self._index_of(name)
-        if index is None or self._data is None:
-            return frozenset()
-        d = self._data
-        return self._ca_positions(d["is_ca"] & (d["copy"] == 0) & (d["body"] == index))
 
     def _apply_rename(self):
-        """Rename a body: `rename <old> <new>`, the same element the inline double-click-to-rename (see _start_rename) applies. Either typed 
-        as two tokens (old new), or — with exactly one row selected in the Bodies list — as just the new name, taking "old" from that selection."""
-        tokens = self._rename_entry.get().split()
-        if len(tokens) == 2:
-            old, new = tokens
-        elif len(tokens) == 1 and self._selected_single_name() is not None:
-            old, new = self._selected_single_name(), tokens[0]
-        else:
-            self._set_status("Rename needs the current name and the new name, e.g. b1 core.", ok=False)
-            return
-        if old == new:
-            self._set_status("The new name is the same as the current one.", ok=False)
-            return
-        if self._apply_element(f"rename {old} {new}"):
+        result = self.model.apply_rename(self._rename_entry.get())
+        self._show_result(result)
+        if result.ok:
             self._rename_entry.clear()
         self._refresh_action_readiness()
 
     def _apply_merge(self):
-        # an empty field falls back to the Bodies-list selection, so a shift-clicked group of bodies can be merged without typing every name 
-        # out (see _selected_body_names)
-        tokens = self._merge_entry.get().split() or self._selected_body_names()
-        if len(tokens) < 2:
-            self._set_status("Merge needs a target body and at least one other.", ok=False)
-            return
-        if self._apply_element("merge " + " ".join(tokens)):
+        result = self.model.apply_merge(self._merge_entry.get())
+        self._show_result(result)
+        if result.ok:
             self._merge_entry.clear()
         self._refresh_action_readiness()
 
     def _apply_delete(self):
-        tokens = self._delete_entry.get().split() or self._selected_body_names()
-        if not tokens:
-            self._set_status("Delete needs at least one body.", ok=False)
-            return
-        if self._apply_element("delete " + " ".join(tokens)):
+        result = self.model.apply_delete(self._delete_entry.get())
+        self._show_result(result)
+        if result.ok:
             self._delete_entry.clear()
         self._refresh_action_readiness()
 
     def _apply_add_symmetry(self):
-        """Add a symmetry to a single body: `symmetry <body> <type>` (e.g. b1 c4). A lone type is allowed for a single-body system (the backend 
-        infers the body), or — with exactly one whole body selected in the Bodies list — for any system, taking the body from that selection."""
-        tokens = self._with_selected_bodies(self._sym_add_entry, exact=1)
-        if not tokens:
-            self._set_status("Add symmetry needs a body and a type, e.g. b1 c4.", ok=False)
-            return
-        if len(tokens) > 2:
-            self._set_status("Add symmetry takes one body and one type, e.g. b1 c4.", ok=False)
-            return
-        if self._apply_element("symmetry " + " ".join(tokens)):
+        result = self.model.apply_add_symmetry(self._sym_add_entry.get())
+        self._show_result(result)
+        if result.ok:
             self._sym_add_entry.clear()
 
     def _apply_convert_symmetry(self):
-        """Decompose one or more bodies into one shared symmetry, collapsing the copies into the first body plus a fitted symmetry:
-        `convert_to_symmetry { type <type> bodies <b…> }`. A single body is fitted directly — the backend splits it into the
-        symmetry's own copy count itself, rather than needing several bodies handed to it as ready-made copies. Typing just the type
-        is enough when one or more whole bodies are selected in the Bodies list, or — with only one body in the whole system —
-        with nothing selected at all, since decomposing it is then the only sensible target. An optional tolerance (Å) typed into
-        the field tucked behind the chevron overrides the backend's default when the assembly's residual RMSD to the fitted
-        symmetry is just barely out of range. The bodies are reordered so the largest leads — see _most_complete_first."""
-        tokens = self._with_selected_bodies(self._sym_convert_entry, minimum=1)
-        if len(tokens) == 1 and len(self._bodies) == 1:
-            tokens = [self._bodies[0]["name"]] + tokens
-        if len(tokens) < 2:
-            self._set_status("Decomposing needs at least one body and a type, e.g. b1 c2.", ok=False)
-            return
-        *bodies, sym = tokens
-        bodies = self._most_complete_first(bodies)
-        tolerance = self._sym_convert_entry.advanced.get().strip()
-        extra = ""
-        if tolerance:
-            try:
-                float(tolerance)
-            except ValueError:
-                self._set_status("Tolerance must be a number, e.g. 3.5.", ok=False)
-                return
-            extra = "\n    tolerance " + tolerance
-        element = "convert_to_symmetry {\n    type " + sym + "\n    bodies " + " ".join(bodies) + extra + "\n}"
-        if self._apply_element(element):
+        result = self.model.apply_convert_symmetry(self._sym_convert_entry.get(), self._sym_convert_entry.advanced.get())
+        self._show_result(result)
+        if result.ok:
             self._sym_convert_entry.clear()
             self._sym_convert_entry.advanced.clear()
 
-    def _most_complete_first(self, bodies: list[str]) -> list[str]:
-        """Reorder a decomposition's bodies so the one with the most atoms leads, leaving the rest in the given order. The backend keeps
-        the first-listed body and regenerates the others from it, so that body is the one that survives into the model — and copies of the
-        same molecule are routinely modelled to differing extents (a terminus resolved in some chains but not others), making the fullest
-        of them the one worth keeping. Left alone if any name is not a body we know the size of, since we then cannot judge; ties keep the
-        original leader."""
-        atoms = {b["name"]: b["atoms"] for b in self._bodies}
-        if not all(name in atoms for name in bodies):
-            return bodies
-        lead = max(range(len(bodies)), key=lambda i: atoms[bodies[i]])
-        return [bodies[lead]] + bodies[:lead] + bodies[lead + 1:]
-
     def _apply_autoconstrain(self):
-        """Auto-generate a set of constraints: `autoconstrain <backbone|none>`. Defaults to backbone, the usual choice; `none` clears 
-        any auto-generated set."""
-        choice = self._autoconstrain_entry.get().strip() or "backbone"
-        if self._apply_element(f"autoconstrain {choice}"):
+        result = self.model.apply_autoconstrain(self._autoconstrain_entry.get())
+        self._show_result(result)
+        if result.ok:
             self._autoconstrain_entry.clear()
 
     def _apply_add_constraint(self):
-        """Add a distance constraint between two bodies: `<body1> <body2> <type> [distance]`. `bond` and `cm` need only the two bodies;
-        `attract` and `repel` also take a target distance (e.g. b1 b2 attract 30). Built as a `constrain { … }` block for the backend.
-        Typing just the type (and distance, if needed) is enough when exactly two whole bodies are selected in the Bodies list."""
-        tokens = self._with_selected_bodies(self._constraint_entry, exact=2)
-        if len(tokens) < 3:
-            self._set_status("A constraint needs two bodies and a type, e.g. b1 b2 cm.", ok=False)
-            return
-        body1, body2, ctype, *rest = tokens
-        lines = [f"    first {body1}", f"    second {body2}", f"    type {ctype}"]
-        if ctype in ("attract", "repel"):
-            if len(rest) != 1:
-                self._set_status(f"A {ctype} constraint needs a distance, e.g. b1 b2 {ctype} 30.", ok=False)
-                return
-            lines.append(f"    distance {rest[0]}")
-        elif rest:
-            self._set_status(f"A {ctype} constraint takes no arguments beyond the two bodies.", ok=False)
-            return
-        if self._apply_element("constrain {\n" + "\n".join(lines) + "\n}"):
+        result = self.model.apply_add_constraint(self._constraint_entry.get())
+        self._show_result(result)
+        if result.ok:
             self._constraint_entry.clear()
 
-    def _prune_split_coverage(self):
-        """Drop residue coverage for bodies no staged `split` targets any more, e.g. after one is removed from the applied list."""
-        targets = {parsed[0] for e in self._elements if (parsed := parse_split_element(e)) is not None}
-        self._split_coverage = {name: r for name, r in self._split_coverage.items() if name in targets}
-
     def _rebuild_applied_list(self):
-        self._prune_split_coverage()  # called after every change to _elements, so coverage is pruned in step with it
         for w in self._applied.winfo_children():
             w.destroy()
-        if not self._elements:
+        if not self.model.elements:
             ttk.Label(self._applied, text="No changes staged yet.", style="Muted.TLabel").pack(anchor="w")
             return
         # bounded and scrollable, so a long list of edits never grows past the section's own space
         scroll = ScrollableFrame(self._applied, max_height=150)
         scroll.pack(fill="x")
-        for i, element in enumerate(self._elements):
+        for i, element in enumerate(self.model.elements):
             row = ttk.Frame(scroll.body)
             row.pack(fill="x", pady=1)
             # the delete button is packed first at side=right so it always keeps its full size; the summary then fills whatever width is left 
@@ -1287,14 +870,7 @@ class StructurePane(ttk.Frame):
             ellipsize_label(summary, " ".join(element.split()))
 
     def _remove_element(self, i: int):
-        candidate = self._elements[:i] + self._elements[i + 1:]
-        ok, msg = self._rebuild(candidate)
-        if ok:
-            self._elements = candidate
-            self._rebuild_applied_list()
-            self._set_status("Removed an element.", ok=True)
-        else:
-            self._set_status(f"Could not remove: {msg}", ok=False)
+        self._show_result(self.model.remove_element(i))
 
     def _set_status(self, text: str, *, ok: bool):
         """Show a transient status message. It holds at full strength, fades into the background, and then clears itself: the status line is
@@ -1318,21 +894,21 @@ class StructurePane(ttk.Frame):
 
     # ----- send to script -----------------------------------------------------
     def _send_to_script(self):
-        # deliberately not _compose(): that one strips every non-structural element, which is right for a preview and would silently
-        # delete the user's parameter/loop/save elements here
-        base, new = structure_send_script(self._base_script() if self._base_script else None, self.pdb_path, self._splits, self._elements)
-        if new == base:  # neither the splits nor the staged elements actually differ from the base
+        change = self.model.send_script()
+        if change is None:  # neither the splits nor the staged elements actually differ from the base
             self._set_status("No changes to send.", ok=False)
             return
-        ScriptDiffDialog(self, base, new, on_confirm=lambda: self._confirm_send(new))
+        old, new = change
+        ScriptDiffDialog(self, old, new, on_confirm=lambda: self._confirm_send(new))
 
     def _confirm_send(self, new: str):
         """Write the composed script back to the editor, then drop the staged edits: they now live in the base, so keeping them staged would 
         double-apply them on the next rebuild."""
         self._on_apply_script(new)
-        self._elements = []
+        ok, _msg = self.model.sent()  # rebuilds from the new base, re-recording its fingerprint
         self._rebuild_applied_list()
-        self._rebuild(self._elements)  # rebuild from the new base, re-recording its fingerprint
+        if ok:
+            self._on_rebuilt()
 
 
 class ScriptDiffDialog(tk.Toplevel):
@@ -1387,21 +963,9 @@ class ScriptDiffDialog(tk.Toplevel):
 
     def _fill(self, left, right, old: str, new: str):
         lt, rt = left.text, right.text  # type: ignore[attr-defined]
-        old_lines, new_lines = old.splitlines(), new.splitlines()
-        sm = difflib.SequenceMatcher(a=old_lines, b=new_lines)
-        for tag, i1, i2, j1, j2 in sm.get_opcodes():
-            a, b = old_lines[i1:i2], new_lines[j1:j2]
-            if tag == "equal":
-                for line in a:
-                    lt.insert("end", line + "\n")
-                for line in b:
-                    rt.insert("end", line + "\n")
-                continue
-            # keep the two sides row-aligned by padding the shorter side with blank lines
-            rows = max(len(a), len(b))
-            for k in range(rows):
-                lt.insert("end", (a[k] if k < len(a) else "") + "\n", "del" if k < len(a) else ())
-                rt.insert("end", (b[k] if k < len(b) else "") + "\n", "add" if k < len(b) else ())
+        for row in side_by_side_diff(old, new):
+            lt.insert("end", row.old + "\n", "del" if row.old_changed else ())
+            rt.insert("end", row.new + "\n", "add" if row.new_changed else ())
         lt.configure(state="disabled")
         rt.configure(state="disabled")
 

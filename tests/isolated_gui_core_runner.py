@@ -2,7 +2,7 @@
 
 A front-end drains the runner from its own GUI timer; here a plain loop stands in for that timer.
 
-Not collected directly (no test_ prefix): test_gui_core_runner.py runs this file in a child process, because building a rigid body
+Not collected directly (no test_ prefix): test_isolated.py runs this file in a child process, because building a rigid body
 permanently changes process-wide backend state (it sets settings::internal_state::prefer_partial_manager, which no settings API exposes or
 resets), and that would break later tests in the same process that use atoms without form factors."""
 
