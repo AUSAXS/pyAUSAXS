@@ -13,6 +13,7 @@ class ExvModel(enum):
     # pepsi = "pepsi"
     # waxsis = "waxsis"
     none = "none"
+    vacuum = "vacuum" # no excluded volume, but atomic form factors; valid at any q
 
     @staticmethod
     def validate(model: ExvModel | str) -> ExvModel:
@@ -51,6 +52,7 @@ class WaterModel(enum):
     radial = "radial" 
     axes = "axes" 
     none = "none"
+    vacuum = "vacuum" # no excluded volume, but atomic form factors; valid at any q
 
     @staticmethod
     def validate(model: WaterModel | str) -> WaterModel:
