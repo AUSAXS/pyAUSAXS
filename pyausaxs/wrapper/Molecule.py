@@ -380,85 +380,59 @@ class Molecule(BackendObject):
         ausaxs.deallocate(tmp_id)
         return bins, counts
 
+    def _debye_profile(self, name: str, q_vals: list[float] | np.ndarray | None) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Evaluate the backend profile function `name` on its default q axis, or `name`_userq at the given q values.
+        Returns: (q, I)
+        """
+        ausaxs = AUSAXS()
+        status = ct.c_int()
+        if q_vals is not None:
+            q = _as_numpy_f64_arrays(q_vals)[0]
+            i = np.zeros_like(q, dtype=np.float64)
+            getattr(ausaxs.lib().functions, f"{name}_userq")(
+                self._get_id(),
+                q.ctypes.data_as(ct.POINTER(ct.c_double)),
+                i.ctypes.data_as(ct.POINTER(ct.c_double)),
+                ct.c_int(len(q)),
+                ct.byref(status)
+            )
+            _check_error_code(status, f"{name}_userq")
+            return q, i
+
+        q_ptr = ct.POINTER(ct.c_double)()
+        i_ptr = ct.POINTER(ct.c_double)()
+        n_q = ct.c_int()
+        tmp_id = getattr(ausaxs.lib().functions, name)(
+            self._get_id(),
+            ct.byref(q_ptr),
+            ct.byref(i_ptr),
+            ct.byref(n_q),
+            ct.byref(status)
+        )
+        _check_error_code(status, name)
+
+        n = n_q.value
+        q = _ptr_to_array(q_ptr, n)
+        i = _ptr_to_array(i_ptr, n)
+        ausaxs.deallocate(tmp_id)
+        return q, i
+
     def debye(self, q_vals: list[float] | np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
         """
         Calculate the Debye scattering intensity of the molecule. Form factors and excluded volume effects will be applied
         Returns: (q, I)
         """
-        ausaxs = AUSAXS()
-        if q_vals is not None:
-            q = _as_numpy_f64_arrays(q_vals)[0]
-            i = np.zeros_like(q, dtype=np.float64)
-            n_q = ct.c_int(len(q_vals))
-            status = ct.c_int()
-            ausaxs.lib().functions.molecule_debye_userq(
-                self._get_id(),
-                q.ctypes.data_as(ct.POINTER(ct.c_double)),
-                i.ctypes.data_as(ct.POINTER(ct.c_double)),
-                n_q,
-                ct.byref(status)
-            )
-            _check_error_code(status, "molecule_debye_q")
-            return q, i
-        else:
-            q_ptr = ct.POINTER(ct.c_double)()
-            i_ptr = ct.POINTER(ct.c_double)()
-            n_q = ct.c_int()
-            status = ct.c_int()
-            tmp_id = ausaxs.lib().functions.molecule_debye(
-                self._get_id(),
-                ct.byref(q_ptr),
-                ct.byref(i_ptr),
-                ct.byref(n_q),
-                ct.byref(status)
-            )
-            _check_error_code(status, "molecule_debye")
-
-            n = n_q.value
-            q = _ptr_to_array(q_ptr, n)
-            i = _ptr_to_array(i_ptr, n)
-            ausaxs.deallocate(tmp_id)
-            return q, i
+        return self._debye_profile("molecule_debye", q_vals)
 
     def debye_raw(self, q_vals: list[float] | np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
         """
         Calculate the Debye scattering intensity of the molecule. No form factors or excluded volume effects will be applied.
+        Every atom and water is a point scatterer with its weight. For the same sum with atomic form factors, use debye with
+        the excluded volume model ExvModel.vacuum.
         Returns: (q, I)
         """
-        ausaxs = AUSAXS()
-        if q_vals is not None:
-            q = _as_numpy_f64_arrays(q_vals)[0]
-            i = np.zeros_like(q, dtype=np.float64)
-            n_q = ct.c_int(len(q_vals))
-            status = ct.c_int()
-            ausaxs.lib().functions.molecule_debye_raw_userq(
-                self._get_id(),
-                q.ctypes.data_as(ct.POINTER(ct.c_double)),
-                i.ctypes.data_as(ct.POINTER(ct.c_double)),
-                n_q,
-                ct.byref(status)
-            )
-            _check_error_code(status, "molecule_debye_raw_q")
-            return q, i
-        else:
-            q_ptr = ct.POINTER(ct.c_double)()
-            i_ptr = ct.POINTER(ct.c_double)()
-            n_q = ct.c_int()
-            status = ct.c_int()
-            tmp_id = ausaxs.lib().functions.molecule_debye_raw(
-                self._get_id(),
-                ct.byref(q_ptr),
-                ct.byref(i_ptr),
-                ct.byref(n_q),
-                ct.byref(status)
-            )
-            _check_error_code(status, "molecule_debye_raw")
-
-            n = n_q.value
-            q = _ptr_to_array(q_ptr, n)
-            i = _ptr_to_array(i_ptr, n)
-            ausaxs.deallocate(tmp_id)
-            return q, i
+        return self._debye_profile("molecule_debye_raw", q_vals)
 
     def set_coordinates(self, coords: np.ndarray) -> None:
         """
