@@ -108,7 +108,7 @@ class EmFitterPane(FitterPane):
             unit = "A"
         amin, amax = self.alpha_slider.values()
         argv = [
-            "em_fitter",
+            "em",
             self.map_field.get(), self.saxs_field.get(),
             "--output", _output_arg(self.output_field.get()),
             "saxs", "--qmin", f"{qmin:.6g}", "--qmax", f"{qmax:.6g}",
@@ -123,7 +123,7 @@ class EmFitterPane(FitterPane):
             argv += ["--frequency", self.frequency_var.get().strip()]
         if self.iterations_var.get().strip():
             argv += ["fit", "--max-iterations", self.iterations_var.get().strip()]
-        return "cli_em_fitter", argv
+        return argv
 
     def _result_dir(self):
         return os.path.join(

@@ -2,27 +2,19 @@ import argparse
 import importlib.util
 import sys
 
-from .__init__ import __version__
-
-# tool name -> (backend C function name, program name passed as argv[0])
-_CLI_TOOLS = {
-    "fit":       ("cli_saxs_fitter", "ausaxs_fit"),
-    "em":        ("cli_em_fitter",   "ausaxs_em"),
-    "rigidbody": ("cli_rigidbody",   "ausaxs_rigidbody"),
-}
-
-# Optional CLI tools backed by pip extras: tool -> (extra name, modules that must be importable).
-# We check _tkinter (the C extension), not tkinter (whose pure-Python package ships even on no-Tk builds).
-_OPTIONAL_TOOLS = {
-    "plot": ("plots", ("matplotlib", "scipy")),
-    "gui":  ("gui",   ("matplotlib", "scipy", "_tkinter")),
+# Tools implemented in Python, which are intercepted here: tool -> (help description, pip extra, modules that must be importable).
+# A tool without an extra has no optional dependencies. Everything else, including the top-level help, version, and licence, is
+# forwarded to the backend's own `ausaxs` entrypoint, which lists these tools after its own.
+_PYTHON_TOOLS = {
+    "plot":  ("Plot results from other tools",            "plots", ("matplotlib", "scipy")),
+    "gui":   ("Start the graphical interface",            "gui",   ("matplotlib", "scipy", "_tkinter")),
+    "setup": ("Choose which AUSAXS backend library to use", None,  ()),
 }
 
 
 def _extra_available(tool: str) -> bool:
     """Check if the optional dependencies for a tool are available by trying to find their modules."""
-    _, modules = _OPTIONAL_TOOLS[tool]
-    for module in modules:
+    for module in _PYTHON_TOOLS[tool][2]:
         try:
             if importlib.util.find_spec(module) is None:
                 return False
@@ -32,7 +24,7 @@ def _extra_available(tool: str) -> bool:
 
 
 def _extra_missing_error(tool: str) -> int:
-    extra = _OPTIONAL_TOOLS[tool][0]
+    extra = _PYTHON_TOOLS[tool][1]
     print(
         f"Error: the '{extra}' extension is not installed."
         f"\nPlease install it by running the command \"pip install pyausaxs[{extra}]\".",
@@ -41,44 +33,8 @@ def _extra_missing_error(tool: str) -> int:
     return 1
 
 
-class _Formatter(argparse.HelpFormatter):
-    def _format_action(self, action):
-        result = super()._format_action(action)
-        if action.nargs == argparse.PARSER:
-            lines = result.splitlines(keepends=True)
-            return ''.join(
-                line for line in lines[1:] if argparse.SUPPRESS not in line
-            )
-        return result
-
-
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="ausaxs",
-        description="An efficient small-angle Debye scattering calculator.",
-        formatter_class=_Formatter,
-    )
-    parser.add_argument("-v", "--version", action="version", version=f"pyAUSAXS {__version__}")
-    parser.add_argument("--license", action="store_true", help="show license information and exit")
-    sub = parser.add_subparsers(dest="tool", title="tools")
-
-    # C CLI tools — argparse does not consume their flags; everything after the subcommand name is passed through to the backend as-is.
-    for name, desc in [
-        ("fit",       "validate structures against SAXS data"),
-        ("em",        "validate EM maps against SAXS data"),
-        ("rigidbody", "perform rigid-body refinements"),
-        ("plot",      "plot results from other tools"),
-        ("gui",       "start the graphical interface"),
-    ]:
-        if name in _OPTIONAL_TOOLS and not _extra_available(name):
-            desc += " (disabled)"
-        sub.add_parser(name, help=desc, add_help=False)
-
-    # 'setup' is unlisted and has its own structured flags.
-    setup = sub.add_parser(
-        "setup", help=argparse.SUPPRESS,
-        description="Configure the AUSAXS backend.",
-    )
+def _build_setup_parser() -> argparse.ArgumentParser:
+    setup = argparse.ArgumentParser(prog="ausaxs setup", description="Configure the AUSAXS backend.")
     grp = setup.add_mutually_exclusive_group()
     grp.add_argument(
         "--relink", metavar="PATH",
@@ -92,62 +48,48 @@ def _build_parser() -> argparse.ArgumentParser:
         "--show", action="store_true",
         help="show which backend library is currently in use (default)",
     )
-
-    # # Put the tools section above the options section in help output.
-    by_title = {g.title: g for g in parser._action_groups}
-    parser._action_groups[:] = [by_title["tools"], by_title["options"]]
-
-    return parser
+    return setup
 
 
 def main(argv=None):
     if argv is None:
         argv = sys.argv[1:]
 
-    parser = _build_parser()
-    ns, remaining = parser.parse_known_args(argv)
-
-    if ns.license:
-        _print_licence()
-        return 0
-
-    if ns.tool is None:
-        parser.print_help()
-        return 0
-
-    match ns.tool:
+    match argv[0] if argv else None:
         case "setup":
-            return _run_setup(ns)
+            return _run_setup(_build_setup_parser().parse_args(argv[1:]))
         case "gui":
             if not _extra_available("gui"):
                 return _extra_missing_error("gui")
             print("Warning: The Python GUI is highly experimental. Use at your own risk.", file=sys.stderr)
             from .gui.gui import main as gui_main
-            return gui_main(remaining)
+            return gui_main(argv[1:])
         case "plot":
             if not _extra_available("plot"):
                 return _extra_missing_error("plot")
             from .plot.plot import main as plot_main
-            return plot_main(remaining)
-        case t if t in _CLI_TOOLS:
-            return _run_cli_tool(t, remaining)
+            return plot_main(argv[1:])
+        case _:
+            return run_backend_cli(argv)
 
 
-def _run_cli_tool(tool, args):
+def run_backend_cli(args: list[str]) -> int:
+    """Run the backend's `ausaxs` entrypoint in-process with the given arguments (excluding the program name)."""
     from .wrapper.AUSAXS import AUSAXS
-    func_name, prog = _CLI_TOOLS[tool]
-    lib = AUSAXS().lib()
-    if not lib.ready():
-        print("Error: AUSAXS library not ready", file=sys.stderr)
+    if not AUSAXS.ready():
+        print(f"Error: the AUSAXS backend failed to load: {AUSAXS.init_error()}", file=sys.stderr)
         return 1
-    return _call_cli(getattr(lib.functions, func_name), [prog, *args])
 
+    functions = AUSAXS.lib().functions
+    for name, (description, extra, _) in _PYTHON_TOOLS.items():
+        if extra is not None and not _extra_available(name):
+            description += f" (requires \"pip install pyausaxs[{extra}]\")"
+        functions.cli_ausaxs_add_tool(name.encode("utf-8"), description.encode("utf-8"))
 
-def _call_cli(cli_func, args):
     import ctypes as ct
-    c_args = [arg.encode("utf-8") for arg in args]
+    c_args = [arg.encode("utf-8") for arg in ["ausaxs", *args]]
     c_argv = (ct.c_char_p * len(c_args))(*c_args)
-    return cli_func(len(c_args), c_argv)
+    return functions.cli_ausaxs(len(c_args), c_argv)
 
 
 def _run_setup(ns):
@@ -202,16 +144,6 @@ def _run_setup(ns):
         "prefix": "  (installed in the environment prefix)",
     }[origin])
     return 0
-
-
-def _print_licence():
-    import importlib.resources as pkg_resources
-    try:
-        ref = pkg_resources.files("pyausaxs").joinpath("../../LICENSE")
-        with pkg_resources.as_file(ref) as p:
-            print(p.read_text(encoding="utf-8"))
-    except Exception:
-        print("LGPL-3.0-or-later — see https://github.com/AUSAXS/pyAUSAXS/blob/master/LICENSE")
 
 
 if __name__ == "__main__":
