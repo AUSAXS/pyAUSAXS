@@ -408,8 +408,8 @@ class FitterPane(ttk.Frame):
     def _input_fields(self) -> list[FileField]:
         raise NotImplementedError
 
-    def _build_command(self) -> tuple[str, list[str]]:
-        """Return the library CLI function name and its argv (including the program name)."""
+    def _build_command(self) -> list[str]:
+        """Return the arguments to the `ausaxs` entrypoint, starting with the tool name."""
         raise NotImplementedError
 
     def _structure_load_path(self) -> Optional[str]:
@@ -460,14 +460,14 @@ class FitterPane(ttk.Frame):
         if path and not ensure_structure_loads(self, path, self.console):
             return
 
-        func_name, argv = self._build_command()
+        args = self._build_command()
         self.console.clear()
-        self.console.append(" ".join(argv) + "\n\n")
+        self.console.append(" ".join(["ausaxs", *args]) + "\n\n")
         self.run_button.configure(text="Running…", state="disabled")
         self.progress.pack(side="left", fill="x", expand=True, padx=(12, 0))
         self.progress.start(15)
         self._run_overrides = RELAXED_LOADS.apply(path)
-        self.runner.start(func_name, argv, on_line=self.console.append, on_done=self._run_finished)
+        self.runner.start(args, on_line=self.console.append, on_done=self._run_finished)
 
     def _run_finished(self, returncode: int):
         RELAXED_LOADS.restore(self._run_overrides)  # the run is over; put the global settings back

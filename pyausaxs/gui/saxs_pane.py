@@ -133,7 +133,7 @@ class SaxsFitterPane(FitterPane):
             qmin, qmax = QMIN, QMAX
             unit = "A"
         argv = [
-            "saxs_fitter",
+            "fit",
             self.structure_field.get(), self.saxs_field.get(),
             "--output", _output_arg(self.output_field.get()),
             "data", "--qmin", f"{qmin:.6g}", "--qmax", f"{qmax:.6g}",
@@ -147,7 +147,7 @@ class SaxsFitterPane(FitterPane):
         if self.exv_var.get() == "grid":
             argv += ["--save"]
         argv += ["solv", "--model", self.hydration_var.get()]
-        return "cli_saxs_fitter", argv
+        return argv
 
     def _result_dir(self):
         return os.path.join(self.output_field.get(), _file_stem(self.saxs_field.get()))

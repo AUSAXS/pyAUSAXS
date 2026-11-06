@@ -14,7 +14,7 @@ from .core.runner import RefinementOutcome, RefinementWorker
 
 
 class CliRunner:
-    """Calls an AUSAXS CLI function (e.g. cli_saxs_fitter) on a worker thread.
+    """Runs an `ausaxs <tool> ...` command through the backend entrypoint on a worker thread.
 
     The ctypes call releases the GIL, so the GUI stays responsive. stdout/stderr are
     redirected at the file descriptor level while the tool runs, so the backend's
@@ -34,16 +34,15 @@ class CliRunner:
     def running(self) -> bool:
         return self._busy
 
-    def start(self, func_name: str, argv: list[str],
+    def start(self, args: list[str],
               on_line: Callable[[str], None], on_done: Callable[[int], None]):
+        """Run `ausaxs *args`, e.g. args = ["fit", "structure.pdb", "data.dat"]."""
         if self._busy:
             raise RuntimeError("a fit is already running")
 
-        try:
-            from ..wrapper.AUSAXS import AUSAXS
-            func = getattr(AUSAXS().lib().functions, func_name)
-        except Exception as e:
-            on_line(f"AUSAXS library unavailable: {e}\n")
+        from ..wrapper.AUSAXS import AUSAXS
+        if not AUSAXS.ready():
+            on_line(f"AUSAXS library unavailable: {AUSAXS.init_error()}\n")
             on_done(1)
             return
 
@@ -65,7 +64,7 @@ class CliRunner:
         reader = threading.Thread(target=self._read_pipe, args=(read_fd,), daemon=True)
         reader.start()
         threading.Thread(
-            target=self._work, args=(func, argv, saved_fds, reader), daemon=True
+            target=self._work, args=(args, saved_fds, reader), daemon=True
         ).start()
         self._widget.after(self.POLL_MS, self._poll)
 
@@ -74,11 +73,11 @@ class CliRunner:
             for line in pipe:
                 self._queue.put(line)
 
-    def _work(self, func, argv: list[str], saved_fds: tuple[int, int], reader: threading.Thread):
-        from ..__main__ import _call_cli
+    def _work(self, args: list[str], saved_fds: tuple[int, int], reader: threading.Thread):
+        from ..__main__ import run_backend_cli
         returncode = 1
         try:
-            returncode = _call_cli(func, argv)
+            returncode = run_backend_cli(args)
         except Exception as e:
             self._queue.put(f"\nError: {e}\n")
         finally:
