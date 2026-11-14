@@ -4,6 +4,8 @@ from .PDBfile import PDBfile
 from .Histogram import Histogram
 from .Datafile import Datafile
 from .FitResult import FitResult
+from .Models import ExvModel, WeightedBins
+from .settings import settings
 from pyausaxs.signatures import register
 import ctypes as ct
 import numpy as np
@@ -380,85 +382,72 @@ class Molecule(BackendObject):
         ausaxs.deallocate(tmp_id)
         return bins, counts
 
+    def _debye_profile(self, name: str, q_vals: list[float] | np.ndarray | None) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Evaluate the backend profile function `name` on its default q axis, or `name`_userq at the given q values.
+        Returns: (q, I)
+        """
+        ausaxs = AUSAXS()
+        status = ct.c_int()
+        if q_vals is not None:
+            q = _as_numpy_f64_arrays(q_vals)[0]
+            i = np.zeros_like(q, dtype=np.float64)
+            getattr(ausaxs.lib().functions, f"{name}_userq")(
+                self._get_id(),
+                q.ctypes.data_as(ct.POINTER(ct.c_double)),
+                i.ctypes.data_as(ct.POINTER(ct.c_double)),
+                ct.c_int(len(q)),
+                ct.byref(status)
+            )
+            _check_error_code(status, f"{name}_userq")
+            return q, i
+
+        q_ptr = ct.POINTER(ct.c_double)()
+        i_ptr = ct.POINTER(ct.c_double)()
+        n_q = ct.c_int()
+        tmp_id = getattr(ausaxs.lib().functions, name)(
+            self._get_id(),
+            ct.byref(q_ptr),
+            ct.byref(i_ptr),
+            ct.byref(n_q),
+            ct.byref(status)
+        )
+        _check_error_code(status, name)
+
+        n = n_q.value
+        q = _ptr_to_array(q_ptr, n)
+        i = _ptr_to_array(i_ptr, n)
+        ausaxs.deallocate(tmp_id)
+        return q, i
+
     def debye(self, q_vals: list[float] | np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
         """
         Calculate the Debye scattering intensity of the molecule. Form factors and excluded volume effects will be applied
         Returns: (q, I)
         """
-        ausaxs = AUSAXS()
-        if q_vals is not None:
-            q = _as_numpy_f64_arrays(q_vals)[0]
-            i = np.zeros_like(q, dtype=np.float64)
-            n_q = ct.c_int(len(q_vals))
-            status = ct.c_int()
-            ausaxs.lib().functions.molecule_debye_userq(
-                self._get_id(),
-                q.ctypes.data_as(ct.POINTER(ct.c_double)),
-                i.ctypes.data_as(ct.POINTER(ct.c_double)),
-                n_q,
-                ct.byref(status)
-            )
-            _check_error_code(status, "molecule_debye_q")
-            return q, i
-        else:
-            q_ptr = ct.POINTER(ct.c_double)()
-            i_ptr = ct.POINTER(ct.c_double)()
-            n_q = ct.c_int()
-            status = ct.c_int()
-            tmp_id = ausaxs.lib().functions.molecule_debye(
-                self._get_id(),
-                ct.byref(q_ptr),
-                ct.byref(i_ptr),
-                ct.byref(n_q),
-                ct.byref(status)
-            )
-            _check_error_code(status, "molecule_debye")
+        return self._debye_profile("molecule_debye", q_vals)
 
-            n = n_q.value
-            q = _ptr_to_array(q_ptr, n)
-            i = _ptr_to_array(i_ptr, n)
-            ausaxs.deallocate(tmp_id)
-            return q, i
-
-    def debye_raw(self, q_vals: list[float] | np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
+    def debye_raw(
+        self, q_vals: list[float] | np.ndarray | None = None, form_factors: bool = False
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
-        Calculate the Debye scattering intensity of the molecule. No form factors or excluded volume effects will be applied.
+        Calculate the Debye scattering intensity of the molecule without excluded volume effects.
+        Every atom and water is a point scatterer with its weight. With form_factors, each instead carries its atomic form factor;
+        this requires a molecule with form factor information, e.g. one read from a structure file, and raises otherwise.
         Returns: (q, I)
         """
-        ausaxs = AUSAXS()
-        if q_vals is not None:
-            q = _as_numpy_f64_arrays(q_vals)[0]
-            i = np.zeros_like(q, dtype=np.float64)
-            n_q = ct.c_int(len(q_vals))
-            status = ct.c_int()
-            ausaxs.lib().functions.molecule_debye_raw_userq(
-                self._get_id(),
-                q.ctypes.data_as(ct.POINTER(ct.c_double)),
-                i.ctypes.data_as(ct.POINTER(ct.c_double)),
-                n_q,
-                ct.byref(status)
-            )
-            _check_error_code(status, "molecule_debye_raw_q")
-            return q, i
-        else:
-            q_ptr = ct.POINTER(ct.c_double)()
-            i_ptr = ct.POINTER(ct.c_double)()
-            n_q = ct.c_int()
-            status = ct.c_int()
-            tmp_id = ausaxs.lib().functions.molecule_debye_raw(
-                self._get_id(),
-                ct.byref(q_ptr),
-                ct.byref(i_ptr),
-                ct.byref(n_q),
-                ct.byref(status)
-            )
-            _check_error_code(status, "molecule_debye_raw")
+        if not form_factors:
+            return self._debye_profile("molecule_debye_raw", q_vals)
 
-            n = n_q.value
-            q = _ptr_to_array(q_ptr, n)
-            i = _ptr_to_array(i_ptr, n)
-            ausaxs.deallocate(tmp_id)
-            return q, i
+        # weighted bins, since the profile must hold at any q, far beyond the range auto judges unweighted bins by
+        exv, weighted_bins = settings.get("exv_model"), settings.get("weighted_bins")
+        try:
+            settings.exv(ExvModel.vacuum)
+            settings.set("weighted_bins", WeightedBins.true.value)
+            return self._debye_profile("molecule_debye", q_vals)
+        finally:
+            settings.set("exv_model", exv)
+            settings.set("weighted_bins", weighted_bins.value)
 
     def set_coordinates(self, coords: np.ndarray) -> None:
         """
@@ -486,7 +475,7 @@ class Molecule(BackendObject):
 
     def debye_raw_vjp(self, q_vals: list[float] | np.ndarray, v: list[float] | np.ndarray) -> np.ndarray:
         """
-        Vector-Jacobian product of debye_raw(q_vals) with respect to the atomic coordinates. 
+        Vector-Jacobian product of debye_raw(q_vals) with respect to the atomic coordinates, for point scatterers only (no form factors). 
         Given v = dL/dI at q_vals, returns dL/dr as an (n_atoms, 3) array, in the order of atoms(). 
         This is the derivative of the exact Debye sum, not of its binned approximation.
         """

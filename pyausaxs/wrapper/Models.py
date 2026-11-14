@@ -12,6 +12,7 @@ class ExvModel(enum):
     # foxs = "foxs"
     # pepsi = "pepsi"
     # waxsis = "waxsis"
+    vacuum = "vacuum"
     none = "none"
 
     @staticmethod
