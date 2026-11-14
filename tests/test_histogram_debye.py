@@ -2,6 +2,7 @@ import math
 import numpy as np
 import pytest
 import pyausaxs as ausaxs
+from pyausaxs.wrapper.Models import WeightedBins
 from .helpers import simple_cube
 
 
@@ -98,12 +99,30 @@ def test_debye_raw_form_factors():
     assert np.all(np.isfinite(I_ext))
 
 
-def test_debye_raw_form_factors_needs_form_factors():
+@pytest.fixture
+def unweighted_bins():
+    ausaxs.settings.set("weighted_bins", WeightedBins.false.value)
+    yield
+    ausaxs.settings.set("weighted_bins", WeightedBins.auto.value)
+
+
+def test_debye_raw_form_factors_weighted_bins(unweighted_bins):
+    mol = ausaxs.create_molecule("tests/files/2epe.pdb")
+    _, I = mol.debye_raw(form_factors=True)
+    assert ausaxs.settings.get("weighted_bins") == WeightedBins.false, "weighted_bins must be restored"
+
+    ausaxs.settings.set("weighted_bins", WeightedBins.auto.value)
+    _, I_auto = mol.debye_raw(form_factors=True)
+    assert np.array_equal(I, I_auto), "form factors must use weighted bins regardless of the setting"
+
+
+def test_debye_raw_form_factors_needs_form_factors(unweighted_bins):
     mol = ausaxs.create_molecule(*simple_cube.points())
     exv = ausaxs.settings.get("exv_model")
     with pytest.raises(RuntimeError, match="Form factor information is required"):
         mol.debye_raw(form_factors=True)
     assert ausaxs.settings.get("exv_model") == exv, "the exv model must be restored after a failure"
+    assert ausaxs.settings.get("weighted_bins") == WeightedBins.false, "weighted_bins must be restored after a failure"
 
 
 def test_debye_exact():

@@ -4,7 +4,7 @@ from .PDBfile import PDBfile
 from .Histogram import Histogram
 from .Datafile import Datafile
 from .FitResult import FitResult
-from .Models import ExvModel
+from .Models import ExvModel, WeightedBins
 from .settings import settings
 from pyausaxs.signatures import register
 import ctypes as ct
@@ -439,12 +439,15 @@ class Molecule(BackendObject):
         if not form_factors:
             return self._debye_profile("molecule_debye_raw", q_vals)
 
-        exv = settings.get("exv_model")
-        settings.exv(ExvModel.vacuum)
+        # weighted bins, since the profile must hold at any q, far beyond the range auto judges unweighted bins by
+        exv, weighted_bins = settings.get("exv_model"), settings.get("weighted_bins")
         try:
+            settings.exv(ExvModel.vacuum)
+            settings.set("weighted_bins", WeightedBins.true.value)
             return self._debye_profile("molecule_debye", q_vals)
         finally:
             settings.set("exv_model", exv)
+            settings.set("weighted_bins", weighted_bins.value)
 
     def set_coordinates(self, coords: np.ndarray) -> None:
         """
