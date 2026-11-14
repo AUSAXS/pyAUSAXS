@@ -78,18 +78,13 @@ def test_debye_raw_and_exact():
     I_expected = ausaxs.unoptimized.debye_exact(mol, q)[1]
     assert np.allclose(I, I_expected, rtol=0.01, atol=1e-6), f"Debye raw intensity mismatch: expected \n{I_expected}, got \n{I}"
 
-@pytest.fixture
-def vacuum_exv():
-    ausaxs.settings.exv(ausaxs.ExvModel.vacuum)
-    yield
-    ausaxs.settings.exv(ausaxs.ExvModel.simple)
-
-
-def test_debye_vacuum(vacuum_exv):
+def test_debye_raw_form_factors():
     mol = ausaxs.create_molecule("tests/files/2epe.pdb")
+    exv = ausaxs.settings.get("exv_model")
     q_raw, I_raw = mol.debye_raw()
-    q, I = mol.debye()
-    assert np.array_equal(q, q_raw), "the vacuum model must report the same q axis as debye_raw"
+    q, I = mol.debye_raw(form_factors=True)
+    assert np.array_equal(q, q_raw), "form factors must not change the q axis"
+    assert ausaxs.settings.get("exv_model") == exv, "the exv model must be restored"
 
     # the form factors are normalized to the effective charges, which are also the weights of debye_raw, so the two agree as q -> 0.
     # beyond that the form factors decay, and with them the intensity
@@ -98,15 +93,17 @@ def test_debye_vacuum(vacuum_exv):
 
     # evaluated at the q values themselves, so userq reproduces the profile, also beyond the default q axis
     q_ext = np.append(q, [2.0, 5.0])
-    _, I_ext = mol.debye(q_ext)
+    _, I_ext = mol.debye_raw(q_ext, form_factors=True)
     assert np.allclose(I_ext[:len(q)], I, rtol=1e-12, atol=0)
     assert np.all(np.isfinite(I_ext))
 
 
-def test_debye_vacuum_needs_form_factors(vacuum_exv):
+def test_debye_raw_form_factors_needs_form_factors():
     mol = ausaxs.create_molecule(*simple_cube.points())
+    exv = ausaxs.settings.get("exv_model")
     with pytest.raises(RuntimeError, match="Form factor information is required"):
-        mol.debye()
+        mol.debye_raw(form_factors=True)
+    assert ausaxs.settings.get("exv_model") == exv, "the exv model must be restored after a failure"
 
 
 def test_debye_exact():

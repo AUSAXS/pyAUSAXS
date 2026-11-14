@@ -4,6 +4,8 @@ from .PDBfile import PDBfile
 from .Histogram import Histogram
 from .Datafile import Datafile
 from .FitResult import FitResult
+from .Models import ExvModel
+from .settings import settings
 from pyausaxs.signatures import register
 import ctypes as ct
 import numpy as np
@@ -425,14 +427,24 @@ class Molecule(BackendObject):
         """
         return self._debye_profile("molecule_debye", q_vals)
 
-    def debye_raw(self, q_vals: list[float] | np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
+    def debye_raw(
+        self, q_vals: list[float] | np.ndarray | None = None, form_factors: bool = False
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
-        Calculate the Debye scattering intensity of the molecule. No form factors or excluded volume effects will be applied.
-        Every atom and water is a point scatterer with its weight. For the same sum with atomic form factors, use debye with
-        the excluded volume model ExvModel.vacuum.
+        Calculate the Debye scattering intensity of the molecule without excluded volume effects.
+        Every atom and water is a point scatterer with its weight. With form_factors, each instead carries its atomic form factor;
+        this requires a molecule with form factor information, e.g. one read from a structure file, and raises otherwise.
         Returns: (q, I)
         """
-        return self._debye_profile("molecule_debye_raw", q_vals)
+        if not form_factors:
+            return self._debye_profile("molecule_debye_raw", q_vals)
+
+        exv = settings.get("exv_model")
+        settings.exv(ExvModel.vacuum)
+        try:
+            return self._debye_profile("molecule_debye", q_vals)
+        finally:
+            settings.set("exv_model", exv)
 
     def set_coordinates(self, coords: np.ndarray) -> None:
         """
@@ -460,7 +472,7 @@ class Molecule(BackendObject):
 
     def debye_raw_vjp(self, q_vals: list[float] | np.ndarray, v: list[float] | np.ndarray) -> np.ndarray:
         """
-        Vector-Jacobian product of debye_raw(q_vals) with respect to the atomic coordinates. 
+        Vector-Jacobian product of debye_raw(q_vals) with respect to the atomic coordinates, for point scatterers only (no form factors). 
         Given v = dL/dI at q_vals, returns dL/dr as an (n_atoms, 3) array, in the order of atoms(). 
         This is the derivative of the exact Debye sum, not of its binned approximation.
         """
