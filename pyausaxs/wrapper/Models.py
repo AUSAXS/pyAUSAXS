@@ -60,3 +60,9 @@ class WaterModel(enum):
             except ValueError:
                 raise ValueError(f"Invalid WaterModel: {model}. Valid models are: {[m.value for m in WaterModel]}")
         return model
+
+class WeightedBins(enum):
+    """Value of the "weighted_bins" setting; auto lets the backend decide per molecule."""
+    true = "true"
+    false = "false"
+    auto = "auto"

@@ -89,8 +89,9 @@ class RefinementWorker:
         if not validate_only:
             # automatically disable weighted bins if they are not required
             # TODO move this to the backend
+            from ...wrapper.Models import WeightedBins
             from ...wrapper.settings import settings
-            settings.set("weighted_bins", "auto")
+            settings.set("weighted_bins", WeightedBins.auto.value)
 
         threading.Thread(
             target=self._work,
