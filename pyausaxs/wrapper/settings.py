@@ -1,5 +1,5 @@
 from .AUSAXS import AUSAXS, _check_error_code, _ptr_to_array
-from .Models import ExvModel, ExvTable, WaterModel
+from .Models import ExvModel, ExvTable, WaterModel, WeightedBins
 from pyausaxs.signatures import register
 import ctypes as ct
 import numpy as np
@@ -55,7 +55,8 @@ def _type_cast(value: str, type: str):
         case "int" | "uint": return int(value)
         case "double": return float(value)
         case "bool": return value.lower() in ("true", "1", "yes")
-        case "string" | "weighted-bins": return value
+        case "string": return value
+        case "weighted-bins": return WeightedBins(value.lower())
         case "limit": return tuple(float(v) for v in value.split())
         case "vector-int": return [int(v) for v in value.split()]
         case "vector-double": return [float(v) for v in value.split()]
