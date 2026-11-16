@@ -876,10 +876,18 @@ class RigidbodyPane(ttk.Frame):
         if frame is not None:
             self._draw_live_frame(frame)
 
+    def _clear_fit_tabs(self):
+        """Remove the previous run's fit tabs, keeping the persistent structure tab."""
+        for tab in self._fit_tabs:
+            self.results.forget(tab)
+        self._fit_tabs.clear()
+
     def _on_done(self, done):
         self._set_busy(False)
         self._stop_live_preview()
         if done.error is not None:
+            if self._mode == "run":
+                self._clear_fit_tabs()  # the previous fit's results would read as this one's
             if done.error_streamed:
                 # the backend already streamed the error; just note the failure
                 self.console.append("\nRefinement failed.\n", tag="error")
@@ -897,10 +905,7 @@ class RigidbodyPane(ttk.Frame):
         if done.result is None or done.result.size == 0:
             self.console.append("No fit curves were returned.\n")
             return
-        # replace previous fit tabs but keep the persistent structure tab
-        for tab in self._fit_tabs:
-            self.results.forget(tab)
-        self._fit_tabs.clear()
+        self._clear_fit_tabs()
         for logx, title in ((False, "fit (log)"), (True, "fit (log-log)")):
             try:
                 self._fit_tabs.append(add_figure_tab(self.results, fit_figure_from_curves(done.result, logx=logx), title))

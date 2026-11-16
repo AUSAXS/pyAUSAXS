@@ -106,15 +106,16 @@ class EmFitterPane(FitterPane):
             unit = self._data_pane.unit()
         else:
             qmin, qmax = QMIN, QMAX
-            unit = "A"
+            unit = None
         amin, amax = self.alpha_slider.values()
         argv = [
             "em",
             self.map_field.get(), self.saxs_field.get(),
             "--output", _output_arg(self.output_field.get()),
             "saxs", "--qmin", f"{qmin:.6g}", "--qmax", f"{qmax:.6g}",
-            "--unit", unit,
         ]
+        if unit is not None:
+            argv += ["--unit", unit]
         argv += [
             "em", "--levelmin", f"{amin:.6g}", "--levelmax", f"{amax:.6g}",
             "--hydrate" if self.hydrate_var.get() else "--no-hydrate",

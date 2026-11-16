@@ -468,6 +468,8 @@ class FitterPane(ttk.Frame):
         self.run_button.configure(text="Run fit", state="normal")
         if returncode != 0:
             self.console.append(f"\nFit failed with exit code {returncode}.\n")
+            clear_results(self.results)  # the previous fit's results would read as this one's
+            self._results_placeholder()
             return
         result_dir = self._result_dir()
         self.console.append(f"\nFit completed. Results written to \"{result_dir}\".\n")

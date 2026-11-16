@@ -22,9 +22,9 @@ class SaxsDataPane(ttk.Frame):
     # relative scale between units, used only to carry the qmin/qmax selection across a unit change; the actual q-values always come from 
     # a fresh backend read
     UNIT_FACTORS = {"Å⁻¹": 1.0, "nm⁻¹": 0.1}
-    # backend `settings.histogram(unit=...)` / --unit token for each display unit
-    UNIT_TOKENS = {"Å⁻¹": "A", "nm⁻¹": "nm"}
-    DEFAULT_UNIT = "Å⁻¹"
+    # backend `settings.histogram(unit=...)` / --unit token for each choice; "auto" leaves the unit to the backend's detection
+    UNIT_TOKENS = {"auto": None, "Å⁻¹": "A", "nm⁻¹": "nm"}
+    DEFAULT_UNIT = "auto"
 
     DATA_RATIO = 8      # data-axes : slider-strip height ratio
     Y_TRACK = 0.64      # handle row, as a fraction of the slider strip's height
@@ -48,6 +48,8 @@ class SaxsDataPane(ttk.Frame):
         self._data_artists: list = []
         self._unit = state["unit"] if state.get("unit") in self.UNIT_TOKENS else self.DEFAULT_UNIT
         self._unit_var = tk.StringVar(value=self._unit)
+        self._read_as = None                      # the unit the file's q was read in: the chosen one, or the detected one
+        self._unit_label = tk.StringVar()
         self._drag = None                         # handle being dragged (0 / 1 / None)
         self._vline_top = None                    # cached slider-fraction of the plot top
         self._decade_labels: list = []
@@ -60,7 +62,7 @@ class SaxsDataPane(ttk.Frame):
 
         # the axis (and slider track) span the data's own q-range, in Å⁻¹; the unit selector forces the backend's interpretation of the
         # file's q, and the range rescales with it
-        data = _read_saxs_data(file_path, self.UNIT_TOKENS[self._unit])
+        data = self._read(self._unit)
         if data:
             qs, _, _ = data
             self._vmin, self._vmax = min(qs), max(qs)
@@ -90,9 +92,9 @@ class SaxsDataPane(ttk.Frame):
         ctrl.columnconfigure(2, weight=1)
         # the plot is always Å⁻¹; picking nm⁻¹ declares the file's q to be in nm⁻¹, so the
         # data is converted (×0.1) to keep the displayed axis in Å⁻¹.
-        ttk.Label(center, text="q [Å⁻¹]", style="Muted.TLabel").pack()
+        ttk.Label(center, textvariable=self._unit_label, style="Muted.TLabel").pack()
         unit_box = ttk.Combobox(center, textvariable=self._unit_var,
-                                values=list(self.UNIT_FACTORS), state="readonly", width=5)
+                                values=list(self.UNIT_TOKENS), state="readonly", width=5)
         unit_box.pack()
         unit_box.bind("<<ComboboxSelected>>", lambda _e: self._on_unit_changed())
         for entry in (lo_entry, hi_entry):
@@ -119,8 +121,8 @@ class SaxsDataPane(ttk.Frame):
     def qrange(self) -> tuple[float, float]:
         return self._qmin, self._qmax
 
-    def unit(self) -> str:
-        """The backend --unit token ("A" / "nm") for the currently selected unit."""
+    def unit(self) -> Optional[str]:
+        """The backend --unit token ("A" / "nm") for the selected unit, or None to leave it to the backend's detection."""
         return self.UNIT_TOKENS[self._unit]
 
     def state(self) -> dict:
@@ -135,6 +137,20 @@ class SaxsDataPane(ttk.Frame):
         except (TypeError, ValueError):
             return vmin, vmax
         return (vmin, vmax) if qmin >= qmax else (qmin, qmax)
+
+    def _read(self, unit: str):
+        """Read the file with `unit` (a UNIT_TOKENS key), and record which unit its q was read in."""
+        data = _read_saxs_data(self.file_path, self.UNIT_TOKENS[unit])
+        if data is None:
+            return None
+        read_as = unit
+        if unit == "auto":
+            # the backend does not report what it detected, but a nm⁻¹ file reads with smaller q than the same file forced to Å⁻¹
+            raw = _read_saxs_data(self.file_path, "A")
+            read_as = "nm⁻¹" if raw is not None and data[0][0] < raw[0][0] else "Å⁻¹"
+        self._read_as = read_as
+        self._unit_label.set("q [Å⁻¹]" if unit != "auto" else f"q [Å⁻¹], file read as {read_as}")
+        return data
 
     # ------------------------------------------------------------------
     def _draw_data(self, data):
@@ -341,7 +357,8 @@ class SaxsDataPane(ttk.Frame):
         new_unit = self._unit_var.get()
         if new_unit == self._unit:
             return
-        data = _read_saxs_data(self.file_path, self.UNIT_TOKENS[new_unit])
+        old_read_as = self._read_as
+        data = self._read(new_unit)
         if data is None:
             self._unit_var.set(self._unit)  # revert: can't re-read what we already loaded
             return
@@ -353,8 +370,10 @@ class SaxsDataPane(ttk.Frame):
         self._qs, self._Is, self._sigs = data
         self._has_sigma = any(s > 0 for s in self._sigs)
         self._vmin, self._vmax = min(self._qs), max(self._qs)
-        new_qmin = self._vmin if old_qmin <= old_lim[0] else min(max(old_qmin, self._vmin), self._vmax)
-        new_qmax = self._vmax if old_qmax >= old_lim[1] else min(max(old_qmax, self._vmin), self._vmax)
+        # the selection moves with the data: the same rows stay selected
+        scale = self.UNIT_FACTORS[self._read_as] / self.UNIT_FACTORS[old_read_as]
+        new_qmin = self._vmin if old_qmin <= old_lim[0] else min(max(old_qmin * scale, self._vmin), self._vmax)
+        new_qmax = self._vmax if old_qmax >= old_lim[1] else min(max(old_qmax * scale, self._vmin), self._vmax)
         self._qmin, self._qmax = (self._vmin, self._vmax) if new_qmin >= new_qmax else (new_qmin, new_qmax)
 
         # ghost the previous interpretation at its old positions, and widen the axis to

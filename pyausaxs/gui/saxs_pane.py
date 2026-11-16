@@ -134,14 +134,15 @@ class SaxsFitterPane(FitterPane):
             unit = self._data_pane.unit()
         else:
             qmin, qmax = QMIN, QMAX
-            unit = "A"
+            unit = None
         argv = [
             "fit",
             self.structure_field.get(), self.saxs_field.get(),
             "--output", _output_arg(self.output_field.get()),
             "data", "--qmin", f"{qmin:.6g}", "--qmax", f"{qmax:.6g}",
-            "--unit", unit,
         ]
+        if unit is not None:
+            argv += ["--unit", unit]
         argv += ["exv", "--model", self.exv_var.get()]
         if self.fit_exv_var.get():
             argv += ["--fit"]
