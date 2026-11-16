@@ -11,12 +11,15 @@ from .panes import (
     FitterPane, _file_stem, _output_arg, QMIN, QMAX,
     make_on_load_structure, make_on_load_saxs,
     add_closable_tab, find_data_pane, release_data_pane,
+    data_pane_state, restore_choice, restore_field, restore_flag,
 )
 from .widgets import FileField
 
 
 class SaxsFitterPane(FitterPane):
     title = "SAXS fitter"
+    HYDRATION_MODELS = ["radial", "none"]
+    EXV_MODELS = ["simple", "fraser", "grid"]
 
     def __init__(self, parent):
         self._data_pane: SaxsDataPane | None = None
@@ -55,14 +58,14 @@ class SaxsFitterPane(FitterPane):
         ttk.Label(grid, text="Hydration model").grid(row=0, column=0, sticky="w", padx=(0, 8))
         self.hydration_var = tk.StringVar()
         hydration_box = ttk.Combobox(grid, textvariable=self.hydration_var,
-                                      values=["radial", "none"], state="readonly", width=12)
+                                      values=self.HYDRATION_MODELS, state="readonly", width=12)
         hydration_box.set("radial")
         hydration_box.grid(row=0, column=1, sticky="ew", pady=2)
 
         ttk.Label(grid, text="Excluded volume model").grid(row=1, column=0, sticky="w", padx=(0, 8))
         self.exv_var = tk.StringVar()
         exv_box = ttk.Combobox(grid, textvariable=self.exv_var,
-                                values=["simple", "fraser", "grid"], state="readonly", width=12)
+                                values=self.EXV_MODELS, state="readonly", width=12)
         exv_box.set("simple")
         exv_box.grid(row=1, column=1, sticky="ew", pady=2)
         exv_box.bind("<<ComboboxSelected>>", lambda _e: self._exv_changed())
@@ -102,7 +105,7 @@ class SaxsFitterPane(FitterPane):
         """Autodetect a matching SAXS file."""
         self._autodetect_saxs(path, self.saxs_field)
 
-    def _open_data_pane(self):
+    def _open_data_pane(self, state: dict | None = None):
         path = self.saxs_field.get()
         if not path:
             return
@@ -110,7 +113,7 @@ class SaxsFitterPane(FitterPane):
             notebook = self.master
             self._data_pane = find_data_pane(notebook, path)
             if self._data_pane is None:
-                self._data_pane = SaxsDataPane(notebook, path)
+                self._data_pane = SaxsDataPane(notebook, path, state)
                 add_closable_tab(notebook, self._data_pane)
         self.master.select(self._data_pane)
 
@@ -151,3 +154,24 @@ class SaxsFitterPane(FitterPane):
 
     def _result_dir(self):
         return os.path.join(self.output_field.get(), _file_stem(self.saxs_field.get()))
+
+    def state(self):
+        return {
+            "structure": self.structure_field.get(), "saxs": self.saxs_field.get(), "output": self.output_field.get(),
+            "hydration": self.hydration_var.get(), "exv": self.exv_var.get(),
+            "fit_exv": self.fit_exv_var.get(), "fit_density": self.fit_density_var.get(),
+            "data_pane": data_pane_state(self),
+        }
+
+    def restore_state(self, state):
+        restore_field(self.structure_field, state.get("structure"))
+        restore_field(self.saxs_field, state.get("saxs"))
+        restore_field(self.output_field, state.get("output"))
+        restore_choice(self.hydration_var, state.get("hydration"), self.HYDRATION_MODELS)
+        restore_choice(self.exv_var, state.get("exv"), self.EXV_MODELS)
+        self._exv_changed()
+        if self.exv_var.get() != "simple":
+            restore_flag(self.fit_exv_var, state.get("fit_exv"))
+            restore_flag(self.fit_density_var, state.get("fit_density"))
+        if isinstance(state.get("data_pane"), dict) and self.saxs_field.valid:
+            self._open_data_pane(state["data_pane"])

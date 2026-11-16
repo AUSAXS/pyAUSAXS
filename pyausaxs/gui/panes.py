@@ -130,6 +130,29 @@ def make_on_load_saxs(set_load_directive=None, structure_field=None):
     return _on_load_saxs
 
 
+# ----- persisted pane state ---------------------------------------------------
+# Each pane restores its inputs and settings from the last session (see App.save_state). A stored value is only taken if it still fits the
+# widget, since the config may come from an older version.
+def restore_field(field: FileField, value):
+    if isinstance(value, str) and value:
+        field.set(value)
+
+
+def restore_choice(var: tk.StringVar, value, choices):
+    if value in choices:
+        var.set(value)
+
+
+def restore_flag(var: tk.BooleanVar, value):
+    if isinstance(value, bool):
+        var.set(value)
+
+
+def data_pane_state(pane) -> Optional[dict]:
+    """The state of `pane`'s data pane, or None if it has none open."""
+    return pane._data_pane.state() if pane._data_pane is not None else None
+
+
 # ----- closable notebook tabs -------------------------------------------------
 # Only the dynamically opened panes (structure / data) can be closed; the three fitter panes are permanent.
 # A ttk style belongs to the whole notebook rather than to one tab, so a close button built as a style element
@@ -381,6 +404,13 @@ class FitterPane(ttk.Frame):
         return None
 
     def _result_dir(self) -> str:
+        raise NotImplementedError
+
+    def state(self) -> dict:
+        """The pane's inputs and settings, for restoring them in a later session."""
+        raise NotImplementedError
+
+    def restore_state(self, state: dict):
         raise NotImplementedError
 
     # ----- shared behavior ----------------------------------------------------

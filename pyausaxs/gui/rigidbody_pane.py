@@ -22,7 +22,7 @@ from .data_pane import SaxsDataPane
 from .load_recovery import RELAXED_LOADS, ensure_structure_loads
 from .panes import (
     QMIN, QMAX, add_figure_tab, make_on_load_structure, make_on_load_saxs,
-    add_closable_tab, find_data_pane, release_data_pane,
+    add_closable_tab, find_data_pane, release_data_pane, data_pane_state,
 )
 from .runner import RigidbodyRunner
 from .structure_pane import StructurePane
@@ -254,7 +254,15 @@ class RigidbodyPane(ttk.Frame):
         """Called when a drag leaves before any drop has ever succeeded in this process."""
         self.console.append("Drag-and-drop didn't register — please try dropping the file again.\n")
 
-    def _open_data_pane(self):
+    def state(self) -> dict:
+        """The data pane's selection, for restoring it in a later session; the script persists on its own (see _autosave_script)."""
+        return {"data_pane": data_pane_state(self)}
+
+    def restore_state(self, state: dict):
+        if isinstance(state.get("data_pane"), dict) and self.saxs_field.valid:
+            self._open_data_pane(state["data_pane"])
+
+    def _open_data_pane(self, state: Optional[dict] = None):
         """Open (or focus) a data-inspection tab for the current SAXS file. Rebuilt if the file has changed since it was opened. Its q-range
         selection is the one a run of a script on this file uses (see _start_runner)."""
         path = self.saxs_field.get()
@@ -266,7 +274,7 @@ class RigidbodyPane(ttk.Frame):
             notebook = self.master
             self._data_pane = find_data_pane(notebook, path)
             if self._data_pane is None:
-                self._data_pane = SaxsDataPane(notebook, path)
+                self._data_pane = SaxsDataPane(notebook, path, state)
                 add_closable_tab(notebook, self._data_pane)
         self.master.select(self._data_pane)
 

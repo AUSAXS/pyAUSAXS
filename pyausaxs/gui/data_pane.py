@@ -6,6 +6,7 @@ import os
 import time
 import tkinter as tk
 from tkinter import ttk
+from typing import Optional
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
@@ -36,14 +37,16 @@ class SaxsDataPane(ttk.Frame):
     SLIDER_STEP_MS = 16     # ~60fps tick for the slide
     AXIS_ANIM_MS = 500      # how long the axis view takes to pan onto the new range
 
-    def __init__(self, parent, file_path: str):
+    def __init__(self, parent, file_path: str, state: Optional[dict] = None):
+        """`state` is a selection to start from, as returned by state(); without one, the pane starts from the file's full range."""
         super().__init__(parent)
+        state = state or {}
         self.file_path = file_path
         self.title = "Dataset: " + os.path.splitext(os.path.basename(file_path))[0]
         self._qs = self._Is = self._sigs = None   # q always in Å⁻¹ (the backend's own unit)
         self._has_sigma = False
         self._data_artists: list = []
-        self._unit = self.DEFAULT_UNIT
+        self._unit = state["unit"] if state.get("unit") in self.UNIT_TOKENS else self.DEFAULT_UNIT
         self._unit_var = tk.StringVar(value=self._unit)
         self._drag = None                         # handle being dragged (0 / 1 / None)
         self._vline_top = None                    # cached slider-fraction of the plot top
@@ -63,8 +66,8 @@ class SaxsDataPane(ttk.Frame):
             self._vmin, self._vmax = min(qs), max(qs)
         else:
             self._vmin, self._vmax = QMIN, QMAX
-        # the full range, which is also what a fit uses with no data pane open
-        self._qmin, self._qmax = self._vmin, self._vmax
+        # a stored selection, or else the full range, which is also what a fit uses with no data pane open
+        self._qmin, self._qmax = self._clamp_qrange(state.get("qrange"), self._vmin, self._vmax)
 
         # --- figure: data axes on top, a thin slider strip sharing its x below ---
         self._fig = Figure(facecolor=PALETTE["surface"])
@@ -119,6 +122,19 @@ class SaxsDataPane(ttk.Frame):
     def unit(self) -> str:
         """The backend --unit token ("A" / "nm") for the currently selected unit."""
         return self.UNIT_TOKENS[self._unit]
+
+    def state(self) -> dict:
+        """The selection, for restoring the pane in a later session."""
+        return {"qrange": [self._qmin, self._qmax], "unit": self._unit}
+
+    @staticmethod
+    def _clamp_qrange(qrange, vmin: float, vmax: float) -> tuple[float, float]:
+        """A stored (qmin, qmax) clamped to this file's own range, or the full range if missing or degenerate."""
+        try:
+            qmin, qmax = (min(max(float(q), vmin), vmax) for q in qrange)
+        except (TypeError, ValueError):
+            return vmin, vmax
+        return (vmin, vmax) if qmin >= qmax else (qmin, qmax)
 
     # ------------------------------------------------------------------
     def _draw_data(self, data):

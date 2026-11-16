@@ -34,3 +34,11 @@ def update_config(**values) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
+
+
+def pane_states() -> dict[str, dict]:
+    """Each pane's persisted state (see App.save_state), keyed by pane title."""
+    states = load_config().get("panes")
+    if not isinstance(states, dict):
+        return {}
+    return {title: state for title, state in states.items() if isinstance(state, dict)}
