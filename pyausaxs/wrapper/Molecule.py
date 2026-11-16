@@ -281,7 +281,7 @@ class Molecule(BackendObject):
         self._water_data["y"]       = _ptr_to_array(wy_ptr, m)
         self._water_data["z"]       = _ptr_to_array(wz_ptr, m)
         self._water_data["weights"] = _ptr_to_array(ww_ptr, m)
-        self._water_data["ff_type"] = "OH"
+        self._water_data["ff_type"] = "HOH"
         ausaxs.deallocate(data_id)
 
     def hydrate(self) -> None:
