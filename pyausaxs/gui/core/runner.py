@@ -39,7 +39,6 @@ class RefinementWorker:
         self._busy = False
         self._stopping = False
         self._queue: queue.Queue = queue.Queue()
-        self._thread: Optional[threading.Thread] = None
         self._relaxed_loads: Optional[RelaxedLoads] = None
         self._overrides = None  # settings the active run relaxed, held until it finishes
 
@@ -94,20 +93,11 @@ class RefinementWorker:
             from ...wrapper.settings import settings
             settings.set("weighted_bins", WeightedBins.auto.value)
 
-        self._thread = threading.Thread(
+        threading.Thread(
             target=self._work,
             args=(script, validate_only, prepare_rigidbody_refinement, set_output_callback, reset_output_callback),
             daemon=True,
-        )
-        self._thread.start()
-
-    def shutdown(self):
-        """Stop the active run and wait for it to leave the backend; call before the interpreter exits. Until the run returns, the
-        backend's std::cout writes through the output callback, and its exit flush would call into the finalized interpreter."""
-        from ...wrapper.Rigidbody import Rigidbody
-        while self._thread is not None and self._thread.is_alive():
-            Rigidbody.stop_run()  # repeated: a run clears any stop requested before its loop starts
-            self._thread.join(0.2)
+        ).start()
 
     def _work(self, script, validate_only, prepare, set_cb, reset_cb):
         result, error, error_streamed = None, None, False

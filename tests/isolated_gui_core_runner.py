@@ -113,14 +113,6 @@ def test_stop_request_needs_a_run():
     assert not runner.RefinementWorker().request_stop()
 
 
-def test_shutdown_ends_a_run(tmp_path):
-    # a run still inside the backend when this process exits crashes it, failing test_isolated
-    worker = runner.RefinementWorker()
-    worker.start(make_script(tmp_path, iterations=1000000), validate_only=False)
-    worker.shutdown()
-    assert not worker.drain(lambda _line: None, lambda _outcome: None)
-
-
 # ── previews ───────────────────────────────────────────────────────────────
 def test_preview_cache_rebuilds_only_on_structural_edits(tmp_path):
     cache = preview.PreviewCache()

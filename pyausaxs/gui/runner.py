@@ -126,10 +126,6 @@ class RigidbodyRunner:
         """See RefinementWorker.request_stop."""
         return self._worker.request_stop()
 
-    def shutdown(self):
-        """See RefinementWorker.shutdown."""
-        self._worker.shutdown()
-
     def start(self, script: str, validate_only: bool,
               on_line: Callable[[str], None], on_done: Callable[[RefinementOutcome], None], *,
               structure_path: Optional[str] = None, relaxed_loads: RelaxedLoads = RELAXED_LOADS):
