@@ -54,6 +54,8 @@ class App(TkinterDnD.Tk):
             pane = pane_cls(notebook)
             notebook.add(pane, text=pane_cls.title)
             titles.append(pane_cls.title)
+            if pane_cls is RigidbodyPane:
+                self._rigidbody_pane = pane
 
         # restore the panel that was open when the GUI was last closed
         if config.get("last_panel") in titles:
@@ -75,10 +77,17 @@ class App(TkinterDnD.Tk):
         ttk.Label(footer, text=f"pyAUSAXS {__version__}", style="Footer.TLabel").pack(side="left")
         ttk.Label(footer, text="Kristian Lytje & Jan Skov Pedersen", style="Footer.TLabel").pack(side="right")
 
+    def shutdown(self):
+        """Stop a running refinement; call once the window is gone, before the interpreter exits (see RefinementWorker.shutdown)."""
+        self._rigidbody_pane.runner.shutdown()
+
 
 def main(argv=None) -> int:
     app = App()
-    app.mainloop()
+    try:
+        app.mainloop()
+    finally:
+        app.shutdown()
     return 0
 
 
