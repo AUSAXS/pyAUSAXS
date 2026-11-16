@@ -15,8 +15,6 @@ which selection stands in for an empty field, how a staged split is extended, th
 import difflib
 from typing import Callable, NamedTuple, Optional
 
-from .backend import prepare
-from .loads import RELAXED_LOADS, RelaxedLoads
 from .plotting import _BODY_COLORS, residue_ca_mask
 from .script import (
     LOAD_BLOCK_RE, is_residue_id, load_split, norm_splits, parse_split_element, parse_splits, structure_preview_script,
@@ -42,12 +40,11 @@ class StructureModel:
     """
 
     def __init__(self, pdb_path: str, *, splits: str = "", base_script: Optional[Callable[[], str]] = None,
-                 base_signature: Optional[Callable[[str], object]] = None, relaxed_loads: RelaxedLoads = RELAXED_LOADS):
+                 base_signature: Optional[Callable[[str], object]] = None, backend_settings: Optional[dict[str, str]] = None):
         self.pdb_path = pdb_path
         self.splits = splits                      # the load-block splits in force
-        # relaxed-load grants, shared with every other pane by default, so a structure the user already accepted with relaxed settings
-        # elsewhere doesn't start failing again here.
-        self._relaxed_loads = relaxed_loads
+        # set on top of the defaults before each rebuild; the owning pane's dict, so a load setting it relaxes later applies here too
+        self._backend_settings = {} if backend_settings is None else backend_settings
         self._base_script = base_script
         # reduce the base script to a structural fingerprint, so a later edit to the same body/split setup is detected as "stale". Defaults to
         # the structure signature, which covers every element this model reads or writes (rename/merge/split/symmetry/constraint/...).
@@ -94,7 +91,10 @@ class StructureModel:
         elements = self.elements if elements is None else elements
         script = self.compose(elements)
         from ...wrapper.Rigidbody import Rigidbody
-        prepare(structure=self.pdb_path, relaxed_loads=self._relaxed_loads)
+        from ...wrapper.settings import settings
+        settings.reset_to_defaults()
+        for name, value in self._backend_settings.items():
+            settings.set(name, value)
         try:
             rb = Rigidbody(script)
             data = rb.preview_structure()

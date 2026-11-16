@@ -54,17 +54,14 @@ class StructurePane(ttk.Frame):
         base_script: Optional[Callable[[], str]] = None,
         on_apply_script: Optional[Callable[[str], None]] = None,
         base_signature: Optional[Callable[[str], object]] = None,
-        relaxed_loads=None,
+        load_settings: Optional[dict[str, str]] = None,
     ):
         super().__init__(parent)
         self.pdb_path = pdb_path
-        # relaxed-load grants, shared with every other pane by default, so a structure the user already accepted with relaxed settings
-        # elsewhere doesn't start failing again here.
-        from .load_recovery import RELAXED_LOADS
         # the bodies, staged elements and selections; this pane only shows them and forwards the user's actions
         self.model = StructureModel(
             pdb_path, splits=splits, base_script=base_script, base_signature=base_signature,
-            relaxed_loads=relaxed_loads if relaxed_loads is not None else RELAXED_LOADS,
+            backend_settings=load_settings,
         )
         self._on_apply_script = on_apply_script   # apply a confirmed new script, or None
         self.title = "Structure: " + pdb_path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
@@ -410,7 +407,7 @@ class StructurePane(ttk.Frame):
     def check_stale(self):
         """Flag the view as stale when the base script has changed since it was built (e.g. the user edited the load block in the main editor).
         If the structure has never loaded successfully, retry instead of just flagging: there is no built view or staged edits to protect, so
-        a load-time setting relaxed elsewhere (see core.loads.RelaxedLoads) — which changes nothing the base signature can see — gets a chance
+        a load-time setting relaxed by the owning pane (see core.loads) — which changes nothing the base signature can see — gets a chance
         to take effect. Called when the pane is switched back to."""
         if not self.model.built:
             ok, msg = self._rebuild()

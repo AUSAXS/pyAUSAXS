@@ -11,7 +11,6 @@ matplotlib.use("TkAgg")
 
 from tkinterdnd2 import TkinterDnD
 
-from .core import backend
 from .em_pane import EmFitterPane
 from .panes import enable_closable_tabs
 from .rigidbody_pane import RigidbodyPane
@@ -32,8 +31,9 @@ class App(TkinterDnD.Tk):
         self.minsize(960, 680)
         apply_theme(self)
 
-        # the settings every backend entry starts from (see core.backend), captured before anything touches the backend
-        backend.snapshot_defaults()
+        # the settings every backend entry resets to before applying its own, captured before anything touches the backend
+        from ..wrapper.settings import settings
+        settings.snapshot_defaults()
 
         header = ttk.Frame(self, padding=(20, 14, 20, 6))
         header.pack(side="top", fill="x")

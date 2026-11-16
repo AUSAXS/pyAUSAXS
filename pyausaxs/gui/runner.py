@@ -9,7 +9,6 @@ import sys
 import threading
 from typing import Callable, Optional
 
-from .core.loads import RELAXED_LOADS, RelaxedLoads
 from .core.runner import RefinementOutcome, RefinementWorker
 
 
@@ -122,10 +121,9 @@ class RigidbodyRunner:
 
     def start(self, script: str, validate_only: bool,
               on_line: Callable[[str], None], on_done: Callable[[RefinementOutcome], None], *,
-              structure_path: Optional[str] = None, qrange: Optional[tuple[float, float]] = None, unit: Optional[str] = None,
-              relaxed_loads: RelaxedLoads = RELAXED_LOADS):
+              backend_settings: Optional[dict[str, str]] = None):
         """See RefinementWorker.start."""
-        self._worker.start(script, validate_only, structure_path=structure_path, qrange=qrange, unit=unit, relaxed_loads=relaxed_loads)
+        self._worker.start(script, validate_only, backend_settings=backend_settings)
 
         def poll():
             if self._worker.drain(on_line, on_done):

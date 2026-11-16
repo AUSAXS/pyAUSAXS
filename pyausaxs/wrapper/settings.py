@@ -4,8 +4,11 @@ from pyausaxs.signatures import register
 import ctypes as ct
 import numpy as np
 import os
+import tempfile
 import warnings
-from typing import Any
+from typing import Any, Optional
+
+_defaults: Optional[str] = None  # the settings `reset_to_defaults` returns to, as the text of a settings file
 
 register({
     "get_setting": (
@@ -150,15 +153,33 @@ class settings:
         return q
 
     @staticmethod
-    def snapshot_defaults(path: str):
-        """Capture the current settings as the "defaults" `reset_to_defaults` later restores. Call once per launch, first thing."""
-        settings.save(path)
+    def snapshot_defaults():
+        """Capture the current settings as the ones `reset_to_defaults` returns to. Call once at start-up, before anything changes them;
+        otherwise the first `reset_to_defaults` takes the snapshot."""
+        global _defaults
+        fd, path = tempfile.mkstemp(suffix=".txt")
+        os.close(fd)
+        try:
+            settings.save(path)
+            with open(path, errors="replace") as f:
+                _defaults = f.read()
+        finally:
+            os.unlink(path)
 
     @staticmethod
-    def reset_to_defaults(path: str):
-        """Reset every setting back to the snapshot taken by `snapshot_defaults`."""
-        if os.path.isfile(path):
+    def reset_to_defaults():
+        """Reset every setting to the snapshot taken by `snapshot_defaults`. The settings are process-wide, so anything that runs several
+        operations in one process (e.g. the GUI) calls this right before each one, then sets only what that operation needs."""
+        if _defaults is None:
+            settings.snapshot_defaults()
+            return
+        fd, path = tempfile.mkstemp(suffix=".txt")
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(_defaults)
             settings.load(path)
+        finally:
+            os.unlink(path)
 
     @staticmethod
     def exv(exv_model: ExvModel = ExvModel.simple):

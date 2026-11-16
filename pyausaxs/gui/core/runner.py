@@ -12,9 +12,6 @@ import queue
 import threading
 from typing import Callable, Optional
 
-from .backend import prepare
-from .loads import RELAXED_LOADS, RelaxedLoads
-
 
 class RefinementOutcome:
     """The outcome of a rigid-body validation or refinement."""
@@ -57,17 +54,18 @@ class RefinementWorker:
         self._stopping = True
         return True
 
-    def start(self, script: str, validate_only: bool, *, structure_path: Optional[str] = None,
-              qrange: Optional[tuple[float, float]] = None, unit: Optional[str] = None, relaxed_loads: RelaxedLoads = RELAXED_LOADS):
-        """Launch a validation (validate_only) or a refinement of `script`. The backend is reset first and given the run's own settings: the
-        relaxed load granted for `structure_path`, and the q-range and unit (see core.backend.prepare). Those stay in force while the run
-        reads them on the worker thread, as long as the front-end doesn't enter the backend meanwhile (e.g. it should skip its structure
-        preview while running())."""
+    def start(self, script: str, validate_only: bool, *, backend_settings: Optional[dict[str, str]] = None):
+        """Launch a validation (validate_only) or a refinement of `script`. The backend is reset to its defaults first, then given
+        `backend_settings` (e.g. the q-range and any relaxed load settings). Those stay in force while the run reads them on the worker
+        thread, as long as the front-end doesn't enter the backend meanwhile (e.g. it should skip its structure preview while running())."""
         if self._busy:
             raise RuntimeError("a refinement is already running")
         from ...wrapper.Rigidbody import prepare_rigidbody_refinement
         from ...wrapper.Output import set_output_callback, reset_output_callback
-        prepare(structure=structure_path, qrange=qrange, unit=unit, relaxed_loads=relaxed_loads)
+        from ...wrapper.settings import settings
+        settings.reset_to_defaults()
+        for name, value in (backend_settings or {}).items():
+            settings.set(name, value)
         self._busy = True
         self._stopping = False
         self._queue = queue.Queue()

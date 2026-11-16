@@ -12,7 +12,6 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 
 from .core.files import SAXS_EXTENSIONS, STRUCTURE_EXTENSIONS, find_companion
 from .core.plotting import fit_figure, plot_file_figure, pretty_plot_name
-from .core.backend import prepare
 from .load_recovery import ensure_structure_loads
 from .runner import CliRunner
 from .theme import FONTS, PALETTE
@@ -81,7 +80,9 @@ def _read_saxs_data(path: str, unit: Optional[str]) -> tuple[list, list, list] |
     the backend's interpretation of the file's q column, same as the --unit CLI flag; None leaves it to the backend's detection. The read
     uses the full q-axis, so the reader's own q-range clamping doesn't drop any rows here. None if the file can't be read."""
     from ..wrapper.Datafile import Datafile
-    prepare(qrange=(QMIN, QMAX), unit=unit)
+    from ..wrapper.settings import settings
+    settings.reset_to_defaults()
+    settings.histogram(qmin=QMIN, qmax=QMAX, unit=unit)
     try:
         q, I, Ierr = Datafile(path).data()
     except Exception:
@@ -344,6 +345,7 @@ class FitterPane(ttk.Frame):
     def __init__(self, parent):
         super().__init__(parent)
         self.runner = CliRunner(self)
+        self.load_settings: dict[str, str] = {}  # load-time settings the user relaxed after a refused structure (see core.loads)
 
         paned = ttk.Panedwindow(self, orient="horizontal")
         paned.pack(fill="both", expand=True, padx=6, pady=6)
@@ -450,7 +452,7 @@ class FitterPane(ttk.Frame):
             return
 
         path = self._structure_load_path()
-        if path and not ensure_structure_loads(self, path, self.console):
+        if path and not ensure_structure_loads(self, path, self.load_settings, self.console):
             return
 
         args = self._build_command()
@@ -459,7 +461,10 @@ class FitterPane(ttk.Frame):
         self.run_button.configure(text="Running…", state="disabled")
         self.progress.pack(side="left", fill="x", expand=True, padx=(12, 0))
         self.progress.start(15)
-        prepare(structure=path)  # the arguments carry the rest of the run's settings
+        from ..wrapper.settings import settings
+        settings.reset_to_defaults()
+        for name, value in self.load_settings.items():  # the arguments carry the rest of the run's settings
+            settings.set(name, value)
         self.runner.start(args, on_line=self.console.append, on_done=self._run_finished)
 
     def _run_finished(self, returncode: int):

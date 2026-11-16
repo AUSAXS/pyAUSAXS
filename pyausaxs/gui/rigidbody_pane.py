@@ -19,7 +19,7 @@ from .core.preview import LiveStructure, PreviewCache, bare_structure_preview
 from .core.script import DEFAULT_RIGIDBODY_SCRIPT
 from .core.syntax import fetch_vocabulary
 from .data_pane import SaxsDataPane
-from .load_recovery import RELAXED_LOADS, ensure_structure_loads
+from .load_recovery import ensure_structure_loads
 from .panes import (
     QMIN, QMAX, add_figure_tab, make_on_load_structure, make_on_load_saxs,
     add_closable_tab, find_data_pane, release_data_pane, data_pane_state,
@@ -61,8 +61,8 @@ class RigidbodyPane(ttk.Frame):
         self._data_pane = None           # SaxsDataPane tab for inspecting the SAXS data, or None
         self._structure_pane = None      # StructurePane tab for inspecting/managing bodies, or None
         self._syncing_splits = False     # set while the Splits field is being filled *from* the script, so it isn't written straight back
-        self._relaxed_loads = RELAXED_LOADS  # shared across every pane: files the user has granted a relaxed load after the backend refused them
-        self._preview = PreviewCache(self._relaxed_loads)  # the backend preview structure, cached on the script's preview signature
+        self._load_settings: dict[str, str] = {}  # load-time settings the user relaxed after a refused structure (see core.loads)
+        self._preview = PreviewCache(self._load_settings)  # the backend preview structure, cached on the script's preview signature
         self._pdb_changed_pending_fallback = False  # armed by a pdb-directive change: let the next failed preview retry bare
 
         # three panes: controls | script editor | results. The editor can expand over the results pane (and collapses again
@@ -291,7 +291,7 @@ class RigidbodyPane(ttk.Frame):
     def _bare_structure_preview(self, path: str) -> Optional[dict]:
         """Preview-structure data for `path` alone, with no splits or elements staged — a fallback for when the real script's don't apply
         to it any more (see _pdb_changed_pending_fallback), e.g. right after a structure swap. See preview.bare_structure_preview."""
-        return bare_structure_preview(path, self._load_value("saxs"), self._relaxed_loads)
+        return bare_structure_preview(path, self._load_value("saxs"), self._load_settings)
 
     def _structure_loads(self) -> bool:
         """Whether the current script's structure can be read, offering recovery if it can't. Called before Validate/Run, where a refused
@@ -309,10 +309,10 @@ class RigidbodyPane(ttk.Frame):
             return True
         if self._preview.error is None:
             return True  # empty for some other reason; not a load failure we can offer a remedy for
-        if not ensure_structure_loads(self, path, self.console):
+        if not ensure_structure_loads(self, path, self._load_settings, self.console):
             return False  # a genuine load failure the user declined, or couldn't, recover from
-        # the bare file loads fine — any remaining preview failure is the script's own splits/elements, not the load. If a relaxation
-        # was just granted, give the preview one more shot so it reflects that before Validate/Run proceeds.
+        # the bare file loads fine — any remaining preview failure is the script's own splits/elements, not the load. If a load setting
+        # was just relaxed, give the preview one more shot so it reflects that before Validate/Run proceeds.
         self._preview.invalidate()
         self._preview_key = None
         self._update_structure_preview()
@@ -334,7 +334,7 @@ class RigidbodyPane(ttk.Frame):
                 splits=self.splits_var.get(),
                 base_script=lambda: self.editor.get("1.0", "end-1c"),
                 on_apply_script=self._apply_structure_script,
-                relaxed_loads=self._relaxed_loads,
+                load_settings=self._load_settings,
             )
             add_closable_tab(notebook, self._structure_pane)
         # selecting fires <<NotebookTabChanged>>, which re-checks staleness and syncs the camera
@@ -819,9 +819,11 @@ class RigidbodyPane(ttk.Frame):
         nothing else enters the backend meanwhile."""
         saxs = self._load_value("saxs")
         data_pane = find_data_pane(self.master, saxs) if saxs else None
-        qrange, unit = ((QMIN, QMAX), None) if data_pane is None else (data_pane.qrange(), data_pane.unit())
-        self.runner.start(script, validate_only, on_line=self.console.append, on_done=self._on_done,
-                          structure_path=self._load_value("pdb"), qrange=qrange, unit=unit, relaxed_loads=self._relaxed_loads)
+        (qmin, qmax), unit = ((QMIN, QMAX), None) if data_pane is None else (data_pane.qrange(), data_pane.unit())
+        backend_settings = {**self._load_settings, "qmin": str(qmin), "qmax": str(qmax)}
+        if unit is not None:
+            backend_settings["unit"] = unit.lower()
+        self.runner.start(script, validate_only, on_line=self.console.append, on_done=self._on_done, backend_settings=backend_settings)
 
     def _stop_clicked(self):
         """Ask the backend to end the run after its current iteration. The run then completes normally, so _on_done still fires
@@ -840,7 +842,7 @@ class RigidbodyPane(ttk.Frame):
     # ----- live structure preview during a run --------------------------------
     def _begin_live_preview(self, script: str):
         """If the script contains an `update` element, prepare to follow its structure live and surface the structure tab."""
-        message = self._live.begin(script, self._relaxed_loads)
+        message = self._live.begin(script, self._load_settings)
         if message:
             self.console.append(message + "\n")
         if self._live.active:
