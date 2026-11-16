@@ -12,6 +12,7 @@ import queue
 import threading
 from typing import Callable, Optional
 
+from .backend import prepare
 from .loads import RELAXED_LOADS, RelaxedLoads
 
 
@@ -39,8 +40,6 @@ class RefinementWorker:
         self._busy = False
         self._stopping = False
         self._queue: queue.Queue = queue.Queue()
-        self._relaxed_loads: Optional[RelaxedLoads] = None
-        self._overrides = None  # settings the active run relaxed, held until it finishes
 
     def running(self) -> bool:
         return self._busy
@@ -59,40 +58,19 @@ class RefinementWorker:
         return True
 
     def start(self, script: str, validate_only: bool, *, structure_path: Optional[str] = None,
-              relaxed_loads: RelaxedLoads = RELAXED_LOADS):
-        """Launch a validation (validate_only) or a refinement of `script`. Any relaxed load granted for `structure_path` stays applied until
-        the run finishes: the run reads the structure on the worker thread. That is safe despite the settings being process-wide, as long as
-        the front-end doesn't load structures of its own meanwhile (e.g. it should skip its structure preview while running())."""
+              qrange: Optional[tuple[float, float]] = None, unit: Optional[str] = None, relaxed_loads: RelaxedLoads = RELAXED_LOADS):
+        """Launch a validation (validate_only) or a refinement of `script`. The backend is reset first and given the run's own settings: the
+        relaxed load granted for `structure_path`, and the q-range and unit (see core.backend.prepare). Those stay in force while the run
+        reads them on the worker thread, as long as the front-end doesn't enter the backend meanwhile (e.g. it should skip its structure
+        preview while running())."""
         if self._busy:
             raise RuntimeError("a refinement is already running")
+        from ...wrapper.Rigidbody import prepare_rigidbody_refinement
+        from ...wrapper.Output import set_output_callback, reset_output_callback
+        prepare(structure=structure_path, qrange=qrange, unit=unit, relaxed_loads=relaxed_loads)
         self._busy = True
         self._stopping = False
         self._queue = queue.Queue()
-
-        try:
-            from ...wrapper.AUSAXS import AUSAXS
-            from ...wrapper.Rigidbody import prepare_rigidbody_refinement
-            from ...wrapper.Output import set_output_callback, reset_output_callback
-            # instantiate the singleton up front: the output-callback and rigidbody
-            # wrappers reach the library via AUSAXS.lib() classmethods, which require
-            # the instance to already exist.
-            if not AUSAXS().ready():
-                raise RuntimeError(f"library failed to initialize: {AUSAXS().init_error()}")
-        except Exception as e:
-            # reported through the queue like any other outcome, so the front-end handles it in one place
-            self._queue.put(f"AUSAXS library unavailable: {e}\n")
-            self._queue.put(RefinementOutcome(None, e))
-            return
-
-        self._relaxed_loads = relaxed_loads
-        self._overrides = relaxed_loads.apply(structure_path)
-        if not validate_only:
-            # automatically disable weighted bins if they are not required
-            # TODO move this to the backend
-            from ...wrapper.Models import WeightedBins
-            from ...wrapper.settings import settings
-            settings.set("weighted_bins", WeightedBins.auto.value)
-
         threading.Thread(
             target=self._work,
             args=(script, validate_only, prepare_rigidbody_refinement, set_output_callback, reset_output_callback),
@@ -131,9 +109,6 @@ class RefinementWorker:
             if isinstance(item, RefinementOutcome):
                 self._busy = False
                 self._stopping = False
-                if self._relaxed_loads is not None:  # the run is over; put the global settings back
-                    self._relaxed_loads.restore(self._overrides)
-                self._relaxed_loads = self._overrides = None
                 on_done(item)
                 return False
             on_line(item)

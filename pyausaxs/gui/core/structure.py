@@ -15,6 +15,7 @@ which selection stands in for an empty field, how a staged split is extended, th
 import difflib
 from typing import Callable, NamedTuple, Optional
 
+from .backend import prepare
 from .loads import RELAXED_LOADS, RelaxedLoads
 from .plotting import _BODY_COLORS, residue_ca_mask
 from .script import (
@@ -92,15 +93,15 @@ class StructureModel:
         adopting `elements` on success is up to the caller."""
         elements = self.elements if elements is None else elements
         script = self.compose(elements)
+        from ...wrapper.Rigidbody import Rigidbody
+        prepare(structure=self.pdb_path, relaxed_loads=self._relaxed_loads)
         try:
-            from ...wrapper.Rigidbody import Rigidbody
-            with self._relaxed_loads.applied(self.pdb_path):
-                rb = Rigidbody(script)
-                data = rb.preview_structure()
-                if not len(data["coords"]):
-                    return False, "the structure is empty"
-                names = rb.body_names()
-                layout = rb.symmetry_layout()
+            rb = Rigidbody(script)
+            data = rb.preview_structure()
+            if not len(data["coords"]):
+                return False, "the structure is empty"
+            names = rb.body_names()
+            layout = rb.symmetry_layout()
         except Exception as e:
             return False, str(e)
 

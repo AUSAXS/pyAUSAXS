@@ -11,11 +11,12 @@ matplotlib.use("TkAgg")
 
 from tkinterdnd2 import TkinterDnD
 
+from .core import backend
 from .em_pane import EmFitterPane
 from .panes import enable_closable_tabs
 from .rigidbody_pane import RigidbodyPane
 from .saxs_pane import SaxsFitterPane
-from .session import SettingsBackup, load_config, snapshot_default_settings, update_config
+from .session import load_config, update_config
 from .theme import PALETTE, apply_theme
 
 
@@ -29,14 +30,8 @@ class App(TkinterDnD.Tk):
         self.minsize(960, 680)
         apply_theme(self)
 
-        # snapshot pristine defaults before restoring any prior session (used by SaxsDataPane._reset_backend_settings)
-        try:
-            snapshot_default_settings()
-        except Exception:
-            pass
-        self._settings_backup = SettingsBackup(self)
-        self._settings_backup.restore()
-        self._settings_backup.start_autosave()
+        # the settings every backend entry starts from (see core.backend), captured before anything touches the backend
+        backend.snapshot_defaults()
 
         header = ttk.Frame(self, padding=(20, 14, 20, 6))
         header.pack(side="top", fill="x")

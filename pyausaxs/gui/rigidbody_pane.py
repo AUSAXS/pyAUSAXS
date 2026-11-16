@@ -21,7 +21,7 @@ from .core.syntax import fetch_vocabulary
 from .data_pane import SaxsDataPane
 from .load_recovery import RELAXED_LOADS, ensure_structure_loads
 from .panes import (
-    add_figure_tab, make_on_load_structure, make_on_load_saxs,
+    QMIN, QMAX, add_figure_tab, make_on_load_structure, make_on_load_saxs,
     add_closable_tab, find_data_pane, release_data_pane,
 )
 from .runner import RigidbodyRunner
@@ -255,8 +255,8 @@ class RigidbodyPane(ttk.Frame):
         self.console.append("Drag-and-drop didn't register — please try dropping the file again.\n")
 
     def _open_data_pane(self):
-        """Open (or focus) a data-inspection tab for the current SAXS file. Rebuilt if the file has changed since it was opened; the 
-        rigid-body run is script-driven, so this is purely for inspecting the data."""
+        """Open (or focus) a data-inspection tab for the current SAXS file. Rebuilt if the file has changed since it was opened. Its q-range
+        selection is the one a run of a script on this file uses (see _start_runner)."""
         path = self.saxs_field.get()
         if not path:
             return
@@ -784,11 +784,7 @@ class RigidbodyPane(ttk.Frame):
             return
         self.console.append("Validating script…\n\n")
         self._set_busy(True)
-        # the run reads the structure on a worker thread, so the runner keeps its relaxed load applied until it finishes. Safe despite
-        # being process-wide: the preview is skipped entirely while a run is in flight, so nothing else loads meanwhile.
-        self.runner.start(self.editor.get("1.0", "end-1c"), validate_only=True,
-                          on_line=self.console.append, on_done=self._on_done,
-                          structure_path=self._load_value("pdb"), relaxed_loads=self._relaxed_loads)
+        self._start_runner(self.editor.get("1.0", "end-1c"), validate_only=True)
 
     def _run_clicked(self):
         if self.runner.running():
@@ -805,10 +801,19 @@ class RigidbodyPane(ttk.Frame):
         # Done before starting the run so the run's parse is the last to reset the live buffer.
         self._begin_live_preview(script)
         self._set_busy(True, stoppable=True)
-        self.runner.start(script, validate_only=False, on_line=self.console.append, on_done=self._on_done,
-                          structure_path=self._load_value("pdb"), relaxed_loads=self._relaxed_loads)
+        self._start_runner(script, validate_only=False)
         if self._live.active:
             self._live_job = self.after(LiveStructure.POLL_MS, self._poll_live)
+
+    def _start_runner(self, script: str, validate_only: bool):
+        """Start the runner with the run's own settings. A script carries no q-range, so the one of its dataset is used: the selection of a
+        data pane open on that file, or else the full range, as for the fitters. The preview is skipped while the run is in flight, so
+        nothing else enters the backend meanwhile."""
+        saxs = self._load_value("saxs")
+        data_pane = find_data_pane(self.master, saxs) if saxs else None
+        qrange, unit = ((QMIN, QMAX), None) if data_pane is None else (data_pane.qrange(), data_pane.unit())
+        self.runner.start(script, validate_only, on_line=self.console.append, on_done=self._on_done,
+                          structure_path=self._load_value("pdb"), qrange=qrange, unit=unit, relaxed_loads=self._relaxed_loads)
 
     def _stop_clicked(self):
         """Ask the backend to end the run after its current iteration. The run then completes normally, so _on_done still fires

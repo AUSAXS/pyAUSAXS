@@ -11,8 +11,9 @@ import time
 
 import pytest
 
-from pyausaxs.gui.core import preview, runner
-from pyausaxs.gui.core.loads import RelaxedLoads
+from pyausaxs.gui.core import backend, preview, runner
+from pyausaxs.gui.core.loads import ALLOW_UNKNOWN_RESIDUES, RelaxedLoads
+from pyausaxs.wrapper.settings import settings
 
 FILES = os.path.join(os.path.dirname(__file__), "files")
 PDB, DAT = os.path.join(FILES, "2epe.pdb"), os.path.join(FILES, "2epe.dat")
@@ -51,18 +52,13 @@ def drain_until_done(worker, timeout=120.0):
 
 
 class RecordingLoads(RelaxedLoads):
-    """Records whether a grant is in force, to check the worker keeps it applied for exactly the duration of the run."""
+    """Records which paths a grant was applied for."""
     def __init__(self):
         super().__init__()
-        self.applied_paths, self.restored = [], 0
+        self.applied_paths = []
 
     def apply(self, path):
         self.applied_paths.append(path)
-        return {"marker": "1"}
-
-    def restore(self, previous):
-        if previous:
-            self.restored += 1
 
 
 def test_validation_succeeds(tmp_path):
@@ -99,18 +95,48 @@ def test_a_second_start_while_running_is_refused(tmp_path):
     drain_until_done(worker)
 
 
-def test_relaxed_loads_are_held_until_the_run_is_drained(tmp_path):
+def test_a_run_starts_from_its_own_settings(tmp_path):
+    backend.snapshot_defaults()
+    settings.fit(fit_excluded_volume=not settings.get("excluded_volume"))  # left behind by an earlier operation
+    expected = not settings.get("excluded_volume")
     loads = RecordingLoads()
     worker = runner.RefinementWorker()
-    worker.start(make_script(tmp_path), validate_only=True, structure_path=PDB, relaxed_loads=loads)
+    worker.start(make_script(tmp_path), validate_only=True, structure_path=PDB, qrange=(0.02, 0.3), relaxed_loads=loads)
     assert loads.applied_paths == [PDB]
-    assert loads.restored == 0
+    assert settings.get("excluded_volume") is expected
+    assert (settings.get("qmin"), settings.get("qmax")) == (0.02, 0.3)
     drain_until_done(worker)
-    assert loads.restored == 1
 
 
 def test_stop_request_needs_a_run():
     assert not runner.RefinementWorker().request_stop()
+
+
+# ── backend entry ──────────────────────────────────────────────────────────
+def test_prepare_resets_then_applies_the_operations_own_settings():
+    backend.snapshot_defaults()
+    defaults = settings.get("qmin"), settings.get("qmax"), settings.get("unit")
+    settings.histogram(qmin=0.05, qmax=0.2, unit="nm")
+    settings.set("allow_unknown_residues", "1")
+    backend.prepare()
+    assert (settings.get("qmin"), settings.get("qmax"), settings.get("unit")) == defaults
+    assert settings.get("allow_unknown_residues") is False
+
+    loads = RelaxedLoads()
+    loads.grant(PDB, ALLOW_UNKNOWN_RESIDUES)
+    backend.prepare(structure=PDB, qrange=(0.01, 0.3), unit="nm", relaxed_loads=loads)
+    assert (settings.get("qmin"), settings.get("qmax"), settings.get("unit")) == (0.01, 0.3, "nm")
+    assert settings.get("allow_unknown_residues") is True
+    backend.prepare(structure=DAT, relaxed_loads=loads)  # the grant is for PDB only
+    assert settings.get("allow_unknown_residues") is False
+
+
+def test_previews_start_from_the_defaults(tmp_path):
+    backend.snapshot_defaults()
+    default = settings.get("implicit_hydrogens")
+    settings.set("implicit_hydrogens", "0" if default else "1")  # e.g. an EM fit turns them off
+    assert preview.PreviewCache().get(make_script(tmp_path)) is not None
+    assert settings.get("implicit_hydrogens") is default
 
 
 # ── previews ───────────────────────────────────────────────────────────────

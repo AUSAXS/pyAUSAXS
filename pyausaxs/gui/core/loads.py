@@ -37,10 +37,10 @@ LOAD_OPTIONS = [ALLOW_UNKNOWN_RESIDUES]
 
 
 class RelaxedLoads:
-    """Which files the user has granted a relaxed load, and the machinery to apply it around a load.
+    """Which files the user has granted a relaxed load. Grants are keyed by path and last for the session.
 
-    Grants are keyed by path and last for the session. Nothing is applied globally: `apply` records the previous values so `restore` can put
-    them back, keeping the relaxation confined to the load it was granted for."""
+    Nothing is applied globally: an operation applies the grant for the file it loads as part of its own settings (see core.backend.prepare),
+    and the next operation's reset clears it again."""
 
     def __init__(self):
         self._granted: dict[str, dict[str, str]] = {}
@@ -51,48 +51,14 @@ class RelaxedLoads:
     def granted(self, path: Optional[str]) -> bool:
         return bool(path) and path in self._granted
 
-    @staticmethod
-    def _as_setting_string(value) -> str:
-        """`settings.get` returns a typed value but `settings.set` only takes strings, so a value read back for restoring has to be
-        re-encoded. Booleans are the only type currently overridden; the rest pass through str()."""
-        if isinstance(value, bool):
-            return "1" if value else "0"
-        return str(value)
-
-    def apply(self, path: Optional[str]) -> Optional[dict[str, str]]:
-        """Set this path's granted overrides, returning the previous values to hand back to `restore` (None if there was nothing to do)."""
+    def apply(self, path: Optional[str]):
+        """Set the overrides granted for `path`, if any."""
         overrides = self._granted.get(path or "")
         if not overrides:
-            return None
-        from ...wrapper.settings import settings
-        previous = {}
-        for name, value in overrides.items():
-            previous[name] = self._as_setting_string(settings.get(name))
-            settings.set(name, value)
-        return previous
-
-    def restore(self, previous: Optional[dict[str, str]]):
-        if not previous:
             return
         from ...wrapper.settings import settings
-        for name, value in previous.items():
+        for name, value in overrides.items():
             settings.set(name, value)
-
-    class _Scope:
-        def __init__(self, owner: "RelaxedLoads", path: Optional[str]):
-            self._owner, self._path, self._previous = owner, path, None
-
-        def __enter__(self):
-            self._previous = self._owner.apply(self._path)
-            return self
-
-        def __exit__(self, *_exc):
-            self._owner.restore(self._previous)
-            return False
-
-    def applied(self, path: Optional[str]) -> "_Scope":
-        """Context manager applying this path's overrides for the duration of a load, then putting the previous values back."""
-        return RelaxedLoads._Scope(self, path)
 
 
 # Shared across every pane in the process: a grant made anywhere (rigidbody pane, its structure pane, a fitter pane, ...) applies everywhere
@@ -115,9 +81,10 @@ def structure_load_error(path: str, relaxed_loads: RelaxedLoads = RELAXED_LOADS)
     check) and must not be used here. A front-end offering recovery calls this, asks the user to pick one of LOAD_OPTIONS on failure, grants
     it, and calls this again to see whether the retry took."""
     from ...wrapper.Molecule import Molecule
+    from .backend import prepare
+    prepare(structure=path, relaxed_loads=relaxed_loads)
     try:
-        with relaxed_loads.applied(path):
-            Molecule(path)
+        Molecule(path)
         return None
     except Exception as error:
         return backend_message(error)

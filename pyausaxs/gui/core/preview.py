@@ -10,6 +10,7 @@ Both hand out preview-structure dicts (see Rigidbody.preview_structure) for core
 from typing import Optional
 
 from . import script as rbscript
+from .backend import prepare
 from .loads import RELAXED_LOADS, RelaxedLoads, backend_message
 
 
@@ -33,10 +34,10 @@ class PreviewCache:
             self.data, self.error = None, None
             path = rbscript.load_value(script, "pdb")
             if path:
+                from ...wrapper.Rigidbody import Rigidbody
+                prepare(structure=path, relaxed_loads=self._relaxed_loads)
                 try:
-                    from ...wrapper.Rigidbody import Rigidbody
-                    with self._relaxed_loads.applied(path):
-                        data = Rigidbody(script).preview_structure()
+                    data = Rigidbody(script).preview_structure()
                     self.data = data if len(data["coords"]) else None
                 except Exception as e:
                     self.error = e
@@ -58,10 +59,10 @@ def bare_structure_preview(pdb_path: str, saxs_path: Optional[str],
         return None
     block = (f"load {{\n    pdb {rbscript.quote_script_value(pdb_path)}\n"
              f"    saxs {rbscript.quote_script_value(saxs_path)}\n}}\n")
+    from ...wrapper.Rigidbody import Rigidbody
+    prepare(structure=pdb_path, relaxed_loads=relaxed_loads)
     try:
-        from ...wrapper.Rigidbody import Rigidbody
-        with relaxed_loads.applied(pdb_path):
-            data = Rigidbody(block).preview_structure()
+        data = Rigidbody(block).preview_structure()
         return data if len(data["coords"]) else None
     except Exception:
         return None
@@ -100,10 +101,10 @@ class LiveStructure:
         self._version = 0
         if not rbscript.has_live_update(script):
             return None
+        from ...wrapper.Rigidbody import Rigidbody
+        prepare(structure=rbscript.load_value(script, "pdb"), relaxed_loads=relaxed_loads)
         try:
-            from ...wrapper.Rigidbody import Rigidbody
-            with relaxed_loads.applied(rbscript.load_value(script, "pdb")):
-                meta = Rigidbody(script).preview_structure()
+            meta = Rigidbody(script).preview_structure()
         except Exception as e:
             return f"Live structure view unavailable: {backend_message(e)}"
         if len(meta["coords"]):

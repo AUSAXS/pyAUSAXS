@@ -6,7 +6,6 @@ import os
 import time
 import tkinter as tk
 from tkinter import ttk
-from typing import Optional
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
@@ -44,10 +43,7 @@ class SaxsDataPane(ttk.Frame):
         self._qs = self._Is = self._sigs = None   # q always in Å⁻¹ (the backend's own unit)
         self._has_sigma = False
         self._data_artists: list = []
-        self._reset_backend_settings()  # a new dataset starts clean, e.g. for unit auto-detection
-        self._unit = self._restore_unit()
-        # snapshot qmin/qmax before `_read_saxs_data` below forces them to the full range
-        restored_qrange = self._backend_qrange()
+        self._unit = self.DEFAULT_UNIT
         self._unit_var = tk.StringVar(value=self._unit)
         self._drag = None                         # handle being dragged (0 / 1 / None)
         self._vline_top = None                    # cached slider-fraction of the plot top
@@ -67,7 +63,8 @@ class SaxsDataPane(ttk.Frame):
             self._vmin, self._vmax = min(qs), max(qs)
         else:
             self._vmin, self._vmax = QMIN, QMAX
-        self._qmin, self._qmax = self._clamp_qrange(restored_qrange, self._vmin, self._vmax)
+        # the full range, which is also what a fit uses with no data pane open
+        self._qmin, self._qmax = self._vmin, self._vmax
 
         # --- figure: data axes on top, a thin slider strip sharing its x below ---
         self._fig = Figure(facecolor=PALETTE["surface"])
@@ -104,7 +101,6 @@ class SaxsDataPane(ttk.Frame):
         self._draw_data(data)
         self._draw_selector()
         self._sync_entries()
-        self._sync_backend_settings()
 
         self._fig.canvas.mpl_connect("button_press_event", self._on_press)
         self._fig.canvas.mpl_connect("motion_notify_event", self._on_motion)
@@ -123,48 +119,6 @@ class SaxsDataPane(ttk.Frame):
     def unit(self) -> str:
         """The backend --unit token ("A" / "nm") for the currently selected unit."""
         return self.UNIT_TOKENS[self._unit]
-
-    # ------------------------------------------------------------------
-    def _reset_backend_settings(self):
-        """Reset the backend to its pristine defaults before loading a *different*
-        dataset than the one the current settings belong to, so unit auto-detection
-        isn't stuck on an unrelated file's choice. Reopening the same dataset (e.g. a
-        restored session/script) is left alone, so its own restored selection sticks."""
-        from .session import load_config, reset_settings_to_defaults
-        if load_config().get("last_dataset_path") == self.file_path:
-            return
-        try:
-            reset_settings_to_defaults()
-        except Exception:
-            pass
-
-    def _restore_unit(self) -> str:
-        """Start from the backend's current q-unit setting, instead of always Å⁻¹."""
-        from ..wrapper.settings import settings as backend_settings
-        try:
-            token = backend_settings.get("unit").lower()
-        except Exception:
-            return self.DEFAULT_UNIT
-        return "nm⁻¹" if "nm" in token else "Å⁻¹"
-
-    @staticmethod
-    def _backend_qrange() -> Optional[tuple[float, float]]:
-        """The backend's current qmin/qmax, or None if unavailable."""
-        from ..wrapper.settings import settings as backend_settings
-        try:
-            return float(backend_settings.get("qmin")), float(backend_settings.get("qmax"))
-        except Exception:
-            return None
-
-    @staticmethod
-    def _clamp_qrange(qrange: Optional[tuple[float, float]], vmin: float, vmax: float) -> tuple[float, float]:
-        """Clamp a (qmin, qmax) pair to this file's own range, or the full range if missing/degenerate."""
-        if qrange is None:
-            return vmin, vmax
-        qmin, qmax = qrange
-        qmin = min(max(qmin, vmin), vmax)
-        qmax = min(max(qmax, vmin), vmax)
-        return (vmin, vmax) if qmin >= qmax else (qmin, qmax)
 
     # ------------------------------------------------------------------
     def _draw_data(self, data):
@@ -341,19 +295,7 @@ class SaxsDataPane(ttk.Frame):
         self._sync_entries()
         self._update_selector()
         self._redraw_data_artists()
-        self._sync_backend_settings()
         self._mpl_canvas.draw_idle()
-
-    def _sync_backend_settings(self):
-        """Push this pane's q-range/unit into the backend, so a fit run (and the settings-cache autosave) see the actual selection.
-        Also records which file these settings belong to, for `_reset_backend_settings`."""
-        from ..wrapper.settings import settings as backend_settings
-        from .session import update_config
-        try:
-            backend_settings.histogram(qmin=self._qmin, qmax=self._qmax, unit=self.unit())
-            update_config(last_dataset_path=self.file_path)
-        except Exception:
-            pass
 
     def _cancel_slider_slide(self):
         if self._slider_anim_job is not None:
@@ -408,9 +350,7 @@ class SaxsDataPane(ttk.Frame):
         self._draw_decade_labels()
         self._sync_entries()
         self._redraw_data_artists()
-        # `_read_saxs_data` above forced qmin/qmax to the full range; push our real selection
         self._ax.set_xlim(min(self._vmin, old_lim[0]), max(self._vmax, old_lim[1]))
-        self._sync_backend_settings()
         self._slide_selector(old_qmin, old_qmax, self._qmin, self._qmax)
 
         if self._unit_anim_job is not None:
