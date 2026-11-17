@@ -78,8 +78,11 @@ class App(TkinterDnD.Tk):
 
 def main(argv=None) -> int:
     app = App()
-    app.mainloop()
-    return 0
+    try:
+        app.mainloop()
+    except KeyboardInterrupt:
+        os._exit(1)
+    os._exit(0)
 
 
 if __name__ == "__main__":
