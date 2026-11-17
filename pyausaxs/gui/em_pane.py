@@ -10,7 +10,7 @@ from .data_pane import SaxsDataPane
 from .panes import (
     FitterPane, _file_stem, _output_arg, QMIN, QMAX,
     add_closable_tab, find_data_pane, release_data_pane,
-    data_pane_state, restore_field, restore_flag,
+    data_pane_state, restore_field, restore_flag, restore_settings,
 )
 from .widgets import FileField
 
@@ -140,7 +140,7 @@ class EmFitterPane(FitterPane):
             "alpha_levels": list(self.alpha_slider.values()),
             "iterations": self.iterations_var.get(), "frequency": self.frequency_var.get(),
             "hydrate": self.hydrate_var.get(), "fixed_weights": self.fixed_weights_var.get(),
-            "data_pane": data_pane_state(self),
+            "load_settings": dict(self.load_settings), "data_pane": data_pane_state(self),
         }
 
     def restore_state(self, state):
@@ -156,5 +156,6 @@ class EmFitterPane(FitterPane):
                 var.set(state[key])
         restore_flag(self.hydrate_var, state.get("hydrate"))
         restore_flag(self.fixed_weights_var, state.get("fixed_weights"))
+        restore_settings(self.load_settings, state.get("load_settings"))
         if isinstance(state.get("data_pane"), dict) and self.saxs_field.valid:
             self._open_data_pane(state["data_pane"])

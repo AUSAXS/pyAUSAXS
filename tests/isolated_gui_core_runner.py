@@ -85,9 +85,9 @@ def test_a_second_start_while_running_is_refused(tmp_path):
 
 
 def test_a_run_starts_from_its_own_settings(tmp_path):
-    settings.snapshot_defaults()
-    settings.fit(fit_excluded_volume=not settings.get("excluded_volume"))  # left behind by an earlier operation
-    expected = not settings.get("excluded_volume")
+    settings.reset()
+    expected = settings.get("excluded_volume")
+    settings.fit(fit_excluded_volume=not expected)  # left behind by an earlier operation
     worker = runner.RefinementWorker()
     worker.start(make_script(tmp_path), validate_only=True,
                  backend_settings={"qmin": "0.02", "qmax": "0.3", "allow_unknown_residues": "1"})
@@ -102,18 +102,18 @@ def test_stop_request_needs_a_run():
 
 
 # ── backend entry ──────────────────────────────────────────────────────────
-def test_reset_to_defaults():
-    settings.snapshot_defaults()
+def test_reset():
+    settings.reset()
     defaults = settings.get("qmin"), settings.get("qmax"), settings.get("unit")
     settings.histogram(qmin=0.05, qmax=0.2, unit="nm")
     settings.set("allow_unknown_residues", "1")
-    settings.reset_to_defaults()
+    settings.reset()
     assert (settings.get("qmin"), settings.get("qmax"), settings.get("unit")) == defaults
     assert settings.get("allow_unknown_residues") is False
 
 
 def test_previews_start_from_the_defaults(tmp_path):
-    settings.snapshot_defaults()
+    settings.reset()
     default = settings.get("implicit_hydrogens")
     settings.set("implicit_hydrogens", "0" if default else "1")  # e.g. an EM fit turns them off
     assert preview.PreviewCache().get(make_script(tmp_path)) is not None

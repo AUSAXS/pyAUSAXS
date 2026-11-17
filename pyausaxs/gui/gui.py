@@ -31,10 +31,6 @@ class App(TkinterDnD.Tk):
         self.minsize(960, 680)
         apply_theme(self)
 
-        # the settings every backend entry resets to before applying its own, captured before anything touches the backend
-        from ..wrapper.settings import settings
-        settings.snapshot_defaults()
-
         header = ttk.Frame(self, padding=(20, 14, 20, 6))
         header.pack(side="top", fill="x")
         ttk.Label(header, text="AUSAXS", style="Title.TLabel").pack(side="left")

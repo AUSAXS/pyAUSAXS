@@ -81,7 +81,7 @@ def _read_saxs_data(path: str, unit: Optional[str]) -> tuple[list, list, list] |
     uses the full q-axis, so the reader's own q-range clamping doesn't drop any rows here. None if the file can't be read."""
     from ..wrapper.Datafile import Datafile
     from ..wrapper.settings import settings
-    settings.reset_to_defaults()
+    settings.reset()
     settings.histogram(qmin=QMIN, qmax=QMAX, unit=unit)
     try:
         q, I, Ierr = Datafile(path).data()
@@ -147,6 +147,13 @@ def restore_choice(var: tk.StringVar, value, choices):
 def restore_flag(var: tk.BooleanVar, value):
     if isinstance(value, bool):
         var.set(value)
+
+
+def restore_settings(target: dict[str, str], value):
+    """Refill `target` in place, since other objects may hold a reference to it."""
+    if isinstance(value, dict):
+        target.clear()
+        target.update({k: v for k, v in value.items() if isinstance(k, str) and isinstance(v, str)})
 
 
 def data_pane_state(pane) -> Optional[dict]:

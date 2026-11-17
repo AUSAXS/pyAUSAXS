@@ -22,7 +22,7 @@ from .data_pane import SaxsDataPane
 from .load_recovery import ensure_structure_loads
 from .panes import (
     QMIN, QMAX, add_figure_tab, make_on_load_structure, make_on_load_saxs,
-    add_closable_tab, find_data_pane, release_data_pane, data_pane_state,
+    add_closable_tab, find_data_pane, release_data_pane, data_pane_state, restore_settings,
 )
 from .runner import RigidbodyRunner
 from .structure_pane import StructurePane
@@ -256,9 +256,10 @@ class RigidbodyPane(ttk.Frame):
 
     def state(self) -> dict:
         """The data pane's selection, for restoring it in a later session; the script persists on its own (see _autosave_script)."""
-        return {"data_pane": data_pane_state(self)}
+        return {"load_settings": dict(self._load_settings), "data_pane": data_pane_state(self)}
 
     def restore_state(self, state: dict):
+        restore_settings(self._load_settings, state.get("load_settings"))
         if isinstance(state.get("data_pane"), dict) and self.saxs_field.valid:
             self._open_data_pane(state["data_pane"])
 

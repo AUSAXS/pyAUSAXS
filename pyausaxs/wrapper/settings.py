@@ -3,12 +3,8 @@ from .Models import ExvModel, ExvTable, WaterModel, WeightedBins
 from pyausaxs.signatures import register
 import ctypes as ct
 import numpy as np
-import os
-import tempfile
 import warnings
 from typing import Any, Optional
-
-_defaults: Optional[str] = None  # the settings `reset_to_defaults` returns to, as the text of a settings file
 
 register({
     "get_setting": (
@@ -38,6 +34,12 @@ register({
     "load_settings": (
         [
             ct.c_char_p,         # file path
+            ct.POINTER(ct.c_int) # status (0 = success)
+        ],
+        None
+    ),
+    "reset_settings": (
+        [
             ct.POINTER(ct.c_int) # status (0 = success)
         ],
         None
@@ -153,38 +155,17 @@ class settings:
         return q
 
     @staticmethod
-    def snapshot_defaults():
-        """Capture the current settings as the ones `reset_to_defaults` returns to. Call once at start-up, before anything changes them;
-        otherwise the first `reset_to_defaults` takes the snapshot."""
-        global _defaults
-        fd, path = tempfile.mkstemp(suffix=".txt")
-        os.close(fd)
-        try:
-            settings.save(path)
-            with open(path, errors="replace") as f:
-                _defaults = f.read()
-        finally:
-            os.unlink(path)
-
-    @staticmethod
-    def reset_to_defaults():
-        """Reset every setting to the snapshot taken by `snapshot_defaults`. The settings are process-wide, so anything that runs several
-        operations in one process (e.g. the GUI) calls this right before each one, then sets only what that operation needs."""
-        if _defaults is None:
-            settings.snapshot_defaults()
-            return
-        fd, path = tempfile.mkstemp(suffix=".txt")
-        try:
-            with os.fdopen(fd, "w") as f:
-                f.write(_defaults)
-            settings.load(path)
-        finally:
-            os.unlink(path)
+    def reset():
+        """Restore every setting to its default value."""
+        ausaxs = AUSAXS()
+        status = ct.c_int()
+        ausaxs.lib().functions.reset_settings(ct.byref(status))
+        _check_error_code(status, "settings_reset_settings")
 
     @staticmethod
     def refresh(new_settings: Optional[dict[str, Any]] = None):
-        """Reset every setting to its default with `reset_to_defaults`, then apply `new_settings` (name -> value) on top."""
-        settings.reset_to_defaults()
+        """Reset every setting to its default, then apply `new_settings` (name -> value) on top."""
+        settings.reset()
         for name, value in (new_settings or {}).items():
             settings.set(name, value)
 

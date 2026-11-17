@@ -11,7 +11,7 @@ from .panes import (
     FitterPane, _file_stem, _output_arg, QMIN, QMAX,
     make_on_load_structure, make_on_load_saxs,
     add_closable_tab, find_data_pane, release_data_pane,
-    data_pane_state, restore_choice, restore_field, restore_flag,
+    data_pane_state, restore_choice, restore_field, restore_flag, restore_settings,
 )
 from .widgets import FileField
 
@@ -161,7 +161,7 @@ class SaxsFitterPane(FitterPane):
             "structure": self.structure_field.get(), "saxs": self.saxs_field.get(), "output": self.output_field.get(),
             "hydration": self.hydration_var.get(), "exv": self.exv_var.get(),
             "fit_exv": self.fit_exv_var.get(), "fit_density": self.fit_density_var.get(),
-            "data_pane": data_pane_state(self),
+            "load_settings": dict(self.load_settings), "data_pane": data_pane_state(self),
         }
 
     def restore_state(self, state):
@@ -174,5 +174,6 @@ class SaxsFitterPane(FitterPane):
         if self.exv_var.get() != "simple":
             restore_flag(self.fit_exv_var, state.get("fit_exv"))
             restore_flag(self.fit_density_var, state.get("fit_density"))
+        restore_settings(self.load_settings, state.get("load_settings"))
         if isinstance(state.get("data_pane"), dict) and self.saxs_field.valid:
             self._open_data_pane(state["data_pane"])
