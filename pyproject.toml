@@ -8,17 +8,31 @@ authors = [
   { name="Kristian Lytje", email="kristian.lytje@uni-saarland.de" }
 ]
 version = "1.3.6"
-description = "An efficient small-angle Debye scattering calculator."
+description = "Highly optimized Debye equation kernel for SAXS, WAXS, SANS and crystal scattering, with model fitting to small-angle scattering data."
 readme = "README.md"
 license = "LGPL-3.0-or-later"
 requires-python = ">=3.10"
+keywords = [
+    "SAXS", "WAXS", "SANS", "small-angle scattering", "small-angle X-ray scattering",
+    "small-angle neutron scattering", "Debye equation", "Debye scattering", "structural biology",
+    "protein", "cryo-EM", "PDB", "CIF", "crystal", "nanoparticles", "GPU",
+]
 dependencies = [
   "py-cpuinfo>=8.0.0",
   "numpy>=1.20.0",
 ]
 classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
-    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: C++",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 
 [project.optional-dependencies]
@@ -35,6 +49,11 @@ all = [
 ]
 [project.urls]
 Homepage = "https://github.com/AUSAXS/pyAUSAXS"
+Documentation = "https://ausaxs.github.io/AUSAXS/"
+Examples = "https://github.com/AUSAXS/pyAUSAXS/tree/master/examples"
+"C++ library" = "https://github.com/AUSAXS/AUSAXS"
+Paper = "https://doi.org/10.1107/S160057672500562X"
+Issues = "https://github.com/AUSAXS/pyAUSAXS/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

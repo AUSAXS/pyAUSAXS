@@ -1,8 +1,12 @@
-![title_light](../media/title_dark.png?raw=true#gh-light-mode-only)
-![title_dark](../media/title_light.png?raw=true#gh-dark-mode-only)
+<h1>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/AUSAXS/pyAUSAXS/media/title_light.png">
+  <img alt="pyAUSAXS: Python Debye scattering calculator" src="https://raw.githubusercontent.com/AUSAXS/pyAUSAXS/media/title_dark.png">
+</picture>
+</h1>
 
 [![pip install](https://img.shields.io/badge/pip%20install-pyausaxs-blue)](#installation)
-[![Python version](https://img.shields.io/badge/python-%3E%3D3.9-blue)](https://python.org/downloads)
+[![Python version](https://img.shields.io/badge/python-%3E%3D3.10-blue)](https://python.org/downloads)
 [![PyPI - Version](https://img.shields.io/pypi/v/pyausaxs)](https://pypi.org/project/pyausaxs)
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/pyausaxs)](https://pypistats.org/packages/pyausaxs)
 
