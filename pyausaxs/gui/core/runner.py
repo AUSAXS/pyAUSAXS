@@ -63,9 +63,7 @@ class RefinementWorker:
         from ...wrapper.Rigidbody import prepare_rigidbody_refinement
         from ...wrapper.Output import set_output_callback, reset_output_callback
         from ...wrapper.settings import settings
-        settings.reset_to_defaults()
-        for name, value in (backend_settings or {}).items():
-            settings.set(name, value)
+        settings.refresh(backend_settings)
         self._busy = True
         self._stopping = False
         self._queue = queue.Queue()

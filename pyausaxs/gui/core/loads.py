@@ -52,9 +52,7 @@ def structure_load_error(path: str, backend_settings: dict[str, str]) -> Optiona
     settings to `backend_settings`, and calls this again to see whether the retry took."""
     from ...wrapper.Molecule import Molecule
     from ...wrapper.settings import settings
-    settings.reset_to_defaults()
-    for name, value in backend_settings.items():
-        settings.set(name, value)
+    settings.refresh(backend_settings)
     try:
         Molecule(path)
         return None

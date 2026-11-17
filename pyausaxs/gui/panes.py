@@ -462,9 +462,7 @@ class FitterPane(ttk.Frame):
         self.progress.pack(side="left", fill="x", expand=True, padx=(12, 0))
         self.progress.start(15)
         from ..wrapper.settings import settings
-        settings.reset_to_defaults()
-        for name, value in self.load_settings.items():  # the arguments carry the rest of the run's settings
-            settings.set(name, value)
+        settings.refresh(self.load_settings)  # the arguments carry the rest of the run's settings
         self.runner.start(args, on_line=self.console.append, on_done=self._run_finished)
 
     def _run_finished(self, returncode: int):

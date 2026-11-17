@@ -182,6 +182,13 @@ class settings:
             os.unlink(path)
 
     @staticmethod
+    def refresh(new_settings: Optional[dict[str, Any]] = None):
+        """Reset every setting to its default with `reset_to_defaults`, then apply `new_settings` (name -> value) on top."""
+        settings.reset_to_defaults()
+        for name, value in (new_settings or {}).items():
+            settings.set(name, value)
+
+    @staticmethod
     def exv(exv_model: ExvModel = ExvModel.simple):
         """Set the excluded volume model to use in calculations."""
         settings.set("exv_model", ExvModel.validate(exv_model).value)

@@ -92,9 +92,7 @@ class StructureModel:
         script = self.compose(elements)
         from ...wrapper.Rigidbody import Rigidbody
         from ...wrapper.settings import settings
-        settings.reset_to_defaults()
-        for name, value in self._backend_settings.items():
-            settings.set(name, value)
+        settings.refresh(self._backend_settings)
         try:
             rb = Rigidbody(script)
             data = rb.preview_structure()

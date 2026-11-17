@@ -35,9 +35,7 @@ class PreviewCache:
             if path:
                 from ...wrapper.Rigidbody import Rigidbody
                 from ...wrapper.settings import settings
-                settings.reset_to_defaults()
-                for name, value in self._backend_settings.items():
-                    settings.set(name, value)
+                settings.refresh(self._backend_settings)
                 try:
                     data = Rigidbody(script).preview_structure()
                     self.data = data if len(data["coords"]) else None
@@ -62,9 +60,7 @@ def bare_structure_preview(pdb_path: str, saxs_path: Optional[str], backend_sett
              f"    saxs {rbscript.quote_script_value(saxs_path)}\n}}\n")
     from ...wrapper.Rigidbody import Rigidbody
     from ...wrapper.settings import settings
-    settings.reset_to_defaults()
-    for name, value in (backend_settings or {}).items():
-        settings.set(name, value)
+    settings.refresh(backend_settings)
     try:
         data = Rigidbody(block).preview_structure()
         return data if len(data["coords"]) else None
@@ -107,9 +103,7 @@ class LiveStructure:
             return None
         from ...wrapper.Rigidbody import Rigidbody
         from ...wrapper.settings import settings
-        settings.reset_to_defaults()
-        for name, value in (backend_settings or {}).items():
-            settings.set(name, value)
+        settings.refresh(backend_settings)
         try:
             meta = Rigidbody(script).preview_structure()
         except Exception as e:
