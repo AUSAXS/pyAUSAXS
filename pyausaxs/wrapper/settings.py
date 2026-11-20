@@ -11,11 +11,11 @@ register({
     "get_setting": (
         [
             ct.c_char_p,                       # setting name
-            ct.POINTER(ct.POINTER(ct.c_char)), # type (output)
             ct.POINTER(ct.POINTER(ct.c_char)), # value (output)
+            ct.POINTER(ct.POINTER(ct.c_char)), # type (output)
             ct.POINTER(ct.c_int)               # status (0 = success)
         ],
-        int                                    # return temp res id
+        ct.c_int                               # return temp res id
     ),
     "set_setting": (
         [
