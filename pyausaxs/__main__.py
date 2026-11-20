@@ -7,29 +7,56 @@ import sys
 # forwarded to the backend's own `ausaxs` entrypoint, which lists these tools after its own.
 _PYTHON_TOOLS = {
     "plot":  ("Plot results from other tools",            "plots", ("matplotlib", "scipy")),
-    "gui":   ("Start the graphical interface",            "gui",   ("matplotlib", "scipy", "_tkinter")),
+    "gui":   ("Start the graphical interface",            "gui",   ("matplotlib", "scipy", "tkinterdnd2", "_tkinter")),
     "setup": ("Choose which AUSAXS backend library to use", None,  ()),
 }
 
 
-def _extra_available(tool: str) -> bool:
-    """Check if the optional dependencies for a tool are available by trying to find their modules."""
+# Modules that pip cannot install: they come with the Python installation itself.
+_SYSTEM_MODULES = {"_tkinter"}
+
+
+def _missing_modules(tool: str) -> list[str]:
+    """The optional modules of a tool that cannot be found."""
+    missing = []
     for module in _PYTHON_TOOLS[tool][2]:
         try:
             if importlib.util.find_spec(module) is None:
-                return False
+                missing.append(module)
         except ModuleNotFoundError:
-            return False
-    return True
+            missing.append(module)
+    return missing
+
+
+def _extra_available(tool: str) -> bool:
+    """Check if the optional dependencies for a tool are available by trying to find their modules."""
+    return not _missing_modules(tool)
+
+
+def _requirement(tool: str) -> str:
+    """How to get the missing dependencies of a tool."""
+    missing = _missing_modules(tool)
+    if any(module not in _SYSTEM_MODULES for module in missing):
+        return f"\"pip install pyausaxs[{_PYTHON_TOOLS[tool][1]}]\""
+    return "Tk support in Python, e.g. the python3-tk system package"
 
 
 def _extra_missing_error(tool: str) -> int:
     extra = _PYTHON_TOOLS[tool][1]
-    print(
-        f"Error: the '{extra}' extension is not installed."
-        f"\nPlease install it by running the command \"pip install pyausaxs[{extra}]\".",
-        file=sys.stderr,
-    )
+    missing = _missing_modules(tool)
+    if any(module not in _SYSTEM_MODULES for module in missing):
+        print(
+            f"Error: the '{extra}' extension is not installed."
+            f"\nPlease install it by running the command \"pip install pyausaxs[{extra}]\".",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            "Error: this Python installation has no Tk support (the _tkinter module), which pip cannot install."
+            "\nInstall it with your system's package manager, e.g. \"sudo apt install python3-tk\" on Debian/Ubuntu,"
+            " \"sudo dnf install python3-tkinter\" on Fedora, or \"brew install python-tk\" with Homebrew Python on macOS.",
+            file=sys.stderr,
+        )
     return 1
 
 
@@ -83,7 +110,7 @@ def run_backend_cli(args: list[str]) -> int:
     functions = AUSAXS.lib().functions
     for name, (description, extra, _) in _PYTHON_TOOLS.items():
         if extra is not None and not _extra_available(name):
-            description += f" (requires \"pip install pyausaxs[{extra}]\")"
+            description += f" (requires {_requirement(name)})"
         functions.cli_ausaxs_add_tool(name.encode("utf-8"), description.encode("utf-8"))
 
     import ctypes as ct
