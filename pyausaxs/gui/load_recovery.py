@@ -2,13 +2,13 @@
 # Author: Kristian Lytje
 
 """The tkinter side of recovering from structure loads the backend refuses: a modal offering the relaxations in core.loads, which holds
-the grants and the reasoning behind them."""
+the reasoning behind them."""
 
 import tkinter as tk
 from tkinter import ttk
 from typing import Optional
 
-from .core.loads import LOAD_OPTIONS, RELAXED_LOADS, LoadOption, structure_load_error
+from .core.loads import LOAD_OPTIONS, LoadOption, structure_load_error
 from .theme import PALETTE, FONTS
 
 
@@ -61,11 +61,10 @@ def offer_relaxed_load(parent, path: str, message: str, options: Optional[list[L
     return LoadRecoveryDialog(parent, path, message, options or LOAD_OPTIONS).chosen
 
 
-def ensure_structure_loads(parent, path: str, console=None) -> bool:
-    """Whether `path` can be read by the backend right now, offering a relaxed-load retry through RELAXED_LOADS if it can't (see
-    core.loads.structure_load_error for how the file is checked). RigidbodyPane checks this itself, built around its own live
-    rigidbody-script preview cache."""
-    message = structure_load_error(path)
+def ensure_structure_loads(parent, path: str, backend_settings: dict[str, str], console=None) -> bool:
+    """Whether `path` can be read by the backend with the pane's `backend_settings`, offering a relaxed-load retry if it can't; a chosen
+    relaxation is added to `backend_settings` (see core.loads.structure_load_error for how the file is checked)."""
+    message = structure_load_error(path, backend_settings)
     if message is None:
         return True
 
@@ -74,9 +73,9 @@ def ensure_structure_loads(parent, path: str, console=None) -> bool:
         if console is not None:
             console.append(f"Could not read structure: {message}\n", tag="error")
         return False
-    RELAXED_LOADS.grant(path, option)
+    backend_settings.update(option.settings)
 
-    message = structure_load_error(path)
+    message = structure_load_error(path, backend_settings)
     if message is None:
         return True
     if console is not None:

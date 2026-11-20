@@ -10,6 +10,7 @@ from .data_pane import SaxsDataPane
 from .panes import (
     FitterPane, _file_stem, _output_arg, QMIN, QMAX,
     add_closable_tab, find_data_pane, release_data_pane,
+    data_pane_state, restore_field, restore_flag, restore_settings,
 )
 from .widgets import FileField
 
@@ -79,7 +80,7 @@ class EmFitterPane(FitterPane):
                 return
             self._close_data_pane()
 
-    def _open_data_pane(self):
+    def _open_data_pane(self, state: dict | None = None):
         path = self.saxs_field.get()
         if not path:
             return
@@ -87,7 +88,7 @@ class EmFitterPane(FitterPane):
             notebook = self.master
             self._data_pane = find_data_pane(notebook, path)
             if self._data_pane is None:
-                self._data_pane = SaxsDataPane(notebook, path)
+                self._data_pane = SaxsDataPane(notebook, path, state)
                 add_closable_tab(notebook, self._data_pane)
         self.master.select(self._data_pane)
 
@@ -105,15 +106,16 @@ class EmFitterPane(FitterPane):
             unit = self._data_pane.unit()
         else:
             qmin, qmax = QMIN, QMAX
-            unit = "A"
+            unit = None
         amin, amax = self.alpha_slider.values()
         argv = [
             "em",
             self.map_field.get(), self.saxs_field.get(),
             "--output", _output_arg(self.output_field.get()),
             "saxs", "--qmin", f"{qmin:.6g}", "--qmax", f"{qmax:.6g}",
-            "--unit", unit,
         ]
+        if unit is not None:
+            argv += ["--unit", unit]
         argv += [
             "em", "--levelmin", f"{amin:.6g}", "--levelmax", f"{amax:.6g}",
             "--hydrate" if self.hydrate_var.get() else "--no-hydrate",
@@ -131,3 +133,29 @@ class EmFitterPane(FitterPane):
             _file_stem(self.saxs_field.get()),
             _file_stem(self.map_field.get()),
         )
+
+    def state(self):
+        return {
+            "map": self.map_field.get(), "saxs": self.saxs_field.get(), "output": self.output_field.get(),
+            "alpha_levels": list(self.alpha_slider.values()),
+            "iterations": self.iterations_var.get(), "frequency": self.frequency_var.get(),
+            "hydrate": self.hydrate_var.get(), "fixed_weights": self.fixed_weights_var.get(),
+            "load_settings": dict(self.load_settings), "data_pane": data_pane_state(self),
+        }
+
+    def restore_state(self, state):
+        restore_field(self.map_field, state.get("map"))
+        restore_field(self.saxs_field, state.get("saxs"))
+        restore_field(self.output_field, state.get("output"))
+        try:
+            self.alpha_slider.set_values(*(float(level) for level in state["alpha_levels"]))
+        except (KeyError, TypeError, ValueError):
+            pass  # absent or malformed: keep the default levels
+        for var, key in ((self.iterations_var, "iterations"), (self.frequency_var, "frequency")):
+            if isinstance(state.get(key), str):
+                var.set(state[key])
+        restore_flag(self.hydrate_var, state.get("hydrate"))
+        restore_flag(self.fixed_weights_var, state.get("fixed_weights"))
+        restore_settings(self.load_settings, state.get("load_settings"))
+        if isinstance(state.get("data_pane"), dict) and self.saxs_field.valid:
+            self._open_data_pane(state["data_pane"])

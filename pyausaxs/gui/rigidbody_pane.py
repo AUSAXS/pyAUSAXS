@@ -19,10 +19,10 @@ from .core.preview import LiveStructure, PreviewCache, bare_structure_preview
 from .core.script import DEFAULT_RIGIDBODY_SCRIPT
 from .core.syntax import fetch_vocabulary
 from .data_pane import SaxsDataPane
-from .load_recovery import RELAXED_LOADS, ensure_structure_loads
+from .load_recovery import ensure_structure_loads
 from .panes import (
-    add_figure_tab, make_on_load_structure, make_on_load_saxs,
-    add_closable_tab, find_data_pane, release_data_pane,
+    QMIN, QMAX, add_figure_tab, make_on_load_structure, make_on_load_saxs,
+    add_closable_tab, find_data_pane, release_data_pane, data_pane_state, restore_settings,
 )
 from .runner import RigidbodyRunner
 from .structure_pane import StructurePane
@@ -61,8 +61,8 @@ class RigidbodyPane(ttk.Frame):
         self._data_pane = None           # SaxsDataPane tab for inspecting the SAXS data, or None
         self._structure_pane = None      # StructurePane tab for inspecting/managing bodies, or None
         self._syncing_splits = False     # set while the Splits field is being filled *from* the script, so it isn't written straight back
-        self._relaxed_loads = RELAXED_LOADS  # shared across every pane: files the user has granted a relaxed load after the backend refused them
-        self._preview = PreviewCache(self._relaxed_loads)  # the backend preview structure, cached on the script's preview signature
+        self._load_settings: dict[str, str] = {}  # load-time settings the user relaxed after a refused structure (see core.loads)
+        self._preview = PreviewCache(self._load_settings)  # the backend preview structure, cached on the script's preview signature
         self._pdb_changed_pending_fallback = False  # armed by a pdb-directive change: let the next failed preview retry bare
 
         # three panes: controls | script editor | results. The editor can expand over the results pane (and collapses again
@@ -254,9 +254,18 @@ class RigidbodyPane(ttk.Frame):
         """Called when a drag leaves before any drop has ever succeeded in this process."""
         self.console.append("Drag-and-drop didn't register — please try dropping the file again.\n")
 
-    def _open_data_pane(self):
-        """Open (or focus) a data-inspection tab for the current SAXS file. Rebuilt if the file has changed since it was opened; the 
-        rigid-body run is script-driven, so this is purely for inspecting the data."""
+    def state(self) -> dict:
+        """The data pane's selection, for restoring it in a later session; the script persists on its own (see _autosave_script)."""
+        return {"load_settings": dict(self._load_settings), "data_pane": data_pane_state(self)}
+
+    def restore_state(self, state: dict):
+        restore_settings(self._load_settings, state.get("load_settings"))
+        if isinstance(state.get("data_pane"), dict) and self.saxs_field.valid:
+            self._open_data_pane(state["data_pane"])
+
+    def _open_data_pane(self, state: Optional[dict] = None):
+        """Open (or focus) a data-inspection tab for the current SAXS file. Rebuilt if the file has changed since it was opened. Its q-range
+        selection is the one a run of a script on this file uses (see _start_runner)."""
         path = self.saxs_field.get()
         if not path:
             return
@@ -266,7 +275,7 @@ class RigidbodyPane(ttk.Frame):
             notebook = self.master
             self._data_pane = find_data_pane(notebook, path)
             if self._data_pane is None:
-                self._data_pane = SaxsDataPane(notebook, path)
+                self._data_pane = SaxsDataPane(notebook, path, state)
                 add_closable_tab(notebook, self._data_pane)
         self.master.select(self._data_pane)
 
@@ -283,7 +292,7 @@ class RigidbodyPane(ttk.Frame):
     def _bare_structure_preview(self, path: str) -> Optional[dict]:
         """Preview-structure data for `path` alone, with no splits or elements staged — a fallback for when the real script's don't apply
         to it any more (see _pdb_changed_pending_fallback), e.g. right after a structure swap. See preview.bare_structure_preview."""
-        return bare_structure_preview(path, self._load_value("saxs"), self._relaxed_loads)
+        return bare_structure_preview(path, self._load_value("saxs"), self._load_settings)
 
     def _structure_loads(self) -> bool:
         """Whether the current script's structure can be read, offering recovery if it can't. Called before Validate/Run, where a refused
@@ -301,10 +310,10 @@ class RigidbodyPane(ttk.Frame):
             return True
         if self._preview.error is None:
             return True  # empty for some other reason; not a load failure we can offer a remedy for
-        if not ensure_structure_loads(self, path, self.console):
+        if not ensure_structure_loads(self, path, self._load_settings, self.console):
             return False  # a genuine load failure the user declined, or couldn't, recover from
-        # the bare file loads fine — any remaining preview failure is the script's own splits/elements, not the load. If a relaxation
-        # was just granted, give the preview one more shot so it reflects that before Validate/Run proceeds.
+        # the bare file loads fine — any remaining preview failure is the script's own splits/elements, not the load. If a load setting
+        # was just relaxed, give the preview one more shot so it reflects that before Validate/Run proceeds.
         self._preview.invalidate()
         self._preview_key = None
         self._update_structure_preview()
@@ -326,7 +335,7 @@ class RigidbodyPane(ttk.Frame):
                 splits=self.splits_var.get(),
                 base_script=lambda: self.editor.get("1.0", "end-1c"),
                 on_apply_script=self._apply_structure_script,
-                relaxed_loads=self._relaxed_loads,
+                load_settings=self._load_settings,
             )
             add_closable_tab(notebook, self._structure_pane)
         # selecting fires <<NotebookTabChanged>>, which re-checks staleness and syncs the camera
@@ -784,11 +793,7 @@ class RigidbodyPane(ttk.Frame):
             return
         self.console.append("Validating script…\n\n")
         self._set_busy(True)
-        # the run reads the structure on a worker thread, so the runner keeps its relaxed load applied until it finishes. Safe despite
-        # being process-wide: the preview is skipped entirely while a run is in flight, so nothing else loads meanwhile.
-        self.runner.start(self.editor.get("1.0", "end-1c"), validate_only=True,
-                          on_line=self.console.append, on_done=self._on_done,
-                          structure_path=self._load_value("pdb"), relaxed_loads=self._relaxed_loads)
+        self._start_runner(self.editor.get("1.0", "end-1c"), validate_only=True)
 
     def _run_clicked(self):
         if self.runner.running():
@@ -805,10 +810,21 @@ class RigidbodyPane(ttk.Frame):
         # Done before starting the run so the run's parse is the last to reset the live buffer.
         self._begin_live_preview(script)
         self._set_busy(True, stoppable=True)
-        self.runner.start(script, validate_only=False, on_line=self.console.append, on_done=self._on_done,
-                          structure_path=self._load_value("pdb"), relaxed_loads=self._relaxed_loads)
+        self._start_runner(script, validate_only=False)
         if self._live.active:
             self._live_job = self.after(LiveStructure.POLL_MS, self._poll_live)
+
+    def _start_runner(self, script: str, validate_only: bool):
+        """Start the runner with the run's own settings. A script carries no q-range, so the one of its dataset is used: the selection of a
+        data pane open on that file, or else the full range, as for the fitters. The preview is skipped while the run is in flight, so
+        nothing else enters the backend meanwhile."""
+        saxs = self._load_value("saxs")
+        data_pane = find_data_pane(self.master, saxs) if saxs else None
+        (qmin, qmax), unit = ((QMIN, QMAX), None) if data_pane is None else (data_pane.qrange(), data_pane.unit())
+        backend_settings = {**self._load_settings, "qmin": str(qmin), "qmax": str(qmax)}
+        if unit is not None:
+            backend_settings["unit"] = unit.lower()
+        self.runner.start(script, validate_only, on_line=self.console.append, on_done=self._on_done, backend_settings=backend_settings)
 
     def _stop_clicked(self):
         """Ask the backend to end the run after its current iteration. The run then completes normally, so _on_done still fires
@@ -827,7 +843,7 @@ class RigidbodyPane(ttk.Frame):
     # ----- live structure preview during a run --------------------------------
     def _begin_live_preview(self, script: str):
         """If the script contains an `update` element, prepare to follow its structure live and surface the structure tab."""
-        message = self._live.begin(script, self._relaxed_loads)
+        message = self._live.begin(script, self._load_settings)
         if message:
             self.console.append(message + "\n")
         if self._live.active:
@@ -863,10 +879,18 @@ class RigidbodyPane(ttk.Frame):
         if frame is not None:
             self._draw_live_frame(frame)
 
+    def _clear_fit_tabs(self):
+        """Remove the previous run's fit tabs, keeping the persistent structure tab."""
+        for tab in self._fit_tabs:
+            self.results.forget(tab)
+        self._fit_tabs.clear()
+
     def _on_done(self, done):
         self._set_busy(False)
         self._stop_live_preview()
         if done.error is not None:
+            if self._mode == "run":
+                self._clear_fit_tabs()  # the previous fit's results would read as this one's
             if done.error_streamed:
                 # the backend already streamed the error; just note the failure
                 self.console.append("\nRefinement failed.\n", tag="error")
@@ -884,10 +908,7 @@ class RigidbodyPane(ttk.Frame):
         if done.result is None or done.result.size == 0:
             self.console.append("No fit curves were returned.\n")
             return
-        # replace previous fit tabs but keep the persistent structure tab
-        for tab in self._fit_tabs:
-            self.results.forget(tab)
-        self._fit_tabs.clear()
+        self._clear_fit_tabs()
         for logx, title in ((False, "fit (log)"), (True, "fit (log-log)")):
             try:
                 self._fit_tabs.append(add_figure_tab(self.results, fit_figure_from_curves(done.result, logx=logx), title))

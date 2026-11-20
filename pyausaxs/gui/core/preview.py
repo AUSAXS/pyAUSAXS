@@ -10,7 +10,7 @@ Both hand out preview-structure dicts (see Rigidbody.preview_structure) for core
 from typing import Optional
 
 from . import script as rbscript
-from .loads import RELAXED_LOADS, RelaxedLoads, backend_message
+from .loads import backend_message
 
 
 class PreviewCache:
@@ -20,8 +20,8 @@ class PreviewCache:
     A script that can't be built (it is usually mid-edit) gives None rather than raising; the reason is kept in `error`, so a deliberate
     action such as Validate/Run can report what the empty preview hides."""
 
-    def __init__(self, relaxed_loads: RelaxedLoads = RELAXED_LOADS):
-        self._relaxed_loads = relaxed_loads
+    def __init__(self, backend_settings: Optional[dict[str, str]] = None):
+        self._backend_settings = {} if backend_settings is None else backend_settings  # set on top of the defaults before each build
         self._key = None
         self.data: Optional[dict] = None            # the last built preview structure, or None
         self.error: Optional[Exception] = None      # why the last build failed, or None
@@ -33,22 +33,22 @@ class PreviewCache:
             self.data, self.error = None, None
             path = rbscript.load_value(script, "pdb")
             if path:
+                from ...wrapper.Rigidbody import Rigidbody
+                from ...wrapper.settings import settings
+                settings.refresh(self._backend_settings)
                 try:
-                    from ...wrapper.Rigidbody import Rigidbody
-                    with self._relaxed_loads.applied(path):
-                        data = Rigidbody(script).preview_structure()
+                    data = Rigidbody(script).preview_structure()
                     self.data = data if len(data["coords"]) else None
                 except Exception as e:
                     self.error = e
         return self.data
 
     def invalidate(self):
-        """Force the next get() to rebuild, e.g. once a relaxed load has been granted, which changes nothing the signature can see."""
+        """Force the next get() to rebuild, e.g. once a load setting was relaxed, which changes nothing the signature can see."""
         self._key = None
 
 
-def bare_structure_preview(pdb_path: str, saxs_path: Optional[str],
-                           relaxed_loads: RelaxedLoads = RELAXED_LOADS) -> Optional[dict]:
+def bare_structure_preview(pdb_path: str, saxs_path: Optional[str], backend_settings: Optional[dict[str, str]] = None) -> Optional[dict]:
     """Preview-structure data for `pdb_path` alone, with no splits or elements staged — a fallback for when a script's own don't apply to it
     any more, e.g. right after the structure was swapped. Carries over the script's `saxs` path, which the `load` element requires and has
     nothing to do with whatever the pdb itself does; without one, there is nothing this can build. Distinct from
@@ -58,10 +58,11 @@ def bare_structure_preview(pdb_path: str, saxs_path: Optional[str],
         return None
     block = (f"load {{\n    pdb {rbscript.quote_script_value(pdb_path)}\n"
              f"    saxs {rbscript.quote_script_value(saxs_path)}\n}}\n")
+    from ...wrapper.Rigidbody import Rigidbody
+    from ...wrapper.settings import settings
+    settings.refresh(backend_settings)
     try:
-        from ...wrapper.Rigidbody import Rigidbody
-        with relaxed_loads.applied(pdb_path):
-            data = Rigidbody(block).preview_structure()
+        data = Rigidbody(block).preview_structure()
         return data if len(data["coords"]) else None
     except Exception:
         return None
@@ -89,7 +90,7 @@ class LiveStructure:
     def active(self) -> bool:
         return self._meta is not None
 
-    def begin(self, script: str, relaxed_loads: RelaxedLoads = RELAXED_LOADS) -> Optional[str]:
+    def begin(self, script: str, backend_settings: Optional[dict[str, str]] = None) -> Optional[str]:
         """Prepare to follow a run of `script`, if it publishes its structure (contains an `update` element). Must come before the run is
         started, so the run's parse is the last to reset the live buffer. Returns a message if the live view is unavailable, else None;
         check `active` for whether there is anything to follow.
@@ -100,10 +101,11 @@ class LiveStructure:
         self._version = 0
         if not rbscript.has_live_update(script):
             return None
+        from ...wrapper.Rigidbody import Rigidbody
+        from ...wrapper.settings import settings
+        settings.refresh(backend_settings)
         try:
-            from ...wrapper.Rigidbody import Rigidbody
-            with relaxed_loads.applied(rbscript.load_value(script, "pdb")):
-                meta = Rigidbody(script).preview_structure()
+            meta = Rigidbody(script).preview_structure()
         except Exception as e:
             return f"Live structure view unavailable: {backend_message(e)}"
         if len(meta["coords"]):

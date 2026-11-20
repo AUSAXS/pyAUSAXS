@@ -3,9 +3,8 @@ from .Models import ExvModel, ExvTable, WaterModel, WeightedBins
 from pyausaxs.signatures import register
 import ctypes as ct
 import numpy as np
-import os
 import warnings
-from typing import Any
+from typing import Any, Optional
 
 register({
     "get_setting": (
@@ -35,6 +34,12 @@ register({
     "load_settings": (
         [
             ct.c_char_p,         # file path
+            ct.POINTER(ct.c_int) # status (0 = success)
+        ],
+        None
+    ),
+    "reset_settings": (
+        [
             ct.POINTER(ct.c_int) # status (0 = success)
         ],
         None
@@ -150,15 +155,19 @@ class settings:
         return q
 
     @staticmethod
-    def snapshot_defaults(path: str):
-        """Capture the current settings as the "defaults" `reset_to_defaults` later restores. Call once per launch, first thing."""
-        settings.save(path)
+    def reset():
+        """Restore every setting to its default value."""
+        ausaxs = AUSAXS()
+        status = ct.c_int()
+        ausaxs.lib().functions.reset_settings(ct.byref(status))
+        _check_error_code(status, "settings_reset_settings")
 
     @staticmethod
-    def reset_to_defaults(path: str):
-        """Reset every setting back to the snapshot taken by `snapshot_defaults`."""
-        if os.path.isfile(path):
-            settings.load(path)
+    def refresh(new_settings: Optional[dict[str, Any]] = None):
+        """Reset every setting to its default, then apply `new_settings` (name -> value) on top."""
+        settings.reset()
+        for name, value in (new_settings or {}).items():
+            settings.set(name, value)
 
     @staticmethod
     def exv(exv_model: ExvModel = ExvModel.simple):

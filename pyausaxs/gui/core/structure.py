@@ -15,7 +15,6 @@ which selection stands in for an empty field, how a staged split is extended, th
 import difflib
 from typing import Callable, NamedTuple, Optional
 
-from .loads import RELAXED_LOADS, RelaxedLoads
 from .plotting import _BODY_COLORS, residue_ca_mask
 from .script import (
     LOAD_BLOCK_RE, is_residue_id, load_split, norm_splits, parse_split_element, parse_splits, structure_preview_script,
@@ -41,12 +40,11 @@ class StructureModel:
     """
 
     def __init__(self, pdb_path: str, *, splits: str = "", base_script: Optional[Callable[[], str]] = None,
-                 base_signature: Optional[Callable[[str], object]] = None, relaxed_loads: RelaxedLoads = RELAXED_LOADS):
+                 base_signature: Optional[Callable[[str], object]] = None, backend_settings: Optional[dict[str, str]] = None):
         self.pdb_path = pdb_path
         self.splits = splits                      # the load-block splits in force
-        # relaxed-load grants, shared with every other pane by default, so a structure the user already accepted with relaxed settings
-        # elsewhere doesn't start failing again here.
-        self._relaxed_loads = relaxed_loads
+        # set on top of the defaults before each rebuild; the owning pane's dict, so a load setting it relaxes later applies here too
+        self._backend_settings = {} if backend_settings is None else backend_settings
         self._base_script = base_script
         # reduce the base script to a structural fingerprint, so a later edit to the same body/split setup is detected as "stale". Defaults to
         # the structure signature, which covers every element this model reads or writes (rename/merge/split/symmetry/constraint/...).
@@ -92,15 +90,16 @@ class StructureModel:
         adopting `elements` on success is up to the caller."""
         elements = self.elements if elements is None else elements
         script = self.compose(elements)
+        from ...wrapper.Rigidbody import Rigidbody
+        from ...wrapper.settings import settings
+        settings.refresh(self._backend_settings)
         try:
-            from ...wrapper.Rigidbody import Rigidbody
-            with self._relaxed_loads.applied(self.pdb_path):
-                rb = Rigidbody(script)
-                data = rb.preview_structure()
-                if not len(data["coords"]):
-                    return False, "the structure is empty"
-                names = rb.body_names()
-                layout = rb.symmetry_layout()
+            rb = Rigidbody(script)
+            data = rb.preview_structure()
+            if not len(data["coords"]):
+                return False, "the structure is empty"
+            names = rb.body_names()
+            layout = rb.symmetry_layout()
         except Exception as e:
             return False, str(e)
 

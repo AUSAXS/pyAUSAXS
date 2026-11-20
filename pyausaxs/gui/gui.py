@@ -15,11 +15,13 @@ from .em_pane import EmFitterPane
 from .panes import enable_closable_tabs
 from .rigidbody_pane import RigidbodyPane
 from .saxs_pane import SaxsFitterPane
-from .session import SettingsBackup, load_config, snapshot_default_settings, update_config
+from .session import load_config, pane_states, update_config
 from .theme import PALETTE, apply_theme
 
 
 class App(TkinterDnD.Tk):
+    AUTOSAVE_MS = 10_000  # how often the panes' state is persisted, besides on close
+
     def __init__(self):
         super().__init__()
         from .. import __version__
@@ -28,15 +30,6 @@ class App(TkinterDnD.Tk):
         self.geometry("1320x880")
         self.minsize(960, 680)
         apply_theme(self)
-
-        # snapshot pristine defaults before restoring any prior session (used by SaxsDataPane._reset_backend_settings)
-        try:
-            snapshot_default_settings()
-        except Exception:
-            pass
-        self._settings_backup = SettingsBackup(self)
-        self._settings_backup.restore()
-        self._settings_backup.start_autosave()
 
         header = ttk.Frame(self, padding=(20, 14, 20, 6))
         header.pack(side="top", fill="x")
@@ -49,15 +42,22 @@ class App(TkinterDnD.Tk):
         notebook.pack(side="top", fill="both", expand=True, padx=14, pady=(0, 4))
         # the three panes below are permanent; the structure/data panes opened later carry a ✕ this acts on
         enable_closable_tabs(notebook)
-        titles = []
+        self._panes = {}
         for pane_cls in (SaxsFitterPane, EmFitterPane, RigidbodyPane):
             pane = pane_cls(notebook)
             notebook.add(pane, text=pane_cls.title)
-            titles.append(pane_cls.title)
+            self._panes[pane_cls.title] = pane
 
-        # restore the panel that was open when the GUI was last closed
-        if config.get("last_panel") in titles:
-            notebook.select(titles.index(config["last_panel"]))
+        # restore each pane's inputs and settings, then the panel that was open when the GUI was last closed (restoring a data pane
+        # selects its tab)
+        states = pane_states()
+        for title, pane in self._panes.items():
+            pane.restore_state(states.get(title, {}))
+        titles = list(self._panes)
+        notebook.select(titles.index(config["last_panel"]) if config.get("last_panel") in titles else 0)
+        self._saved_states = None
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.after(self.AUTOSAVE_MS, self._autosave)
 
         # remember where we were launched from (so the rigid-body pane can resolve relative script paths next boot) and keep the active 
         # panel persisted as the user switches
@@ -74,6 +74,21 @@ class App(TkinterDnD.Tk):
         footer.pack(side="bottom", fill="x")
         ttk.Label(footer, text=f"pyAUSAXS {__version__}", style="Footer.TLabel").pack(side="left")
         ttk.Label(footer, text="Kristian Lytje & Jan Skov Pedersen", style="Footer.TLabel").pack(side="right")
+
+    def save_state(self):
+        """Persist each pane's state, for the next session to start from (see restore_state on the panes)."""
+        states = {title: pane.state() for title, pane in self._panes.items()}
+        if states != self._saved_states:
+            update_config(panes=states)
+            self._saved_states = states
+
+    def _autosave(self):
+        self.save_state()
+        self.after(self.AUTOSAVE_MS, self._autosave)
+
+    def _on_close(self):
+        self.save_state()
+        self.destroy()
 
 
 def main(argv=None) -> int:

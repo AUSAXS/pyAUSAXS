@@ -9,7 +9,6 @@ import sys
 import threading
 from typing import Callable, Optional
 
-from .core.loads import RELAXED_LOADS, RelaxedLoads
 from .core.runner import RefinementOutcome, RefinementWorker
 
 
@@ -39,12 +38,6 @@ class CliRunner:
         """Run `ausaxs *args`, e.g. args = ["fit", "structure.pdb", "data.dat"]."""
         if self._busy:
             raise RuntimeError("a fit is already running")
-
-        from ..wrapper.AUSAXS import AUSAXS
-        if not AUSAXS.ready():
-            on_line(f"AUSAXS library unavailable: {AUSAXS.init_error()}\n")
-            on_done(1)
-            return
 
         self._busy = True
         self._stopping = False
@@ -128,9 +121,9 @@ class RigidbodyRunner:
 
     def start(self, script: str, validate_only: bool,
               on_line: Callable[[str], None], on_done: Callable[[RefinementOutcome], None], *,
-              structure_path: Optional[str] = None, relaxed_loads: RelaxedLoads = RELAXED_LOADS):
+              backend_settings: Optional[dict[str, str]] = None):
         """See RefinementWorker.start."""
-        self._worker.start(script, validate_only, structure_path=structure_path, relaxed_loads=relaxed_loads)
+        self._worker.start(script, validate_only, backend_settings=backend_settings)
 
         def poll():
             if self._worker.drain(on_line, on_done):
