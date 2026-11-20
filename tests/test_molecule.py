@@ -21,7 +21,7 @@ def test_molecule():
     assert math.isclose(x1[0], -3.462, abs_tol=1e-6),   "x coordinate mismatch"
     assert math.isclose(y1[0], 69.119, abs_tol=1e-6),   "y coordinate mismatch" 
     assert math.isclose(z1[0], -8.662, abs_tol=1e-6),   "z coordinate mismatch"
-    assert ff2[0].strip() == "NH",                      "form factor type mismatch"
+    assert ff2[0].strip() == "NH3",                     "form factor type mismatch" # N-terminal nitrogen is protonated at pH 7
 
     # create molecule from PDBfile
     pdb = ausaxs.read_pdb("tests/files/2epe.pdb")
