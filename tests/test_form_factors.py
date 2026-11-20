@@ -16,7 +16,7 @@ def test_get_five_gaussian_coefficients():
     assert isinstance(c, float), "Coefficient c should be a float"
 
 def test_get_current_exv_volume():
-    element = form_factor.valid_types()[1]
-    volume = form_factor.get_current_exv_volume(element)
+    # not every form factor type has a displaced volume (e.g. HOH), so use a fixed one that does
+    volume = form_factor.get_current_exv_volume("C")
     assert isinstance(volume, float), "Excluded volume should be a float"
     assert volume > 0, "Excluded volume should be positive"
