@@ -2,14 +2,17 @@ from enum import Enum
 from pathlib import Path
 import os
 import platform
+import sys
 
 class OS(Enum):
     WIN = 0
     LINUX = 1
     MAC = 2
     UNKNOWN = 3
+    EMSCRIPTEN = 4 # Pyodide; the backend is a WebAssembly side module
 
 def get_os():
+    if sys.platform == "emscripten":    return OS.EMSCRIPTEN
     if platform.system() == "Windows":  return OS.WIN
     elif platform.system() == "Linux":  return OS.LINUX
     elif platform.system() == "Darwin": return OS.MAC
@@ -34,7 +37,7 @@ def get_shared_lib_extension():
     _os = get_os()
     if _os == OS.WIN:
         return ".dll"
-    elif _os == OS.LINUX:
+    elif _os in (OS.LINUX, OS.EMSCRIPTEN):
         return ".so"
     elif _os == OS.MAC:
         return ".dylib"

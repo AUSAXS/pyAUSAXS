@@ -123,6 +123,12 @@ jobs:
           name: wheel-${{ matrix.platform }}
           path: dist/*.whl
 
+  # not published to PyPI (the publish job only takes wheel-*), only attached to the GitHub release for the website
+  build-pyodide:
+    uses: ./.github/workflows/build-pyodide-wheel.yml
+    with:
+      require-library: true
+
   build-sdist:
     runs-on: ubuntu-latest
     steps:
@@ -143,7 +149,7 @@ jobs:
           path: dist/*.tar.gz
 
   publish:
-    needs: [build, build-sdist]
+    needs: [build, build-sdist, build-pyodide] # a broken Pyodide wheel stops the release before anything reaches PyPI
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -187,6 +193,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: sdist
+          path: dist/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: pyodide-wheel
           path: dist/
 
       - name: Create GitHub release

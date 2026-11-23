@@ -6,3 +6,5 @@ dist/
 .pixi/
 .vscode
 output
+node_modules/
+tests/pyodide/package-lock.json
