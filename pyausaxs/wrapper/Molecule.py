@@ -119,6 +119,26 @@ register({
         ],
         None
     ),
+    "molecule_amplitude": (
+        [
+            ct.c_int,                            # molecule id
+            ct.POINTER(ct.POINTER(ct.c_double)), # q (output)
+            ct.POINTER(ct.POINTER(ct.c_double)), # A (output)
+            ct.POINTER(ct.c_int),                # n_points (output)
+            ct.POINTER(ct.c_int)                 # status (0 = success)
+        ],
+        ct.c_int                                 # return obj id
+    ),
+    "molecule_amplitude_userq": (
+        [
+            ct.c_int,                # molecule id
+            ct.POINTER(ct.c_double), # q
+            ct.POINTER(ct.c_double), # A (output)
+            ct.c_int,                # n_points
+            ct.POINTER(ct.c_int)     # status (0 = success)
+        ],
+        None
+    ),
     "molecule_debye_raw": (
         [
             ct.c_int,                            # molecule id
@@ -426,6 +446,20 @@ class Molecule(BackendObject):
         Returns: (q, I)
         """
         return self._debye_profile("molecule_debye", q_vals)
+
+    def amplitude(self, q_vals: list[float] | np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Calculate the orientationally averaged scattering amplitude <A(q)> of the molecule, with the same form factors and excluded
+        volume model as debye(). The amplitude is taken about the centroid of the excess scattering length.
+
+        Together with the intensity from debye() this gives the beta(q) factor of the decoupling approximation,
+            beta(q) = <A(q)>^2 / <|A(q)|^2>,   I(q) = I_0(q) [1 + beta(q) (S(q) - 1)],
+        which accounts for the anisotropy of the molecule when combining it with a structure factor S(q).
+
+        Only the excluded volume models simple, none, vacuum and fraser are supported.
+        Returns: (q, A)
+        """
+        return self._debye_profile("molecule_amplitude", q_vals)
 
     def debye_raw(
         self, q_vals: list[float] | np.ndarray | None = None, form_factors: bool = False
