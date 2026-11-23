@@ -40,10 +40,9 @@ class LazyLib:
         return func
 
 
-# Core functions not owned by a single wrapper module: the integration self-test, the allocation/error helpers 
-# used across wrappers, and the backend's `ausaxs` CLI entrypoint used by __main__.py and the GUI runner.
+# Core functions not owned by a single wrapper module: the allocation/error helpers used across wrappers,
+# and the backend's `ausaxs` CLI entrypoint used by __main__.py and the GUI runner.
 register({
-    "test_integration":   ([ct.POINTER(ct.c_int)], None),
     "deallocate":         ([ct.c_int, ct.POINTER(ct.c_int)], None),
     "get_last_error_msg": ([ct.POINTER(ct.c_char_p), ct.POINTER(ct.c_int)], None),
     "cli_ausaxs":          ([ct.c_int, ct.POINTER(ct.c_char_p)], ct.c_int),
