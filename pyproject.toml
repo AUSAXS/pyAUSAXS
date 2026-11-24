@@ -34,6 +34,7 @@ all = [
 ]
 [project.urls]
 Homepage = "https://github.com/AUSAXS/pyAUSAXS"
+Documentation = "https://ausaxs.github.io/"
 
 [tool.setuptools.packages.find]
 where = ["."]
