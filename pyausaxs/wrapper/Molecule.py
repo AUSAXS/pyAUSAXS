@@ -102,7 +102,6 @@ register({
     "molecule_debye": (
         [
             ct.c_int,                            # molecule id
-            ct.POINTER(ct.POINTER(ct.c_double)), # q (output)
             ct.POINTER(ct.POINTER(ct.c_double)), # I (output)
             ct.POINTER(ct.c_int),                # n_points (output)
             ct.POINTER(ct.c_int)                 # status (0 = success)
@@ -122,7 +121,7 @@ register({
     "molecule_amplitude": (
         [
             ct.c_int,                            # molecule id
-            ct.POINTER(ct.POINTER(ct.c_double)), # q (output)
+            ct.POINTER(ct.c_double),             # centre [x, y, z], or null for the centroid
             ct.POINTER(ct.POINTER(ct.c_double)), # A (output)
             ct.POINTER(ct.c_int),                # n_points (output)
             ct.POINTER(ct.c_int)                 # status (0 = success)
@@ -132,6 +131,7 @@ register({
     "molecule_amplitude_userq": (
         [
             ct.c_int,                # molecule id
+            ct.POINTER(ct.c_double), # centre [x, y, z], or null for the centroid
             ct.POINTER(ct.c_double), # q
             ct.POINTER(ct.c_double), # A (output)
             ct.c_int,                # n_points
@@ -142,7 +142,6 @@ register({
     "molecule_debye_raw": (
         [
             ct.c_int,                            # molecule id
-            ct.POINTER(ct.POINTER(ct.c_double)), # q (output)
             ct.POINTER(ct.POINTER(ct.c_double)), # I (output)
             ct.POINTER(ct.c_int),                # n_points (output)
             ct.POINTER(ct.c_int)                 # status (0 = success)
@@ -402,9 +401,10 @@ class Molecule(BackendObject):
         ausaxs.deallocate(tmp_id)
         return bins, counts
 
-    def _debye_profile(self, name: str, q_vals: list[float] | np.ndarray | None) -> tuple[np.ndarray, np.ndarray]:
+    def _debye_profile(self, name: str, q_vals: list[float] | np.ndarray | None, *args) -> tuple[np.ndarray, np.ndarray]:
         """
-        Evaluate the backend profile function `name` on its default q axis, or `name`_userq at the given q values.
+        Evaluate the backend profile function `name` on the default q axis, or `name`_userq at the given q values.
+        args are passed on after the molecule id.
         Returns: (q, I)
         """
         ausaxs = AUSAXS()
@@ -414,6 +414,7 @@ class Molecule(BackendObject):
             i = np.zeros_like(q, dtype=np.float64)
             getattr(ausaxs.lib().functions, f"{name}_userq")(
                 self._get_id(),
+                *args,
                 q.ctypes.data_as(ct.POINTER(ct.c_double)),
                 i.ctypes.data_as(ct.POINTER(ct.c_double)),
                 ct.c_int(len(q)),
@@ -422,23 +423,20 @@ class Molecule(BackendObject):
             _check_error_code(status, f"{name}_userq")
             return q, i
 
-        q_ptr = ct.POINTER(ct.c_double)()
         i_ptr = ct.POINTER(ct.c_double)()
         n_q = ct.c_int()
         tmp_id = getattr(ausaxs.lib().functions, name)(
             self._get_id(),
-            ct.byref(q_ptr),
+            *args,
             ct.byref(i_ptr),
             ct.byref(n_q),
             ct.byref(status)
         )
         _check_error_code(status, name)
 
-        n = n_q.value
-        q = _ptr_to_array(q_ptr, n)
-        i = _ptr_to_array(i_ptr, n)
+        i = _ptr_to_array(i_ptr, n_q.value)
         ausaxs.deallocate(tmp_id)
-        return q, i
+        return settings.q_axis(), i
 
     def debye(self, q_vals: list[float] | np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
         """
@@ -459,7 +457,7 @@ class Molecule(BackendObject):
         Only the excluded volume models simple, none, vacuum and fraser are supported.
         Returns: (q, A)
         """
-        return self._debye_profile("molecule_amplitude", q_vals)
+        return self._debye_profile("molecule_amplitude", q_vals, None)
 
     def debye_raw(
         self, q_vals: list[float] | np.ndarray | None = None, form_factors: bool = False
