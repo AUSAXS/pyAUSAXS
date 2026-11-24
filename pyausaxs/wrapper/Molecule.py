@@ -118,20 +118,18 @@ register({
         ],
         None
     ),
-    "molecule_amplitude": (
+    "molecule_amplitude_centroid": (
         [
             ct.c_int,                            # molecule id
-            ct.POINTER(ct.c_double),             # centre [x, y, z], or null for the centroid
             ct.POINTER(ct.POINTER(ct.c_double)), # A (output)
             ct.POINTER(ct.c_int),                # n_points (output)
             ct.POINTER(ct.c_int)                 # status (0 = success)
         ],
         ct.c_int                                 # return obj id
     ),
-    "molecule_amplitude_userq": (
+    "molecule_amplitude_centroid_userq": (
         [
             ct.c_int,                # molecule id
-            ct.POINTER(ct.c_double), # centre [x, y, z], or null for the centroid
             ct.POINTER(ct.c_double), # q
             ct.POINTER(ct.c_double), # A (output)
             ct.c_int,                # n_points
@@ -401,10 +399,9 @@ class Molecule(BackendObject):
         ausaxs.deallocate(tmp_id)
         return bins, counts
 
-    def _debye_profile(self, name: str, q_vals: list[float] | np.ndarray | None, *args) -> tuple[np.ndarray, np.ndarray]:
+    def _debye_profile(self, name: str, q_vals: list[float] | np.ndarray | None) -> tuple[np.ndarray, np.ndarray]:
         """
         Evaluate the backend profile function `name` on the default q axis, or `name`_userq at the given q values.
-        args are passed on after the molecule id.
         Returns: (q, I)
         """
         ausaxs = AUSAXS()
@@ -414,7 +411,6 @@ class Molecule(BackendObject):
             i = np.zeros_like(q, dtype=np.float64)
             getattr(ausaxs.lib().functions, f"{name}_userq")(
                 self._get_id(),
-                *args,
                 q.ctypes.data_as(ct.POINTER(ct.c_double)),
                 i.ctypes.data_as(ct.POINTER(ct.c_double)),
                 ct.c_int(len(q)),
@@ -427,7 +423,6 @@ class Molecule(BackendObject):
         n_q = ct.c_int()
         tmp_id = getattr(ausaxs.lib().functions, name)(
             self._get_id(),
-            *args,
             ct.byref(i_ptr),
             ct.byref(n_q),
             ct.byref(status)
@@ -457,7 +452,7 @@ class Molecule(BackendObject):
         Only the excluded volume models simple, none, vacuum and fraser are supported.
         Returns: (q, A)
         """
-        return self._debye_profile("molecule_amplitude", q_vals, None)
+        return self._debye_profile("molecule_amplitude_centroid", q_vals)
 
     def debye_raw(
         self, q_vals: list[float] | np.ndarray | None = None, form_factors: bool = False
