@@ -33,6 +33,12 @@ jobs:
             library_zip_name: libausaxs.dll
             library: libausaxs.dll
 
+          - os: windows-11-arm
+            platform: win_arm64
+            zip: windows-arm64-binaries.zip
+            library_zip_name: libausaxs.dll
+            library: libausaxs.dll
+
     runs-on: ${{ matrix.os }}
 
     steps:
