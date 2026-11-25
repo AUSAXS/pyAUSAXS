@@ -1,5 +1,6 @@
 from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _check_similar_length, _as_numpy_f64_arrays, _ptr_to_array
 from .Molecule import Molecule
+from .settings import settings
 from pyausaxs.signatures import register
 import ctypes as ct
 import numpy as np
@@ -8,7 +9,6 @@ register({
     "molecule_debye_exact": (
         [
             ct.c_int,                            # molecule id
-            ct.POINTER(ct.POINTER(ct.c_double)), # q
             ct.POINTER(ct.POINTER(ct.c_double)), # I (output)
             ct.POINTER(ct.c_int),                # n_points
             ct.POINTER(ct.c_int)                 # status (0 = success)
@@ -51,21 +51,17 @@ class unoptimized():
             _check_error_code(status, "unoptimized_debye_exact_q")
             return q, i
         else:
-            q_ptr = ct.POINTER(ct.c_double)()
             i_ptr = ct.POINTER(ct.c_double)()
             n_q = ct.c_int()
             status = ct.c_int()
             tmp_id = ausaxs.lib().functions.molecule_debye_exact(
                 molecule._get_id(),
-                ct.byref(q_ptr),
                 ct.byref(i_ptr),
                 ct.byref(n_q),
                 ct.byref(status)
             )
             _check_error_code(status, "unoptimized_debye_exact")
 
-            n = n_q.value
-            q = _ptr_to_array(q_ptr, n)
-            i = _ptr_to_array(i_ptr, n)
+            i = _ptr_to_array(i_ptr, n_q.value)
             ausaxs.deallocate(tmp_id)
-            return q, i
+            return settings.q_axis(), i

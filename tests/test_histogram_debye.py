@@ -148,7 +148,7 @@ def test_debye_q_axis_with_qmin():
     ausaxs.settings.histogram(qmin=0.2)
     try:
         q_ex, _ = ausaxs.unoptimized.debye_exact(mol)
-        for f in (mol.debye, mol.debye_raw):
+        for f in (mol.debye, mol.amplitude, mol.debye_raw):
             q, I = f()
             assert np.allclose(q, q_ex, rtol=0, atol=1e-12), f"{f.__name__}: q axis starts at {q[0]}, expected {q_ex[0]}"
             assert np.allclose(f(q)[1], I, rtol=1e-6), f"{f.__name__}: I(q) does not match its own q values"

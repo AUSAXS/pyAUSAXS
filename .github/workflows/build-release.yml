@@ -11,13 +11,13 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: manylinux2014_x86_64
-            zip: ubuntu-22.04-binaries.zip
+            zip: manylinux_2_28_x86_64-binaries.zip
             library_zip_name: libausaxs.so
             library: libausaxs.so
 
           - os: ubuntu-24.04-arm
             platform: manylinux2014_aarch64
-            zip: ubuntu-22.04-arm-binaries.zip
+            zip: manylinux_2_28_aarch64-binaries.zip
             library_zip_name: libausaxs.so
             library: libausaxs.so
 
@@ -29,7 +29,7 @@ jobs:
 
           - os: windows-latest
             platform: win_amd64
-            zip: windows-binaries.zip
+            zip: windows-x64-binaries.zip
             library_zip_name: libausaxs.dll
             library: libausaxs.dll
 
