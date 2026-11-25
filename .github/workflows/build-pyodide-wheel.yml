@@ -1,0 +1,81 @@
+name: Build Pyodide wheel
+
+# Builds the pyausaxs wheel for Pyodide (Python in the browser, used by the website's embedded examples) around the
+# WebAssembly backend from the latest AUSAXS release, then runs the example scripts in Pyodide under Node.js.
+# The ABI below, the AUSAXS build-wasm.yml emsdk version, and the pyodide version in tests/pyodide/package.json
+# have to move together: pyemscripten_2026_0 is Pyodide 314.x (Python 3.14), built with Emscripten 5.0.3.
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      require-library:
+        description: "Fail instead of skipping when the latest AUSAXS release has no WebAssembly library"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  ABI: pyemscripten_2026_0
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the WebAssembly library
+        id: lib
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUIRED: ${{ inputs.require-library || github.event_name == 'workflow_dispatch' }}
+        run: |
+          asset="libausaxs-${ABI//_/-}.zip"
+          if ! gh release download --repo AUSAXS/AUSAXS --pattern "$asset" --dir backend; then
+            if [ "$REQUIRED" = "true" ]; then
+              echo "::error::The latest AUSAXS release has no $asset"
+              exit 1
+            fi
+            echo "::warning::The latest AUSAXS release has no $asset; skipping the Pyodide wheel"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          unzip -q "backend/$asset" -d backend
+          mkdir -p pyausaxs/resources
+          cp backend/lib/libausaxs.so pyausaxs/resources/libausaxs.so
+          ls -la pyausaxs/resources/
+          echo "found=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@v5
+        if: steps.lib.outputs.found == 'true'
+        with:
+          python-version: '3.12'
+
+      - name: Build the wheel
+        if: steps.lib.outputs.found == 'true'
+        run: |
+          python -m pip install --upgrade pip build wheel twine
+          python -m build --wheel
+          python -m wheel tags --remove --platform-tag "${ABI}_wasm32" dist/*.whl
+          twine check dist/*.whl
+          ls -la dist/
+
+      - uses: actions/setup-node@v4
+        if: steps.lib.outputs.found == 'true'
+        with:
+          node-version: '22'
+
+      - name: Run the examples in Pyodide
+        if: steps.lib.outputs.found == 'true'
+        run: |
+          npm install --prefix tests/pyodide --no-audit --no-fund
+          node tests/pyodide/run_in_pyodide.mjs dist/*.whl examples/*.py
+
+      - uses: actions/upload-artifact@v4
+        if: steps.lib.outputs.found == 'true'
+        with:
+          name: pyodide-wheel
+          path: dist/*.whl
+          if-no-files-found: error

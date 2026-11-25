@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "description": "Runs the example scripts in Pyodide against a pyAUSAXS Pyodide wheel; see run_in_pyodide.mjs",
+  "type": "module",
+  "dependencies": {
+    "pyodide": "314.0.8"
+  }
+}

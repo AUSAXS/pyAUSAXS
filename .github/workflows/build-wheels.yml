@@ -130,3 +130,6 @@ jobs:
           rm -rf pyausaxs
           python -m pip install dist/*.whl
           pytest -q
+
+  pyodide:
+    uses: ./.github/workflows/build-pyodide-wheel.yml
