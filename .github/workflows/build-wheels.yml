@@ -34,6 +34,13 @@ jobs:
             library_zip_name: libausaxs.dll
             library: libausaxs.dll
 
+          - os: windows-11-arm
+            platform: win_arm64
+            python: '3.11' # no Python 3.10 build exists for Windows ARM64
+            zip: windows-arm64-binaries.zip
+            library_zip_name: libausaxs.dll
+            library: libausaxs.dll
+
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -41,7 +48,7 @@ jobs:
 
       - uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: ${{ matrix.python || '3.10' }}
 
       - name: Download and extract platform-specific library
         uses: robinraju/release-downloader@v1
@@ -86,22 +93,29 @@ jobs:
           python -m pip install --upgrade pip build packaging
           python -m build --wheel
 
-      - name: Apply platform tag and add project name
+      - name: Tag the platform wheel
         shell: bash
         run: |
-          cd dist
-          for wheel in *.whl; do
-            # Replace the generic tag with platform-specific tag
-            platform_wheel=$(echo "$wheel" | sed 's/-py3-none-any/-py3-none-${{ matrix.platform }}/')
-            final_wheel=$(echo "$platform_wheel" | sed 's/^/pyausaxs-wheel-/')
-            
-            if [ "$wheel" != "$platform_wheel" ]; then
-              mv "$wheel" "$platform_wheel"
-              echo "Applied platform tag: $wheel -> $platform_wheel"
-            fi
-
-            echo "Final wheel: $final_wheel ($(du -h "$final_wheel" | cut -f1))"
-          done
+          python -m pip install --upgrade wheel
+          python -m wheel tags --remove --platform-tag ${{ matrix.platform }} dist/*.whl
+          case "$RUNNER_OS" in
+            Linux)
+              # lowers linux_* to the oldest manylinux tag the library's glibc and libstdc++ symbols allow;
+              # libcurl is outside the manylinux policy but on every desktop system, so it is used from the system instead of vendored
+              python -m pip install auditwheel patchelf
+              auditwheel repair --exclude 'libcurl.so.4' -w wheelhouse dist/*.whl ;;
+            macOS)
+              # fails unless the library has both architectures and runs on the macOS version in the tag;
+              # vendors any library that is not part of the system
+              python -m pip install delocate
+              MACOSX_DEPLOYMENT_TARGET=11.0 delocate-wheel --require-archs universal2 -w wheelhouse dist/*.whl ;;
+            Windows)
+              # the library links the C runtime and libcurl statically, so there is nothing to vendor
+              mkdir wheelhouse && mv dist/*.whl wheelhouse/ ;;
+          esac
+          rm -f dist/*.whl
+          mv wheelhouse/*.whl dist/
+          ls -la dist/
 
       - uses: actions/upload-artifact@v4
         with:
