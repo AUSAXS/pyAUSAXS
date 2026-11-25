@@ -35,6 +35,7 @@ jobs:
 
           - os: windows-11-arm
             platform: win_arm64
+            python: '3.11' # no Python 3.10 build exists for Windows ARM64
             zip: windows-arm64-binaries.zip
             library_zip_name: libausaxs.dll
             library: libausaxs.dll
@@ -44,6 +45,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python || '3.10' }}
 
       - name: Download and extract platform-specific library
         uses: robinraju/release-downloader@v1
