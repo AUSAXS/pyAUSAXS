@@ -50,7 +50,7 @@ ausaxs.settings.molecule(throw_on_unknown_atom=None, implicit_hydrogens=None, us
 |-----------|-------------|
 | `throw_on_unknown_atom` | Raise an error on an atom type AUSAXS does not know, instead of continuing. On by default. |
 | `implicit_hydrogens` | Add the scattering of missing hydrogens to the atoms that carry them. On by default. |
-| `use_occupancy` | Weight each atom by its occupancy. On by default. |
+| `use_occupancy` | Deprecated, has no effect: occupancies are not used. Of a residue with alternate locations, only the conformer holding its most occupied atom is read. |
 | `exv_table` | The table of atomic volumes for the excluded volume, as an `ExvTable` or its name: `traube`, `voronoi_implicit_H`, `voronoi_explicit_H`, `minimum_fluctutation_implicit_H` (the default), `minimum_fluctutation_explicit_H` or `vdw`. `"voronoi"` and `"mf"` are short for the implicit-hydrogen versions. |
 
 ### Grid

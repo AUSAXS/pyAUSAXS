@@ -31,7 +31,6 @@ def test_settings():
     ausaxs.settings.molecule(
         throw_on_unknown_atom=False,
         implicit_hydrogens=True,
-        use_occupancy=True,
         exv_table=ExvTable.traube,
     )
     ausaxs.settings.exv(exv_model=ExvModel.simple)
