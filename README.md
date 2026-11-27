@@ -1,8 +1,8 @@
 <p align="center">
   <a href="https://ausaxs.github.io/pyausaxs/">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/AUSAXS/pyAUSAXS/media/title_light.png">
-      <img alt="pyAUSAXS" src="https://raw.githubusercontent.com/AUSAXS/pyAUSAXS/media/title_dark.png">
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/AUSAXS/AUSAXS/media/title-dark.svg">
+      <img alt="AUSAXS" src="https://raw.githubusercontent.com/AUSAXS/AUSAXS/media/title-light.svg">
     </picture>
   </a>
 </p>
