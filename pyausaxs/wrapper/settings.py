@@ -74,6 +74,7 @@ def _b(val: bool) -> str:
 # settings removed from the backend; kept here for a deprecation period so old scripts keep running. name -> reason
 _deprecated_settings = {
     "bin_count": "the number of distance-histogram bins is now deduced from the structure being calculated",
+    "use_occupancy": "occupancies are no longer used; of a residue with alternate locations, only the most occupied conformer is read",
 }
 
 def _warn_deprecated(name: str):
@@ -254,7 +255,7 @@ class settings:
         Settings related to molecule handling. 
         param throw_on_unknown_atom: Whether to throw an error when an unknown atom type is encountered.
         param implicit_hydrogens: Whether to add implicit hydrogens to the molecule. 
-        param use_occupancy: Whether to consider atomic occupancy in calculations.
+        param use_occupancy: Deprecated, has no effect.
         param exv_table: The excluded volume table to use.
         """
         if throw_on_unknown_atom is not None:
@@ -262,7 +263,7 @@ class settings:
         if implicit_hydrogens is not None:
             settings.set("implicit_hydrogens", _b(implicit_hydrogens))
         if use_occupancy is not None:
-            settings.set("use_occupancy", _b(use_occupancy))
+            _warn_deprecated("use_occupancy")
         if exv_table is not None:
             settings.set("exv_volume", ExvTable.validate(exv_table).value)
 
