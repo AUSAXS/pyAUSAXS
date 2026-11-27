@@ -1,4 +1,5 @@
 from pyausaxs.integration import AUSAXSLIB
+from pyausaxs.signatures import _SIGNATURES, copy_array
 from typing import Union, Optional
 import ctypes as ct
 import numpy as np
@@ -32,21 +33,6 @@ def _as_numpy_f64_arrays(*arrays: Union[list, np.ndarray]) -> list[np.ndarray]:
             raise TypeError(f"Input must be a list or numpy array, got {type(arr)} instead.")
         np_arrays.append(np_arr)
     return np_arrays
-
-def _ptr_to_array(ptr, n: int, dtype=None) -> np.ndarray:
-    """Copy *n* elements from a ctypes pointer (or array) into an owning numpy array."""
-    if n <= 0 or not ptr:
-        return np.empty(0, dtype=dtype)
-    arr = np.ctypeslib.as_array(ptr, shape=(n,))
-    return arr.astype(dtype) if dtype is not None else arr.copy()
-
-def _ptr_to_str_list(ptr, n: int) -> list[str]:
-    """Decode *n* elements of a ctypes char pointer into a list of str."""
-    return [ptr[i].decode("utf-8") for i in range(n)]
-
-def _ptr_to_str_array(ptr, n: int) -> np.ndarray:
-    """Decode *n* elements of a ctypes char pointer into a numpy array of str."""
-    return np.array(_ptr_to_str_list(ptr, n), dtype=np.str_)
 
 def _check_error_code(status: ct.c_int, function_name: str) -> None:
     """Check the status code returned by AUSAXS functions and raise an error if non-zero."""
@@ -118,6 +104,54 @@ class AUSAXS:
             raise RuntimeError(f"AUSAXS: library failed to initialize. Reason: {cls.init_error()}")
         if not isinstance(object_id, int):
             raise TypeError(f"object_id must be of type int, got {type(object_id)} instead.")
-        status = ct.c_int()
-        cls.lib().functions.deallocate(object_id, ct.byref(status))
-        _check_error_code(status, "deallocate")
+        call("deallocate", object_id)
+
+def call(name: str, *inputs):
+    """
+    Call the backend function `name` with its inputs (its scalar and array arguments, in order) and check its status.
+    Returns its outputs as registered in pyausaxs.signatures: nothing, a single value, or a named tuple of several.
+    """
+    signature = _SIGNATURES[name]
+    params = [a for a in signature.args if a.role in ("in", "array")]
+    if len(inputs) != len(params):
+        raise TypeError(f"AUSAXS: \"{name}\" takes {len(params)} inputs, got {len(inputs)}.")
+    values = {a: np.ascontiguousarray(v, dtype=np.dtype(a.ctype)) if a.role == "array" else v for a, v in zip(params, inputs)}
+    named = {a.name: v for a, v in values.items() if a.name}
+
+    def size(n) -> int:
+        n = named[n] if isinstance(n, str) else n
+        return len(n) if hasattr(n, "__len__") else int(n)
+
+    outputs = {}
+    def c_arg(a):
+        match a.role:
+            case "in":
+                value = values[a]
+                return value.encode("utf-8") if isinstance(value, str) else value
+            case "array":     return values[a].ctypes.data_as(a.argtype)
+            case "length":    return size(a.n)
+            case "buffer":
+                outputs[a.name] = np.zeros(size(a.n), dtype=np.dtype(a.ctype))
+                return outputs[a.name].ctypes.data_as(a.argtype)
+            case "out_array": outputs[a.name] = ct.POINTER(a.ctype)()
+            case _:           outputs[a.name] = a.ctype() # out, status
+        return ct.byref(outputs[a.name])
+
+    result = getattr(AUSAXS.lib().functions, name)(*[c_arg(a) for a in signature.args])
+    if "status" in outputs:
+        _check_error_code(outputs["status"], name)
+
+    def copy(a):
+        value = outputs[a.name]
+        match a.role:
+            case "out":
+                value = value.value
+                return value.decode("utf-8") if isinstance(value, bytes) else value
+            case "out_array": return copy_array(value, outputs[a.n].value, a.ctype, a.cols)
+            case _:           return value
+    try:
+        res = ([] if signature.holder or signature.restype is None else [result]) + [copy(a) for a in signature.outputs]
+    finally:
+        if signature.holder:
+            AUSAXS.deallocate(result)
+    return signature.result(*res) if signature.result else (res[0] if res else None)

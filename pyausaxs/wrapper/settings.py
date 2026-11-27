@@ -1,57 +1,18 @@
-from .AUSAXS import AUSAXS, _check_error_code, _ptr_to_array
+from .AUSAXS import call
 from .Models import ExvModel, ExvTable, WaterModel, WeightedBins
-from pyausaxs.signatures import register
+from pyausaxs.signatures import register, out, out_array, STATUS, HOLDER
 import ctypes as ct
 import numpy as np
 import warnings
 from typing import Any, Optional
 
 register({
-    "get_setting": (
-        [
-            ct.c_char_p,                       # setting name
-            ct.POINTER(ct.POINTER(ct.c_char)), # value (output)
-            ct.POINTER(ct.POINTER(ct.c_char)), # type (output)
-            ct.POINTER(ct.c_int)               # status (0 = success)
-        ],
-        ct.c_int                               # return temp res id
-    ),
-    "set_setting": (
-        [
-            ct.c_char_p,         # setting name
-            ct.c_char_p,         # new value
-            ct.POINTER(ct.c_int) # status (0 = success)
-        ],
-        None
-    ),
-    "save_settings": (
-        [
-            ct.c_char_p,         # file path
-            ct.POINTER(ct.c_int) # status (0 = success)
-        ],
-        None
-    ),
-    "load_settings": (
-        [
-            ct.c_char_p,         # file path
-            ct.POINTER(ct.c_int) # status (0 = success)
-        ],
-        None
-    ),
-    "reset_settings": (
-        [
-            ct.POINTER(ct.c_int) # status (0 = success)
-        ],
-        None
-    ),
-    "get_q_axis": (
-        [
-            ct.POINTER(ct.POINTER(ct.c_double)), # q (output)
-            ct.POINTER(ct.c_int),                # n_points (output)
-            ct.POINTER(ct.c_int)                 # status (0 = success)
-        ],
-        ct.c_int                                 # return temp res id
-    ),
+    "get_setting":    ([ct.c_char_p, out("value", ct.c_char_p), out("type", ct.c_char_p), STATUS], HOLDER),
+    "set_setting":    ([ct.c_char_p, ct.c_char_p, STATUS], None),
+    "save_settings":  ([ct.c_char_p, STATUS], None),
+    "load_settings":  ([ct.c_char_p, STATUS], None),
+    "reset_settings": ([STATUS], None),
+    "get_q_axis":     ([out_array("q", ct.c_double, n="n"), out("n", ct.c_int), STATUS], HOLDER),
 })
 
 def _type_cast(value: str, type: str):
@@ -88,23 +49,8 @@ class settings:
     @staticmethod
     def get(name: str) -> Any:
         """Get a setting by name."""
-        ausaxs = AUSAXS()
-        status = ct.c_int()
-        name_ptr = ct.c_char_p(name.encode('utf-8'))
-        value_ptr = ct.POINTER(ct.c_char)()
-        type_ptr = ct.POINTER(ct.c_char)()
-        tmp_id = ausaxs.lib().functions.get_setting(
-            name_ptr,
-            ct.byref(value_ptr),
-            ct.byref(type_ptr),
-            ct.byref(status)
-        )
-        _check_error_code(status, "settings_get_setting")
-
-        type_str = ct.cast(type_ptr, ct.c_char_p).value.decode('utf-8')
-        value_str = ct.cast(value_ptr, ct.c_char_p).value.decode('utf-8')
-        ausaxs.deallocate(tmp_id)
-        return _type_cast(value_str, type_str)
+        setting = call("get_setting", name)
+        return _type_cast(setting.value, setting.type)
 
     @staticmethod
     def set(name: str, val: str):
@@ -112,55 +58,27 @@ class settings:
         if name in _deprecated_settings:
             _warn_deprecated(name)
             return
-        ausaxs = AUSAXS()
-        status = ct.c_int()
-        name_ptr = ct.c_char_p(name.encode('utf-8'))
-        value_ptr = ct.c_char_p(val.encode('utf-8'))
-        ausaxs.lib().functions.set_setting(
-            name_ptr,
-            value_ptr,
-            ct.byref(status)
-        )
-        _check_error_code(status, "settings_set_setting")
+        call("set_setting", name, val)
 
     @staticmethod
     def save(path: str):
         """Write every current setting to a file, to later be restored with `settings.load`."""
-        ausaxs = AUSAXS()
-        status = ct.c_int()
-        path_ptr = ct.c_char_p(path.encode('utf-8'))
-        ausaxs.lib().functions.save_settings(path_ptr, ct.byref(status))
-        _check_error_code(status, "settings_save_settings")
+        call("save_settings", path)
 
     @staticmethod
     def load(path: str):
         """Read settings from a file previously written by `settings.save`, overwriting the backend's current values."""
-        ausaxs = AUSAXS()
-        status = ct.c_int()
-        path_ptr = ct.c_char_p(path.encode('utf-8'))
-        ausaxs.lib().functions.load_settings(path_ptr, ct.byref(status))
-        _check_error_code(status, "settings_load_settings")
+        call("load_settings", path)
 
     @staticmethod
     def q_axis() -> np.ndarray:
         """The default q-axis of the Debye transforms, i.e. the one used when no q values are given."""
-        ausaxs = AUSAXS()
-        q_ptr = ct.POINTER(ct.c_double)()
-        n_q = ct.c_int()
-        status = ct.c_int()
-        tmp_id = ausaxs.lib().functions.get_q_axis(ct.byref(q_ptr), ct.byref(n_q), ct.byref(status))
-        _check_error_code(status, "get_q_axis")
-        q = _ptr_to_array(q_ptr, n_q.value)
-        ausaxs.deallocate(tmp_id)
-        return q
+        return call("get_q_axis")
 
     @staticmethod
     def reset():
         """Restore every setting to its default value."""
-        ausaxs = AUSAXS()
-        status = ct.c_int()
-        ausaxs.lib().functions.reset_settings(ct.byref(status))
-        _check_error_code(status, "settings_reset_settings")
+        call("reset_settings")
 
     @staticmethod
     def refresh(new_settings: Optional[dict[str, Any]] = None):

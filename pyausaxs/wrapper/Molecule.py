@@ -1,4 +1,4 @@
-from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _check_similar_length, _as_numpy_f64_arrays, _ptr_to_array, _ptr_to_str_array
+from .AUSAXS import call, _check_array_inputs, _check_similar_length, _as_numpy_f64_arrays
 from .BackendObject import BackendObject
 from .PDBfile import PDBfile
 from .Histogram import Histogram
@@ -6,190 +6,71 @@ from .Datafile import Datafile
 from .FitResult import FitResult
 from .Models import ExvModel, WeightedBins
 from .settings import settings
-from pyausaxs.signatures import register
+from pyausaxs.signatures import register, arg, array, length, out, out_array, buffer, STATUS, HOLDER
 import ctypes as ct
 import numpy as np
 from typing import overload
 
+# a profile on the default q axis, and its _userq variant at the given q values
+PROFILE = ([ct.c_int, out_array("I", ct.c_double, n="n"), out("n", ct.c_int), STATUS], HOLDER)
+PROFILE_USERQ = ([ct.c_int, array("q"), buffer("I", n="q"), length("q"), STATUS], None)
+
 register({
-    "molecule_from_file": (
-        [
-            ct.c_char_p,         # filename
-            ct.POINTER(ct.c_int) # status (0 = success)
-        ],
-        ct.c_int                 # return mol id
-    ),
-    "molecule_from_pdb_id": (
-        [
-            ct.c_int,            # pdb id
-            ct.POINTER(ct.c_int) # status (0 = success)
-        ],
-        ct.c_int                 # return mol id
-    ),
-    "molecule_from_arrays": (
-        [
-            ct.POINTER(ct.c_double), # x vector
-            ct.POINTER(ct.c_double), # y vector
-            ct.POINTER(ct.c_double), # z vector
-            ct.POINTER(ct.c_double), # weight vector
-            ct.c_int,                # n_atoms
-            ct.POINTER(ct.c_int)     # status (0 = success)
-        ],
-        ct.c_int                     # return mol id
-    ),
+    "molecule_from_file":    ([ct.c_char_p, STATUS], ct.c_int),
+    "molecule_from_pdb_id":  ([ct.c_int, STATUS], ct.c_int),
+    "molecule_from_arrays":  ([array("x"), array("y"), array("z"), array("w"), length("x"), STATUS], ct.c_int),
     "molecule_get_data": (
         [
-            ct.c_int,                            # molecule id
-            ct.POINTER(ct.POINTER(ct.c_double)), # ax_out (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # ay_out (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # az_out (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # aw_out (output)
-            ct.POINTER(ct.POINTER(ct.c_char_p)), # aform_factors_out (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # wx_out (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # wy_out (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # wz_out (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # ww_out (output)
-            ct.POINTER(ct.c_int),                # na (output)
-            ct.POINTER(ct.c_int),                # nw (output)
-            ct.POINTER(ct.c_int)                 # status (0 = success)
+            ct.c_int,
+            out_array("x", ct.c_double, n="na"), out_array("y", ct.c_double, n="na"), out_array("z", ct.c_double, n="na"),
+            out_array("weights", ct.c_double, n="na"), out_array("ff_type", ct.c_char_p, n="na"),
+            out_array("wx", ct.c_double, n="nw"), out_array("wy", ct.c_double, n="nw"), out_array("wz", ct.c_double, n="nw"),
+            out_array("ww", ct.c_double, n="nw"),
+            out("na", ct.c_int), out("nw", ct.c_int), STATUS
         ],
-        ct.c_int                                 # return data id
+        HOLDER
     ),
-    "molecule_hydrate": (
-        [
-            ct.c_int,            # molecule id
-            ct.POINTER(ct.c_int) # status (0 = success)
-        ],
-        None
-    ),
-    "molecule_clear_hydration": (
-        [
-            ct.c_int,            # molecule id
-            ct.POINTER(ct.c_int) # status (0 = success)
-        ],
-        None
-    ),
-    "molecule_Rg": (
-        [
-            ct.c_int,               # molecule id
-            ct.POINTER(ct.c_double),# Rg (output)
-            ct.POINTER(ct.c_int)    # status (0 = success)
-        ],
-        None
-    ),
+    "molecule_hydrate":         ([ct.c_int, STATUS], None),
+    "molecule_clear_hydration": ([ct.c_int, STATUS], None),
+    "molecule_Rg":              ([ct.c_int, out("Rg", ct.c_double), STATUS], None),
     "molecule_distance_histogram": (
         [
-            ct.c_int,                            # molecule id
-            ct.POINTER(ct.POINTER(ct.c_double)), # aa (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # aw (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # ww (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # bin axis (output)
-            ct.POINTER(ct.c_int),                # n_bins (output)
-            ct.POINTER(ct.c_int)                 # status (0 = success)
+            ct.c_int,
+            out_array("aa", ct.c_double, n="n"), out_array("aw", ct.c_double, n="n"), out_array("ww", ct.c_double, n="n"),
+            out_array("axis", ct.c_double, n="n"), out("n", ct.c_int), STATUS
         ],
-        ct.c_int                                 # return obj id
+        HOLDER
     ),
     "molecule_distance_histogram_raw": (
-        [
-            ct.c_int,                            # molecule id
-            ct.POINTER(ct.POINTER(ct.c_double)), # counts (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # bin axis (output)
-            ct.POINTER(ct.c_int),                # n_bins (output)
-            ct.POINTER(ct.c_int)                 # status (0 = success)
-        ],
-        ct.c_int                                 # return obj id
+        [ct.c_int, out_array("counts", ct.c_double, n="n"), out_array("axis", ct.c_double, n="n"), out("n", ct.c_int), STATUS],
+        HOLDER
     ),
-    "molecule_debye": (
-        [
-            ct.c_int,                            # molecule id
-            ct.POINTER(ct.POINTER(ct.c_double)), # I (output)
-            ct.POINTER(ct.c_int),                # n_points (output)
-            ct.POINTER(ct.c_int)                 # status (0 = success)
-        ],
-        ct.c_int                                 # return obj id
-    ),
-    "molecule_debye_userq": (
-        [
-            ct.c_int,                # molecule id
-            ct.POINTER(ct.c_double), # q
-            ct.POINTER(ct.c_double), # I (output)
-            ct.c_int,                # n_points
-            ct.POINTER(ct.c_int)     # status (0 = success)
-        ],
-        None
-    ),
-    "molecule_amplitude_centroid": (
-        [
-            ct.c_int,                            # molecule id
-            ct.POINTER(ct.POINTER(ct.c_double)), # A (output)
-            ct.POINTER(ct.c_int),                # n_points (output)
-            ct.POINTER(ct.c_int)                 # status (0 = success)
-        ],
-        ct.c_int                                 # return obj id
-    ),
-    "molecule_amplitude_centroid_userq": (
-        [
-            ct.c_int,                # molecule id
-            ct.POINTER(ct.c_double), # q
-            ct.POINTER(ct.c_double), # A (output)
-            ct.c_int,                # n_points
-            ct.POINTER(ct.c_int)     # status (0 = success)
-        ],
-        None
-    ),
-    "molecule_debye_raw": (
-        [
-            ct.c_int,                            # molecule id
-            ct.POINTER(ct.POINTER(ct.c_double)), # I (output)
-            ct.POINTER(ct.c_int),                # n_points (output)
-            ct.POINTER(ct.c_int)                 # status (0 = success)
-        ],
-        ct.c_int                                 # return obj id
-    ),
-    "molecule_debye_raw_userq": (
-        [
-            ct.c_int,                # molecule id
-            ct.POINTER(ct.c_double), # q
-            ct.POINTER(ct.c_double), # I (output)
-            ct.c_int,                # n_points
-            ct.POINTER(ct.c_int)     # status (0 = success)
-        ],
-        None
-    ),
-    "molecule_set_coordinates": (
-        [
-            ct.c_int,                # molecule id
-            ct.POINTER(ct.c_double), # x vector
-            ct.POINTER(ct.c_double), # y vector
-            ct.POINTER(ct.c_double), # z vector
-            ct.c_int,                # n_atoms
-            ct.POINTER(ct.c_int)     # status (0 = success)
-        ],
-        None
-    ),
+    "molecule_set_coordinates": ([ct.c_int, array("x"), array("y"), array("z"), length("x"), STATUS], None),
     "molecule_debye_raw_vjp": (
         [
-            ct.c_int,                # molecule id
-            ct.POINTER(ct.c_double), # q
-            ct.POINTER(ct.c_double), # v = dL/dI(q)
-            ct.c_int,                # n_points
-            ct.POINTER(ct.c_double), # gx (output)
-            ct.POINTER(ct.c_double), # gy (output)
-            ct.POINTER(ct.c_double), # gz (output)
-            ct.c_int,                # n_atoms
-            ct.POINTER(ct.c_int)     # status (0 = success)
+            ct.c_int, array("q"), array("v"), length("q"),
+            buffer("gx", n="n_atoms"), buffer("gy", n="n_atoms"), buffer("gz", n="n_atoms"), arg("n_atoms", ct.c_int), STATUS
         ],
         None
     ),
-    "molecule_debye_fit": (
-        [
-            ct.c_int,            # molecule id
-            ct.c_int,            # data id
-            ct.POINTER(ct.c_int) # status (0 = success)
-        ],
-        ct.c_int                 # return res id
-    ),
+    "molecule_debye":                    PROFILE,
+    "molecule_debye_userq":              PROFILE_USERQ,
+    "molecule_debye_raw":                PROFILE,
+    "molecule_debye_raw_userq":          PROFILE_USERQ,
+    "molecule_amplitude_centroid":       PROFILE,
+    "molecule_amplitude_centroid_userq": PROFILE_USERQ,
+    "molecule_debye_fit": ([ct.c_int, ct.c_int, STATUS], ct.c_int),
 })
+
+def debye_profile(name: str, molecule_id: int, q_vals: list[float] | np.ndarray | None) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Evaluate the backend profile function `name` on the default q axis, or `name`_userq at the given q values.
+    Returns: (q, I)
+    """
+    if q_vals is not None:
+        q = _as_numpy_f64_arrays(q_vals)[0]
+        return q, call(f"{name}_userq", molecule_id, q)
+    return settings.q_axis(), call(name, molecule_id)
 
 class Molecule(BackendObject):
     __slots__ = ['_atom_data', '_water_data']
@@ -200,23 +81,10 @@ class Molecule(BackendObject):
         self._create_molecule(*args)
 
     def _create_molecule_from_file(self, filename: str) -> None:
-        ausaxs = AUSAXS()
-        filename_c = filename.encode('utf-8')
-        status = ct.c_int()
-        self._set_id(ausaxs.lib().functions.molecule_from_file(
-            filename_c,
-            ct.byref(status)
-        ))
-        _check_error_code(status, "_create_molecule_from_file")
+        self._set_id(call("molecule_from_file", filename))
 
     def _create_molecule_from_pdb(self, pdb: PDBfile) -> None:
-        ausaxs = AUSAXS()
-        status = ct.c_int()
-        self._set_id(ausaxs.lib().functions.molecule_from_pdb_id(
-            pdb._get_id(),
-            ct.byref(status)
-        ))
-        _check_error_code(status, "_create_molecule_from_pdb")
+        self._set_id(call("molecule_from_pdb_id", pdb._get_id()))
 
     def _create_molecule_from_arrays(
         self, x: np.ndarray | list[float], y: np.ndarray | list[float], z: np.ndarray | list[float], w: np.ndarray | list[float]
@@ -226,20 +94,7 @@ class Molecule(BackendObject):
             names=['x', 'y', 'z', 'w']
         )
         _check_similar_length(x, y, z, w, msg="Atomic coordinates and weights must have the same length")
-        x, y, z, w = _as_numpy_f64_arrays(x, y, z, w)
-
-        ausaxs = AUSAXS()
-        n_atoms = ct.c_int(len(x))
-        status = ct.c_int()
-        self._set_id(ausaxs.lib().functions.molecule_from_arrays(
-            x.ctypes.data_as(ct.POINTER(ct.c_double)),
-            y.ctypes.data_as(ct.POINTER(ct.c_double)),
-            z.ctypes.data_as(ct.POINTER(ct.c_double)),
-            w.ctypes.data_as(ct.POINTER(ct.c_double)),
-            n_atoms,
-            ct.byref(status)
-        ))
-        _check_error_code(status, "_create_molecule_from_arrays")
+        self._set_id(call("molecule_from_arrays", x, y, z, w))
 
     def _create_molecule(self, *args) -> None:
         if len(args) == 1 and isinstance(args[0], str):
@@ -256,120 +111,33 @@ class Molecule(BackendObject):
 
     def _get_data(self) -> None:
         if self._atom_data: return
-        ausaxs = AUSAXS()
-        ax_ptr = ct.POINTER(ct.c_double)()
-        ay_ptr = ct.POINTER(ct.c_double)()
-        az_ptr = ct.POINTER(ct.c_double)()
-        aw_ptr = ct.POINTER(ct.c_double)()
-        aff_ptr = ct.POINTER(ct.c_char_p)()
-        wx_ptr = ct.POINTER(ct.c_double)()
-        wy_ptr = ct.POINTER(ct.c_double)()
-        wz_ptr = ct.POINTER(ct.c_double)()
-        ww_ptr = ct.POINTER(ct.c_double)()
-        n_atoms = ct.c_int()
-        n_weights = ct.c_int()
-        status = ct.c_int()
-
-        data_id = ausaxs.lib().functions.molecule_get_data(
-            self._get_id(),
-            ct.byref(ax_ptr),
-            ct.byref(ay_ptr),
-            ct.byref(az_ptr),
-            ct.byref(aw_ptr),
-            ct.byref(aff_ptr),
-            ct.byref(wx_ptr),
-            ct.byref(wy_ptr),
-            ct.byref(wz_ptr),
-            ct.byref(ww_ptr),
-            ct.byref(n_atoms),
-            ct.byref(n_weights),
-            ct.byref(status)
-        )
-        _check_error_code(status, "molecule_get_data")
-
-        n = n_atoms.value
-        self._atom_data["x"]       = _ptr_to_array(ax_ptr, n)
-        self._atom_data["y"]       = _ptr_to_array(ay_ptr, n)
-        self._atom_data["z"]       = _ptr_to_array(az_ptr, n)
-        self._atom_data["weights"] = _ptr_to_array(aw_ptr, n)
-        self._atom_data["ff_type"] = _ptr_to_str_array(aff_ptr, n)
-        m = n_weights.value
-        self._water_data["x"]       = _ptr_to_array(wx_ptr, m)
-        self._water_data["y"]       = _ptr_to_array(wy_ptr, m)
-        self._water_data["z"]       = _ptr_to_array(wz_ptr, m)
-        self._water_data["weights"] = _ptr_to_array(ww_ptr, m)
-        self._water_data["ff_type"] = "HOH"
-        ausaxs.deallocate(data_id)
+        data = call("molecule_get_data", self._get_id())
+        self._atom_data = {k: getattr(data, k) for k in ("x", "y", "z", "weights", "ff_type")}
+        self._water_data = {"x": data.wx, "y": data.wy, "z": data.wz, "weights": data.ww, "ff_type": "HOH"}
 
     def hydrate(self) -> None:
         """Add a hydration shell to the molecule."""
-        ausaxs = AUSAXS()
-        status = ct.c_int()
-        ausaxs.lib().functions.molecule_hydrate(
-            self._get_id(),
-            ct.byref(status)
-        )
-        _check_error_code(status, "molecule_hydrate")
+        call("molecule_hydrate", self._get_id())
         self._atom_data = {}
         self._water_data = {}
 
     def clear_hydration(self) -> None:
         """Remove the hydration shell from the molecule."""
-        ausaxs = AUSAXS()
-        status = ct.c_int()
-        ausaxs.lib().functions.molecule_clear_hydration(
-            self._get_id(),
-            ct.byref(status)
-        )
-        _check_error_code(status, "molecule_clear_hydration")
+        call("molecule_clear_hydration", self._get_id())
         self._atom_data = {}
         self._water_data = {}
 
     def radius_of_gyration(self) -> float:
         """Get the radius of gyration of the molecule."""
-        ausaxs = AUSAXS()
-        rg = ct.c_double()
-        status = ct.c_int()
-        ausaxs.lib().functions.molecule_Rg(
-            self._get_id(),
-            ct.byref(rg),
-            ct.byref(status)
-        )
-        _check_error_code(status, "molecule_radius_of_gyration")
-        return rg.value
+        return call("molecule_Rg", self._get_id())
 
     def Rg(self) -> float:
         return self.radius_of_gyration()
 
     def distance_histogram(self) -> Histogram:
         """Get the partial distance histogram of the molecule."""
-        ausaxs = AUSAXS()
-        aa_ptr = ct.POINTER(ct.c_double)()
-        aw_ptr = ct.POINTER(ct.c_double)()
-        ww_ptr = ct.POINTER(ct.c_double)()
-        axis_ptr = ct.POINTER(ct.c_double)()
-        n_bins = ct.c_int()
-        status = ct.c_int()
-        tmp_id = ausaxs.lib().functions.molecule_distance_histogram(
-            self._get_id(),
-            ct.byref(aa_ptr),
-            ct.byref(aw_ptr),
-            ct.byref(ww_ptr),
-            ct.byref(axis_ptr),
-            ct.byref(n_bins),
-            ct.byref(status)
-        )
-        _check_error_code(status, "molecule_distance_histogram")
-
-        n = n_bins.value
-        hist = Histogram(
-            _ptr_to_array(axis_ptr, n),
-            _ptr_to_array(aa_ptr, n),
-            _ptr_to_array(aw_ptr, n),
-            _ptr_to_array(ww_ptr, n),
-        )
-        ausaxs.deallocate(tmp_id)
-        return hist
+        h = call("molecule_distance_histogram", self._get_id())
+        return Histogram(h.axis, h.aa, h.aw, h.ww)
     
     def histogram(self) -> Histogram:
         return self.distance_histogram()
@@ -379,66 +147,15 @@ class Molecule(BackendObject):
         Calculate the distance histogram of the molecule. No form factors or excluded volume effects will be applied.
         Returns: (bins, counts)
         """
-        ausaxs = AUSAXS()
-        counts_ptr = ct.POINTER(ct.c_double)()
-        axis_ptr = ct.POINTER(ct.c_double)()
-        n_bins = ct.c_int()
-        status = ct.c_int()
-        tmp_id = ausaxs.lib().functions.molecule_distance_histogram_raw(
-            self._get_id(),
-            ct.byref(counts_ptr),
-            ct.byref(axis_ptr),
-            ct.byref(n_bins),
-            ct.byref(status)
-        )
-        _check_error_code(status, "molecule_distance_histogram_raw")
-
-        n = n_bins.value
-        bins = _ptr_to_array(axis_ptr, n)
-        counts = _ptr_to_array(counts_ptr, n)
-        ausaxs.deallocate(tmp_id)
-        return bins, counts
-
-    def _debye_profile(self, name: str, q_vals: list[float] | np.ndarray | None) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Evaluate the backend profile function `name` on the default q axis, or `name`_userq at the given q values.
-        Returns: (q, I)
-        """
-        ausaxs = AUSAXS()
-        status = ct.c_int()
-        if q_vals is not None:
-            q = _as_numpy_f64_arrays(q_vals)[0]
-            i = np.zeros_like(q, dtype=np.float64)
-            getattr(ausaxs.lib().functions, f"{name}_userq")(
-                self._get_id(),
-                q.ctypes.data_as(ct.POINTER(ct.c_double)),
-                i.ctypes.data_as(ct.POINTER(ct.c_double)),
-                ct.c_int(len(q)),
-                ct.byref(status)
-            )
-            _check_error_code(status, f"{name}_userq")
-            return q, i
-
-        i_ptr = ct.POINTER(ct.c_double)()
-        n_q = ct.c_int()
-        tmp_id = getattr(ausaxs.lib().functions, name)(
-            self._get_id(),
-            ct.byref(i_ptr),
-            ct.byref(n_q),
-            ct.byref(status)
-        )
-        _check_error_code(status, name)
-
-        i = _ptr_to_array(i_ptr, n_q.value)
-        ausaxs.deallocate(tmp_id)
-        return settings.q_axis(), i
+        h = call("molecule_distance_histogram_raw", self._get_id())
+        return h.axis, h.counts
 
     def debye(self, q_vals: list[float] | np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
         """
         Calculate the Debye scattering intensity of the molecule. Form factors and excluded volume effects will be applied
         Returns: (q, I)
         """
-        return self._debye_profile("molecule_debye", q_vals)
+        return debye_profile("molecule_debye", self._get_id(), q_vals)
 
     def amplitude(self, q_vals: list[float] | np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
         """
@@ -452,7 +169,7 @@ class Molecule(BackendObject):
         Only the excluded volume models simple, none, vacuum and fraser are supported.
         Returns: (q, A)
         """
-        return self._debye_profile("molecule_amplitude_centroid", q_vals)
+        return debye_profile("molecule_amplitude_centroid", self._get_id(), q_vals)
 
     def debye_raw(
         self, q_vals: list[float] | np.ndarray | None = None, form_factors: bool = False
@@ -464,14 +181,14 @@ class Molecule(BackendObject):
         Returns: (q, I)
         """
         if not form_factors:
-            return self._debye_profile("molecule_debye_raw", q_vals)
+            return debye_profile("molecule_debye_raw", self._get_id(), q_vals)
 
         # weighted bins, since the profile must hold at any q, far beyond the range auto judges unweighted bins by
         exv, weighted_bins = settings.get("exv_model"), settings.get("weighted_bins")
         try:
             settings.exv(ExvModel.vacuum)
             settings.set("weighted_bins", WeightedBins.true.value)
-            return self._debye_profile("molecule_debye", q_vals)
+            return debye_profile("molecule_debye", self._get_id(), q_vals)
         finally:
             settings.set("exv_model", exv)
             settings.set("weighted_bins", weighted_bins.value)
@@ -486,18 +203,7 @@ class Molecule(BackendObject):
         if coords.shape != (n, 3):
             raise ValueError(f"Expected coordinates of shape ({n}, 3), got {coords.shape}.")
         x, y, z = (np.ascontiguousarray(coords[:, i]) for i in range(3))
-
-        ausaxs = AUSAXS()
-        status = ct.c_int()
-        ausaxs.lib().functions.molecule_set_coordinates(
-            self._get_id(),
-            x.ctypes.data_as(ct.POINTER(ct.c_double)),
-            y.ctypes.data_as(ct.POINTER(ct.c_double)),
-            z.ctypes.data_as(ct.POINTER(ct.c_double)),
-            ct.c_int(n),
-            ct.byref(status)
-        )
-        _check_error_code(status, "molecule_set_coordinates")
+        call("molecule_set_coordinates", self._get_id(), x, y, z)
         self._atom_data["x"], self._atom_data["y"], self._atom_data["z"] = x, y, z
 
     def debye_raw_vjp(self, q_vals: list[float] | np.ndarray, v: list[float] | np.ndarray) -> np.ndarray:
@@ -508,24 +214,8 @@ class Molecule(BackendObject):
         """
         q, v = _as_numpy_f64_arrays(q_vals, v)
         _check_similar_length(q, v, msg="q_vals and v must have the same length")
-        n = len(self.atoms()[0])
-        gx, gy, gz = np.zeros(n), np.zeros(n), np.zeros(n)
-
-        ausaxs = AUSAXS()
-        status = ct.c_int()
-        ausaxs.lib().functions.molecule_debye_raw_vjp(
-            self._get_id(),
-            q.ctypes.data_as(ct.POINTER(ct.c_double)),
-            v.ctypes.data_as(ct.POINTER(ct.c_double)),
-            ct.c_int(len(q)),
-            gx.ctypes.data_as(ct.POINTER(ct.c_double)),
-            gy.ctypes.data_as(ct.POINTER(ct.c_double)),
-            gz.ctypes.data_as(ct.POINTER(ct.c_double)),
-            ct.c_int(n),
-            ct.byref(status)
-        )
-        _check_error_code(status, "molecule_debye_raw_vjp")
-        return np.stack([gx, gy, gz], axis=1)
+        g = call("molecule_debye_raw_vjp", self._get_id(), q, v, len(self.atoms()[0]))
+        return np.stack([g.gx, g.gy, g.gz], axis=1)
 
     def fit(self, data: str | Datafile) -> FitResult:
         """
@@ -535,15 +225,7 @@ class Molecule(BackendObject):
         if isinstance(data, str):
             data = Datafile(data)
 
-        ausaxs = AUSAXS()
-        status = ct.c_int()
-        res_id = ausaxs.lib().functions.molecule_debye_fit(
-            self._get_id(),
-            data._get_id(),
-            ct.byref(status)
-        )
-        _check_error_code(status, "molecule_fit")
-        return FitResult(res_id)
+        return FitResult(call("molecule_debye_fit", self._get_id(), data._get_id()))
 
     def atoms(self) -> list[np.ndarray]:
         """Get atomic data as a list of numpy arrays: (x, y, z, weights, ff_type)."""

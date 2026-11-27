@@ -1,35 +1,12 @@
-from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _check_similar_length, _as_numpy_f64_arrays, _ptr_to_str_array
-from pyausaxs.signatures import register
+from .AUSAXS import call
+from pyausaxs.signatures import register, out, out_array, buffer, STATUS, HOLDER
 import ctypes as ct
 import numpy as np
 
 register({
-    "ff_valid_form_factor_types": (
-        [
-            ct.POINTER(ct.POINTER(ct.c_char_p)), # types (output)
-            ct.POINTER(ct.c_int),                # n_types (output)
-            ct.POINTER(ct.c_int)                 # status (0 = success)
-        ],
-        ct.c_int                                 # return data id
-    ),
-    "ff_get_five_gaussian_coefficients": (
-        [
-            ct.c_char_p,             # form factor type
-            ct.POINTER(ct.c_double), # a coefficients (output)
-            ct.POINTER(ct.c_double), # b coefficients (output)
-            ct.POINTER(ct.c_double), # c coefficient (output)
-            ct.POINTER(ct.c_int)     # status (0 = success)
-        ],
-        None
-    ),
-    "ff_get_current_exv_volume": (
-        [
-            ct.c_char_p,             # form factor type
-            ct.POINTER(ct.c_double), # volume (output)
-            ct.POINTER(ct.c_int)     # status (0 = success)
-        ],
-        None
-    ),
+    "ff_valid_form_factor_types":        ([out_array("types", ct.c_char_p, n="n"), out("n", ct.c_int), STATUS], HOLDER),
+    "ff_get_five_gaussian_coefficients": ([ct.c_char_p, buffer("a", n=5), buffer("b", n=5), out("c", ct.c_double), STATUS], None),
+    "ff_get_current_exv_volume":         ([ct.c_char_p, out("volume", ct.c_double), STATUS], None),
 })
 
 class form_factor():
@@ -38,19 +15,7 @@ class form_factor():
         """
         Get a list of the valid form factor types.
         """
-        ausaxs = AUSAXS()
-        types_ptr = ct.POINTER(ct.c_char_p)()
-        n_types = ct.c_int()
-        status = ct.c_int()
-        obj_id = ausaxs.lib().functions.ff_valid_form_factor_types(
-            ct.byref(types_ptr),
-            ct.byref(n_types),
-            ct.byref(status)
-        )
-        _check_error_code(status, "ff_valid_form_factor_types")
-        types = _ptr_to_str_array(types_ptr, n_types.value)
-        ausaxs.deallocate(obj_id)
-        return types
+        return call("ff_valid_form_factor_types")
 
     @staticmethod
     def get_five_gaussian_coefficients(element: str) -> tuple[np.ndarray, np.ndarray, float]:
@@ -58,33 +23,11 @@ class form_factor():
         Get the five Gaussian coefficients for a given form factor.
         Returns: a tuple of (a, b, c) where a and b are 5-element numpy arrays and c is a float.
         """
-        ausaxs = AUSAXS()
-        a = np.empty(5, dtype=np.float64)
-        b = np.empty(5, dtype=np.float64)
-        c = ct.c_double()
-        status = ct.c_int()
-        ausaxs.lib().functions.ff_get_five_gaussian_coefficients(
-            ct.c_char_p(element.encode('utf-8')),
-            a.ctypes.data_as(ct.POINTER(ct.c_double)),
-            b.ctypes.data_as(ct.POINTER(ct.c_double)),
-            ct.byref(c),
-            ct.byref(status)
-        )
-        _check_error_code(status, "ff_get_five_gaussian_coefficients")
-        return a, b, c.value
+        return tuple(call("ff_get_five_gaussian_coefficients", element))
 
     @staticmethod
     def get_current_exv_volume(element: str) -> float:
         """
         Get the current excluded volume for a given form factor.
         """
-        ausaxs = AUSAXS()
-        volume = ct.c_double()
-        status = ct.c_int()
-        ausaxs.lib().functions.ff_get_current_exv_volume(
-            ct.c_char_p(element.encode('utf-8')),
-            ct.byref(volume),
-            ct.byref(status)
-        )
-        _check_error_code(status, "ff_get_current_exv_volume")
-        return volume.value
+        return call("ff_get_current_exv_volume", element)

@@ -75,21 +75,20 @@ def main(argv=None):
 
 def run_backend_cli(args: list[str]) -> int:
     """Run the backend's `ausaxs` entrypoint in-process with the given arguments (excluding the program name)."""
-    from .wrapper.AUSAXS import AUSAXS
+    from .wrapper.AUSAXS import AUSAXS, call
     if not AUSAXS.ready():
         print(f"Error: the AUSAXS backend failed to load: {AUSAXS.init_error()}", file=sys.stderr)
         return 1
 
-    functions = AUSAXS.lib().functions
     for name, (description, extra, _) in _PYTHON_TOOLS.items():
         if extra is not None and not _extra_available(name):
             description += f" (requires \"pip install pyausaxs[{extra}]\")"
-        functions.cli_ausaxs_add_tool(name.encode("utf-8"), description.encode("utf-8"))
+        call("cli_ausaxs_add_tool", name, description)
 
     import ctypes as ct
     c_args = [arg.encode("utf-8") for arg in ["ausaxs", *args]]
     c_argv = (ct.c_char_p * len(c_args))(*c_args)
-    return functions.cli_ausaxs(len(c_args), c_argv)
+    return call("cli_ausaxs", len(c_args), c_argv)
 
 
 def _run_setup(ns):
