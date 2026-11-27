@@ -1,38 +1,16 @@
-from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _as_numpy_f64_arrays, _check_similar_length, _ptr_to_array
+from .AUSAXS import call, _check_array_inputs, _check_similar_length
 from .BackendObject import BackendObject
-from pyausaxs.signatures import register
+from pyausaxs.signatures import register, array, length, out, out_array, STATUS, HOLDER
 from typing import overload
 import ctypes as ct
 import numpy as np
 
 register({
-    "data_read": (
-        [
-            ct.c_char_p,         # filename
-            ct.POINTER(ct.c_int) # status (0 = success)
-        ],
-        ct.c_int                 # return data id
-    ),
-    "data_create": (
-        [
-            ct.POINTER(ct.c_double), # q vector
-            ct.POINTER(ct.c_double), # I vector
-            ct.POINTER(ct.c_double), # Ierr vector
-            ct.c_int,                # n_points
-            ct.POINTER(ct.c_int)     # status (0 = success)
-        ],
-        ct.c_int                     # return data id
-    ),
+    "data_read":     ([ct.c_char_p, STATUS], ct.c_int),
+    "data_create":   ([array("q"), array("I"), array("Ierr"), length("q"), STATUS], ct.c_int),
     "data_get_data": (
-        [
-            ct.c_int,                            # object id
-            ct.POINTER(ct.POINTER(ct.c_double)), # q vector (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # I vector (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # Ierr vector (output)
-            ct.POINTER(ct.c_int),                # n_points (output)
-            ct.POINTER(ct.c_int)                 # status (0 = success)
-        ],
-        ct.c_int                                 # return data id
+        [ct.c_int, *(out_array(name, ct.c_double, n="n") for name in ("q", "I", "Ierr")), out("n", ct.c_int), STATUS],
+        HOLDER
     ),
 })
 
@@ -53,18 +31,9 @@ class Datafile(BackendObject):
         def init_arrays(q: list[float] | np.ndarray, I: list[float] | np.ndarray, Ierr: list[float] | np.ndarray):
             _check_array_inputs(q, I, Ierr, names=['q', 'I', 'Ierr'])
             _check_similar_length(q, I, Ierr, msg="q, I, and Ierr must have the same length")
-            q_arr, I_arr, Ierr_arr = _as_numpy_f64_arrays(q, I, Ierr)
             # register a backend dataset so the object can be passed to fit(), just like one read from a file;
             # the arrays are then read back from it, so both constructors report the same (q-range limited) points
-            status = ct.c_int()
-            self._object_id = AUSAXS().lib().functions.data_create(
-                q_arr.ctypes.data_as(ct.POINTER(ct.c_double)),
-                I_arr.ctypes.data_as(ct.POINTER(ct.c_double)),
-                Ierr_arr.ctypes.data_as(ct.POINTER(ct.c_double)),
-                ct.c_int(len(q_arr)),
-                ct.byref(status)
-            )
-            _check_error_code(status, "create_datafile")
+            self._object_id = call("data_create", q, I, Ierr)
 
         if len(args) == 1 and isinstance(args[0], str):
             init_filename(args[0])
@@ -74,39 +43,11 @@ class Datafile(BackendObject):
             raise TypeError("Datafile constructor accepts either a filename (str) or three arrays (q, I, Ierr).")
 
     def _read_data(self, filename: str) -> None:
-        ausaxs = AUSAXS()
-        filename_c = filename.encode('utf-8')
-        status = ct.c_int()
-        self._object_id = ausaxs.lib().functions.data_read(
-            filename_c,
-            ct.byref(status)
-        )
-        _check_error_code(status, "read_data")
+        self._object_id = call("data_read", filename)
 
     def _get_data(self) -> None:
         if self._data: return
-        ausaxs = AUSAXS()
-        q_ptr = ct.POINTER(ct.c_double)()
-        I_ptr = ct.POINTER(ct.c_double)()
-        Ierr_ptr = ct.POINTER(ct.c_double)()
-        n_points = ct.c_int()
-        status = ct.c_int()
-
-        data_id = ausaxs.lib().functions.data_get_data(
-            self._get_id(),
-            ct.byref(q_ptr),
-            ct.byref(I_ptr),
-            ct.byref(Ierr_ptr),
-            ct.byref(n_points),
-            ct.byref(status)
-        )
-        _check_error_code(status, "data_get_data")
-
-        n = n_points.value
-        self._data["q"]    = _ptr_to_array(q_ptr, n)
-        self._data["I"]    = _ptr_to_array(I_ptr, n)
-        self._data["Ierr"] = _ptr_to_array(Ierr_ptr, n)
-        ausaxs.deallocate(data_id)
+        self._data = call("data_get_data", self._get_id())._asdict()
 
     def q(self) -> np.ndarray:
         """Get the q-vector (scattering vector) as numpy array."""

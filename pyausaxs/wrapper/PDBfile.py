@@ -1,39 +1,18 @@
-from .AUSAXS import AUSAXS, _check_error_code, _ptr_to_array, _ptr_to_str_array
+from .AUSAXS import call
 from .BackendObject import BackendObject
-from pyausaxs.signatures import register
+from pyausaxs.signatures import register, out, out_array, STATUS, HOLDER
 import ctypes as ct
 import numpy as np
 
+_FIELDS = [
+    ("serial", ct.c_int), ("name", ct.c_char_p), ("altLoc", ct.c_char_p), ("resName", ct.c_char_p), ("chainID", ct.c_char),
+    ("resSeq", ct.c_int), ("iCode", ct.c_char_p), ("x", ct.c_double), ("y", ct.c_double), ("z", ct.c_double),
+    ("occupancy", ct.c_double), ("tempFactor", ct.c_double), ("element", ct.c_char_p), ("charge", ct.c_char_p),
+]
+
 register({
-    "pdb_read": (
-        [
-            ct.c_char_p,         # filename
-            ct.POINTER(ct.c_int) # status (0 = success)
-        ],
-        ct.c_int                 # return pdb id
-    ),
-    "pdb_get_data": (
-        [
-            ct.c_int,                            # object id
-            ct.POINTER(ct.POINTER(ct.c_int)),    # serial (output)
-            ct.POINTER(ct.POINTER(ct.c_char_p)), # name (output)
-            ct.POINTER(ct.POINTER(ct.c_char_p)), # altLoc (output)
-            ct.POINTER(ct.POINTER(ct.c_char_p)), # resName (output)
-            ct.POINTER(ct.POINTER(ct.c_char)),   # chainID (output)
-            ct.POINTER(ct.POINTER(ct.c_int)),    # resSeq (output)
-            ct.POINTER(ct.POINTER(ct.c_char_p)), # iCode (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # x (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # y (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # z (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # occupancy (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # tempFactor (output)
-            ct.POINTER(ct.POINTER(ct.c_char_p)), # element (output)
-            ct.POINTER(ct.POINTER(ct.c_char_p)), # charge (output)
-            ct.POINTER(ct.c_int),                # n_atoms (output)
-            ct.POINTER(ct.c_int)                 # status (0 = success)
-        ],
-        ct.c_int                                 # return data id
-    ),
+    "pdb_read":     ([ct.c_char_p, STATUS], ct.c_int),
+    "pdb_get_data": ([ct.c_int, *(out_array(name, t, n="n") for name, t in _FIELDS), out("n", ct.c_int), STATUS], HOLDER),
 })
 
 class PDBfile(BackendObject):
@@ -44,72 +23,11 @@ class PDBfile(BackendObject):
 
     def _read_pdb(self, filename: str) -> None:
         """Read a pdb (or cif) data file"""
-        ausaxs = AUSAXS()
-        filename_c = filename.encode('utf-8')
-        status = ct.c_int()
-        self._set_id(ausaxs.lib().functions.pdb_read(
-            filename_c,
-            ct.byref(status)
-        ))
-        _check_error_code(status, "read_pdb")
+        self._set_id(call("pdb_read", filename))
 
     def _get_data(self) -> None:
         if self._data: return
-        ausaxs = AUSAXS()
-        serial_ptr = ct.POINTER(ct.c_int)()
-        name_ptr = ct.POINTER(ct.c_char_p)()
-        altLoc_ptr = ct.POINTER(ct.c_char_p)()
-        resName_ptr = ct.POINTER(ct.c_char_p)()
-        chainID_ptr = ct.POINTER(ct.c_char)()
-        resSeq_ptr = ct.POINTER(ct.c_int)()
-        iCode_ptr = ct.POINTER(ct.c_char_p)()
-        x_ptr = ct.POINTER(ct.c_double)()
-        y_ptr = ct.POINTER(ct.c_double)()
-        z_ptr = ct.POINTER(ct.c_double)()
-        occupancy_ptr = ct.POINTER(ct.c_double)()
-        tempFactor_ptr = ct.POINTER(ct.c_double)()
-        element_ptr = ct.POINTER(ct.c_char_p)()
-        charge_ptr = ct.POINTER(ct.c_char_p)()
-        n_atoms = ct.c_int()
-        status = ct.c_int()
-
-        data_id = ausaxs.lib().functions.pdb_get_data(
-            self._get_id(),
-            ct.byref(serial_ptr),
-            ct.byref(name_ptr), 
-            ct.byref(altLoc_ptr),
-            ct.byref(resName_ptr),
-            ct.byref(chainID_ptr),
-            ct.byref(resSeq_ptr),
-            ct.byref(iCode_ptr),
-            ct.byref(x_ptr),
-            ct.byref(y_ptr),
-            ct.byref(z_ptr),
-            ct.byref(occupancy_ptr),
-            ct.byref(tempFactor_ptr),
-            ct.byref(element_ptr),
-            ct.byref(charge_ptr),
-            ct.byref(n_atoms),
-            ct.byref(status)
-        )
-        _check_error_code(status, "pdb_get_data")
-
-        n = n_atoms.value
-        self._data["serial"]     = _ptr_to_array(serial_ptr, n, dtype=np.int32)
-        self._data["name"]       = _ptr_to_str_array(name_ptr, n)
-        self._data["altLoc"]     = _ptr_to_str_array(altLoc_ptr, n)
-        self._data["resName"]    = _ptr_to_str_array(resName_ptr, n)
-        self._data["chainID"]    = _ptr_to_str_array(chainID_ptr, n)
-        self._data["resSeq"]     = _ptr_to_array(resSeq_ptr, n, dtype=np.int32)
-        self._data["iCode"]      = _ptr_to_str_array(iCode_ptr, n)
-        self._data["x"]          = _ptr_to_array(x_ptr, n)
-        self._data["y"]          = _ptr_to_array(y_ptr, n)
-        self._data["z"]          = _ptr_to_array(z_ptr, n)
-        self._data["occupancy"]  = _ptr_to_array(occupancy_ptr, n)
-        self._data["tempFactor"] = _ptr_to_array(tempFactor_ptr, n)
-        self._data["element"]    = _ptr_to_str_array(element_ptr, n)
-        self._data["charge"]     = _ptr_to_str_array(charge_ptr, n)
-        ausaxs.deallocate(data_id)
+        self._data = call("pdb_get_data", self._get_id())._asdict()
 
     def serial(self) -> np.ndarray:
         """Get atom serial numbers as numpy array."""

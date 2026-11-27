@@ -1,6 +1,6 @@
-from .AUSAXS import AUSAXS, _check_error_code, _ptr_to_array, _ptr_to_str_list
+from .AUSAXS import call
 from .BackendObject import BackendObject
-from pyausaxs.signatures import register
+from pyausaxs.signatures import register, out, out_array, STATUS, HOLDER
 from typing import Any, TYPE_CHECKING
 import ctypes as ct
 import numpy as np
@@ -8,29 +8,16 @@ import numpy as np
 register({
     "fit_get_fit_info": (
         [
-            ct.c_int,                            # fit id
-            ct.POINTER(ct.POINTER(ct.c_char_p)), # pars (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # pvals (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # perr_min (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # perr_max (output)
-            ct.POINTER(ct.c_int),                # n_pars (output)
-            ct.POINTER(ct.c_double),             # chi_squared (output)
-            ct.POINTER(ct.c_int),                # dof (output)
-            ct.POINTER(ct.c_int)                 # status (0 = success)
+            ct.c_int,
+            out_array("pars", ct.c_char_p, n="n"), out_array("pvals", ct.c_double, n="n"),
+            out_array("perr_min", ct.c_double, n="n"), out_array("perr_max", ct.c_double, n="n"), out("n", ct.c_int),
+            out("chi2", ct.c_double), out("dof", ct.c_int), STATUS
         ],
-        ct.c_int                                 # return data id
+        HOLDER
     ),
     "fit_get_fit_curves": (
-        [
-            ct.c_int,                            # fit id
-            ct.POINTER(ct.POINTER(ct.c_double)), # q (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # I_data (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # I_err (output)
-            ct.POINTER(ct.POINTER(ct.c_double)), # I_model (output)
-            ct.POINTER(ct.c_int),                # n_points (output)
-            ct.POINTER(ct.c_int)                 # status (0 = success)
-        ],
-        ct.c_int                                 # return data id
+        [ct.c_int, *(out_array(name, ct.c_double, n="n") for name in ("q", "I_data", "I_err", "I_model")), out("n", ct.c_int), STATUS],
+        HOLDER
     ),
 })
 
@@ -46,66 +33,12 @@ class FitResult(BackendObject):
 
     def _get_fit_curves(self) -> None:
         if self._fit_curves: return
-        ausaxs = AUSAXS()
-        q_ptr        = ct.POINTER(ct.c_double)()
-        I_data_ptr   = ct.POINTER(ct.c_double)()
-        I_err_ptr    = ct.POINTER(ct.c_double)()
-        I_model_ptr  = ct.POINTER(ct.c_double)()
-        n_points     = ct.c_int()
-        status       = ct.c_int()
-
-        data_id = ausaxs.lib().functions.fit_get_fit_curves(
-            self._get_id(),
-            ct.byref(q_ptr),
-            ct.byref(I_data_ptr),
-            ct.byref(I_err_ptr),
-            ct.byref(I_model_ptr),
-            ct.byref(n_points),
-            ct.byref(status)
-        )
-        _check_error_code(status, "fit_get_fit_curves")
-
-        n = n_points.value
-        self._fit_curves = [
-            _ptr_to_array(q_ptr, n),
-            _ptr_to_array(I_data_ptr, n),
-            _ptr_to_array(I_err_ptr, n),
-            _ptr_to_array(I_model_ptr, n)
-        ]
-        ausaxs.deallocate(data_id)
+        self._fit_curves = list(call("fit_get_fit_curves", self._get_id()))
 
     def _get_fit_info(self) -> None:
         if self._fit_info: return
-        ausaxs = AUSAXS()
-        pars_ptr     = ct.POINTER(ct.c_char_p)()
-        pvals_ptr    = ct.POINTER(ct.c_double)()
-        perr_min_ptr = ct.POINTER(ct.c_double)()
-        perr_max_ptr = ct.POINTER(ct.c_double)()
-        n_pars       = ct.c_int()
-        chi2         = ct.c_double()
-        dof          = ct.c_int()
-        status       = ct.c_int()
-        data_id = ausaxs.lib().functions.fit_get_fit_info(
-            self._get_id(),
-            ct.byref(pars_ptr),
-            ct.byref(pvals_ptr),
-            ct.byref(perr_min_ptr),
-            ct.byref(perr_max_ptr),
-            ct.byref(n_pars),
-            ct.byref(chi2),
-            ct.byref(dof),
-            ct.byref(status)
-        )
-        _check_error_code(status, "fit_get_fit_info")
-
-        n = n_pars.value
-        self._fit_info["pars"]      = _ptr_to_str_list(pars_ptr, n)
-        self._fit_info["pvals"]     = _ptr_to_array(pvals_ptr, n)
-        self._fit_info["perr_min"]  = _ptr_to_array(perr_min_ptr, n)
-        self._fit_info["perr_max"]  = _ptr_to_array(perr_max_ptr, n)
-        self._fit_info["chi2"]      = chi2.value
-        self._fit_info["dof"]       = dof.value
-        ausaxs.deallocate(data_id)
+        self._fit_info = call("fit_get_fit_info", self._get_id())._asdict()
+        self._fit_info["pars"] = self._fit_info["pars"].tolist()
 
     def chi2(self) -> float:
         """Absolute chi-squared value for the fit."""

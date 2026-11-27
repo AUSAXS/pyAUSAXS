@@ -3,7 +3,7 @@
 
 from pyausaxs.integration import OutputCallback
 from pyausaxs.signatures import register
-from .AUSAXS import AUSAXS
+from .AUSAXS import call
 
 register({
     "set_output_callback": ([OutputCallback], None),
@@ -20,11 +20,11 @@ def set_output_callback(python_callable) -> None:
             python_callable(text_bytes[:length].decode("utf-8", errors="replace"))
 
     _active_cb = OutputCallback(_c_cb)
-    AUSAXS.lib().functions.set_output_callback(_active_cb)
+    call("set_output_callback", _active_cb)
 
 
 def reset_output_callback() -> None:
     """Restore normal ausaxs stdout."""
     global _active_cb
-    AUSAXS.lib().functions.reset_output_callback()
+    call("reset_output_callback")
     _active_cb = None

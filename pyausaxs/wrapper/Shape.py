@@ -1,22 +1,12 @@
-from .AUSAXS import AUSAXS, _check_error_code, _as_numpy_f64_arrays
+from .AUSAXS import call, _as_numpy_f64_arrays
 from .settings import settings
-from pyausaxs.signatures import register
+from pyausaxs.signatures import register, array, length, buffer, STATUS
 import ctypes as ct
 import numpy as np
 
 register({
     "shape_debye_userq": (
-        [
-            ct.POINTER(ct.c_double), # x
-            ct.POINTER(ct.c_double), # y
-            ct.POINTER(ct.c_double), # z
-            ct.c_int,                # n_cells
-            ct.c_double,             # spacing
-            ct.POINTER(ct.c_double), # q
-            ct.POINTER(ct.c_double), # I (output)
-            ct.c_int,                # n_q
-            ct.POINTER(ct.c_int)     # status (0 = success)
-        ],
+        [array("x"), array("y"), array("z"), length("x"), ct.c_double, array("q"), buffer("I", n="q"), length("q"), STATUS],
         None
     ),
 })
@@ -49,21 +39,7 @@ class Lattice:
         """
         x, y, z = [np.ascontiguousarray(self.cells[:, k]) for k in range(3)]
         q = settings.q_axis() if q_vals is None else _as_numpy_f64_arrays(q_vals)[0]
-        i = np.zeros_like(q, dtype=np.float64)
-        status = ct.c_int()
-        AUSAXS().lib().functions.shape_debye_userq(
-            x.ctypes.data_as(ct.POINTER(ct.c_double)),
-            y.ctypes.data_as(ct.POINTER(ct.c_double)),
-            z.ctypes.data_as(ct.POINTER(ct.c_double)),
-            ct.c_int(len(x)),
-            ct.c_double(self.spacing),
-            q.ctypes.data_as(ct.POINTER(ct.c_double)),
-            i.ctypes.data_as(ct.POINTER(ct.c_double)),
-            ct.c_int(len(q)),
-            ct.byref(status)
-        )
-        _check_error_code(status, "shape_debye")
-        return q, i
+        return q, call("shape_debye_userq", x, y, z, self.spacing, q)
 
 class shape():
     Lattice = Lattice

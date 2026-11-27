@@ -1,30 +1,10 @@
-from .AUSAXS import AUSAXS, _check_error_code, _check_array_inputs, _check_similar_length, _as_numpy_f64_arrays, _ptr_to_array
-from .Molecule import Molecule
-from .settings import settings
+from .Molecule import Molecule, PROFILE, PROFILE_USERQ, debye_profile
 from pyausaxs.signatures import register
-import ctypes as ct
 import numpy as np
 
 register({
-    "molecule_debye_exact": (
-        [
-            ct.c_int,                            # molecule id
-            ct.POINTER(ct.POINTER(ct.c_double)), # I (output)
-            ct.POINTER(ct.c_int),                # n_points
-            ct.POINTER(ct.c_int)                 # status (0 = success)
-        ],
-        ct.c_int                                 # return obj id
-    ),
-    "molecule_debye_exact_userq": (
-        [
-            ct.c_int,                # molecule id
-            ct.POINTER(ct.c_double), # q
-            ct.POINTER(ct.c_double), # I (output)
-            ct.c_int,                # n_points
-            ct.POINTER(ct.c_int)     # status (0 = success)
-        ],
-        None
-    ),
+    "molecule_debye_exact":       PROFILE,
+    "molecule_debye_exact_userq": PROFILE_USERQ,
 })
 
 class unoptimized():
@@ -35,33 +15,4 @@ class unoptimized():
         Warning: This method is _not_ optimized, and may be very slow for large molecules. It is only meant for testing and validation purposes.
         Returns: (q, I)
         """
-        ausaxs = AUSAXS()
-        if q_vals is not None:
-            q = _as_numpy_f64_arrays(q_vals)[0]
-            i = np.zeros_like(q, dtype=np.float64)
-            n_q = ct.c_int(len(q_vals))
-            status = ct.c_int()
-            ausaxs.lib().functions.molecule_debye_exact_userq(
-                molecule._get_id(),
-                q.ctypes.data_as(ct.POINTER(ct.c_double)),
-                i.ctypes.data_as(ct.POINTER(ct.c_double)),
-                n_q,
-                ct.byref(status)
-            )
-            _check_error_code(status, "unoptimized_debye_exact_q")
-            return q, i
-        else:
-            i_ptr = ct.POINTER(ct.c_double)()
-            n_q = ct.c_int()
-            status = ct.c_int()
-            tmp_id = ausaxs.lib().functions.molecule_debye_exact(
-                molecule._get_id(),
-                ct.byref(i_ptr),
-                ct.byref(n_q),
-                ct.byref(status)
-            )
-            _check_error_code(status, "unoptimized_debye_exact")
-
-            i = _ptr_to_array(i_ptr, n_q.value)
-            ausaxs.deallocate(tmp_id)
-            return settings.q_axis(), i
+        return debye_profile("molecule_debye_exact", molecule._get_id(), q_vals)
